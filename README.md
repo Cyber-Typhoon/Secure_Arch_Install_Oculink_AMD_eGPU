@@ -57,7 +57,8 @@ Boot Arch Live USB (disable Secure Boot temporarily in UEFI).
     - Record this UUID. It will be essential for the crypttab entry and for (rd.luks.uuid=...) in the kernel parameters, since we are not using the /dev/mapper name directly in the bootloader.
     - **Root Filesystem UUID:**
     - Once your root filesystem (e.g., BTRFS on /dev/mapper/cryptroot) is created, obtain its UUID.
-      - blkid -s UUID -o value /dev/mapper/cryptroot
+      - ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
+      - echo $ROOT_UUID   # Should output a UUID like 48d0e960-1b5e-4f2c-8caa-... 
     - Record this UUID. Both bootloader (root=UUID=...) and /etc/fstab file need this to identify and mount the correct root filesystem after the LUKS container is opened.
     - **Swap File/Partition Offset (for Hibernation):**
     - If you are using a swap file on a BTRFS subvolume and plan to use hibernation, you'll need to determine the physical offset of the swap file within the filesystem. This offset is crucial for the resume_offset kernel parameter. Ensure your swap file is created and chattr +C is applied to prevent Copy-On-Write for the swap file (this is achieved in the step 4e). Get the resume_offset:
@@ -149,7 +150,7 @@ d) Create BTRFS Filesystem and Subvolumes:
 
         mount -o subvol=@srv,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/srv
 
-        mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
+        mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap # Ensure NoCoW is set!
 
         mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
 
@@ -173,8 +174,81 @@ e) Configure Swap File:
 
             echo $SWAP_OFFSET > /mnt/etc/swap_offset
 
+            umount /mnt/swap
+
 f) Generate fstab:
 
     genfstab -U /mnt | tee /mnt/etc/fstab
 
     Manually edit /mnt/etc/fstab to verify subvolume options, add umask=0077 to /boot, and add entries for tmpfs and the swapfile, ensuring you use the numerical resume_offset value.
+
+    **Adjust Btrfs subvolume and mount options (use $ROOT_UUID number from the pre-computation):
+
+      - UUID=$ROOT_UUID / btrfs subvol=@,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      - UUID=$ROOT_UUID /home btrfs subvol=@home,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      - UUID=$ROOT_UUID /data btrfs subvol=@data,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      - UUID=$ROOT_UUID /var btrfs subvol=@var,nodatacow,noatime 0 0
+      - UUID=$ROOT_UUID /var/lib btrfs subvol=@var_lib,nodatacow,noatime 0 0
+      - UUID=$ROOT_UUID /var/log btrfs subvol=@log,nodatacow,noatime 0 0
+      - UUID=$ROOT_UUID /srv btrfs subvol=@srv,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      - UUID=$ROOT_UUID /swap btrfs subvol=@swap,nodatacow,noatime 0 0
+      - UUID=$ROOT_UUID /.snapshots btrfs subvol=@snapshots,ssd,noatime 0 0
+
+    **Edit ESP (/boot) entry. Change defaults to umask=0077 for improved security. It will look something like: `UUID=<ARCH_ESP_UUID_VALUE> /boot vfat defaults 0 2`. Change `defaults` to `umask=0077`:
+
+      - UUID=$ARCH_ESP_UUID /boot vfat umask=0077 0 2
+
+    **Edit Windows ESP entry
+
+      - UUID=$WINDOWS_ESP_UUID /windows-efi vfat noauto,x-systemd.automount,umask=0077 0 2 
+
+    **Add tmpfs entries:
+
+      - tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777 0 0
+      - tmpfs /var/tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777 0 0
+
+    **Add swapfile entry (with numerical resume offset):
+    Replace <12345678> with the real number
+
+      - /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=12345678 0 0
+
+    **Validation Steps (List ESP UUIDs and check mapping):
+
+      - blkid | grep -E 'nvme0n1p1|nvme1n1p1' #(Ensure each UUID matches the correct fstab line for /boot and /windows-efi)
+
+    **Verify your final fstab:
+
+      - cat /mnt/etc/fstab
+
+g) Check network:
+
+  - ping -c 3 archlinux.org
+  - nmcli device wifi connect <SSID> password <password>  # If using Wi-Fi
+  - Copy DNS into the new system so it can resolve mirrors
+  - cp /etc/resolv.conf /mnt/etc/resolv.conf #Copying /etc/resolv.conf from the live environment can be problematic if the network configuration changes or if the live environment's DNS servers aren't reliable/private for your permanent installation. NetworkManager will typically manage resolv.conf once installed and enabled.
+
+# Step 5: Install Arch Linux
+
+    Configure the mirrorlist with reflector.
+    -  pacman -Sy reflector
+    -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
+
+    Install base system and necessary packages:
+
+    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver
+
+    Chroot into the system:
+    
+    -  arch-chroot /mnt
+
+    Move the crypto keyfile: 
+    
+    -  mv /crypto_keyfile /root/luks-keyfile && chmod 600 /root/luks-keyfile
+
+    Keyring initialization:
+
+    - nano /etc/pacman.conf uncomment [multilib]
+    - add **Include = /etc/pacman.d/mirrorlist** below the [core], [extra], [community], and [multilib] sections in /etc/pacman.conf
+    - pacman-key --init
+    - pacman-key --populate archlinux
+    - pacman -Sy
