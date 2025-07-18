@@ -54,16 +54,16 @@ Boot Arch Live USB (disable Secure Boot temporarily in UEFI).
     - **LUKS Partition UUID:**
     - After encrypting your chosen partition (e.g. /dev/nvme1n1p2) with LUKS, retrieve its UUID. This UUID is distinct from the UUID of the logical volume within the LUKS container.
       - cryptsetup luksUUID /dev/nvme1n1p2
-    - Record this UUID. It will be essential for the crypttab entry and potentially for rd.luks.uuid in your kernel parameters if not using the /dev/mapper name directly in the bootloader.
+    - Record this UUID. It will be essential for the crypttab entry and for (rd.luks.uuid=...) in the kernel parameters, since we are not using the /dev/mapper name directly in the bootloader.
     - **Root Filesystem UUID:**
     - Once your root filesystem (e.g., BTRFS on /dev/mapper/cryptroot) is created, obtain its UUID.
       - blkid -s UUID -o value /dev/mapper/cryptroot
-    - Record this UUID. This will be used in your /etc/fstab entry for the root filesystem.
+    - Record this UUID. Both bootloader (root=UUID=...) and /etc/fstab file need this to identify and mount the correct root filesystem after the LUKS container is opened.
     - **Swap File/Partition Offset (for Hibernation):**
-    - If you are using a swap file on a BTRFS subvolume and plan to use hibernation, you'll need to determine the physical offset of the swap file within the filesystem. This offset is crucial for the resume_offset kernel parameter. First, ensure your swap file is created and chattr +C is applied to prevent Copy-On-Write for the swap file. Then, get the offset:
+    - If you are using a swap file on a BTRFS subvolume and plan to use hibernation, you'll need to determine the physical offset of the swap file within the filesystem. This offset is crucial for the resume_offset kernel parameter. Ensure your swap file is created and chattr +C is applied to prevent Copy-On-Write for the swap file (this is achieved in the step 4e). Get the resume_offset:
       - SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
-      - echo "resume_offset=${SWAP_OFFSET}" >> /mnt/etc/default/grub # Example for grub, you correctly put it in the UKI options.
-    - Record this SWAP_OFFSET value. This numerical value will be directly inserted into your systemd-boot kernel parameters and potentially your fstab if you're using resume= with a swap file.
+      - echo "resume_offset=${SWAP_OFFSET}" >> /mnt/etc/default/grub # Example for grub, correctly added it in the UKI options.
+    - Record this SWAP_OFFSET value. This numerical value will be directly inserted into your systemd-boot kernel parameters and potentially your fstab if you're using resume_offset= with a swap file.
 
 a) Partition the Second NVMe M.2 (/dev/nvme1n1):
 
@@ -157,21 +157,21 @@ e) Configure Swap File:
 
     Create a swap file on the @swap subvolume, ensuring chattr +C is set to disable Copy-on-Write.
 
-        truncate -s 0 /mnt/swap/swapfile
+        touch /mnt/swap/swapfile 
 
         chattr +C /mnt/swap/swapfile
 
-        fallocate -l 24G /mnt/swap/swapfile
+        fallocate -l 24G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; }
 
         chmod 600 /mnt/swap/swapfile
 
-        mkswap /mnt/swap/swapfile
+        mkswap /mnt/swap/swapfile || { echo "mkswap failed"; exit 1; }
 
         Obtain the swapfile's physical offset for hibernation:
 
             SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
 
-            echo "resume_offset=${SWAP_OFFSET}" > /mnt/etc/swap_offset
+            echo $SWAP_OFFSET > /mnt/etc/swap_offset
 
 f) Generate fstab:
 
