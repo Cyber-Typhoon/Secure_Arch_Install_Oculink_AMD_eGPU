@@ -292,7 +292,7 @@ g) Check network:
 
     Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
 
-      - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
+      - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm #This command is for informational purposes, to see if the TPM slot is registered. It doesn't directly modify mkinitcpio.conf
       - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/lib\/systemd\/systemd-cryptsetup \/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
       - echo 'FILES=(/root/luks-keyfile)' >> /etc/mkinitcpio.conf
       - mkinitcpio -P
@@ -316,7 +316,5 @@ g) Check network:
       - mkdir -p /mnt/usb
       - mount /dev/sdX1 /mnt/usb **Replace sdb1 with USB partition confirmed via lsblk previously executed**
       - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
-      - tpm2_exportpolicy --policy=/mnt/usb/tpm2-policy.bin --tpm-device=/dev/tpmrm0 --pcr-bank=sha256 --pcr-ids=0,4,7 /dev/nvme1n1p2
-      - tpm2_createpolicy --policy-pcr -l sha256:0,4,7 -L /mnt/usb/tpm2-policy.bin **execute this one if the command above doesn't work, otherwise skip this step**
       - umount /mnt/usb
       - echo "WARNING: Store the LUKS recovery passphrase securely in Bitwarden. TPM unlocking may fail after firmware updates or Secure Boot changes."
