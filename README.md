@@ -338,6 +338,19 @@ g) Check network:
     -  umount /mnt/usb
 
     Add Pacman Hook for UKI Regeneration:
+    -  mkdir -p /etc/pacman.d/hooks
+    cat << 'EOF' > /etc/pacman.d/hooks/90-mkinitcpio.hook 
+    -  [Trigger]
+    -  Operation = Install
+    -  Operation = Upgrade
+    -  Type = Package
+    -  Target = linux
+    -  Target = linux-firmware
+    -  [Action]
+    -  Description = Regenerating UKI
+    -  When = PostTransaction
+    -  Exec = /usr/bin/mkinitcpio -P
+    EOF
 
 # Step 9: Configure Secure Boot
 
