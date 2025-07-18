@@ -47,9 +47,6 @@ Review the guides for additional Privacy on the post installation [Group Police]
 # Step 4: Pre-Arch Installation Steps
 
 Boot Arch Live USB (disable Secure Boot temporarily in UEFI).
-
-## Step 4: **Pre-Arch Installation Steps**
-**Boot Arch Live USB (disable Secure Boot temporarily in UEFI)**
   - Pre-computation and Pre-determination of System Identifiers
     - **LUKS Partition UUID:**
     - After encrypting your chosen partition (e.g. /dev/nvme1n1p2) with LUKS, retrieve its UUID. This UUID is distinct from the UUID of the logical volume within the LUKS container.
@@ -252,3 +249,49 @@ g) Check network:
     - pacman-key --init
     - pacman-key --populate archlinux
     - pacman -Sy
+
+# Step 6: System Configuration
+
+    Set timezone, locale, and hostname.
+    
+    - ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime
+    - hwclock --systohc
+    - echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
+    - locale-gen
+    - echo 'LANG=en_US.UTF-8' > /etc/locale.conf
+    - echo 'thinkbook' > /etc/hostname
+    - cat <<'EOF' > /etc/hosts
+      - 127.0.0.1 localhost
+      - ::1 localhost
+      - 127.0.1.1 thinkbook.localdomain thinkbook
+    - EOF
+
+    Create User Account
+
+    - Set root password:
+      - passwd
+    - Create a user with Zsh as the default shell:
+      - useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh <username>
+      - passwd <username>
+    - Configure `sudo`:
+      - sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
+
+# Step 7: Set Up TPM and LUKS2
+
+Install tpm2-tools: pacman -S --noconfirm tpm2-tools
+
+Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state).
+
+    systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+
+Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf.
+
+Update /etc/crypttab to use the TPM for unlocking.
+
+    echo "cryptroot /dev/nvme1n1p2 /root/luks-keyfile luks,tpm2-device=auto" >> /etc/crypttab
+
+Enable Plymouth for a graphical boot splash.
+
+    Add the plymouth hook to mkinitcpio.conf before sd-encrypt.
+
+    mkinitcpio -P
