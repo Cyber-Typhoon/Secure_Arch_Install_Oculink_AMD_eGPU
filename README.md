@@ -280,7 +280,7 @@ g) Check network:
 # Step 7: Set Up TPM and LUKS2
 
     Install tpm2-tools: 
-    - pacman -S --noconfirm tpm2-tools
+    - pacman -S --noconfirm tpm2-tools systemd-ukify
 
     Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
 
@@ -289,6 +289,7 @@ g) Check network:
     Testing the TPM unlocking works with the current PCR value:
 
       - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+      - systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 #This helps catch firmware changes in the future.
 
     Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
 
