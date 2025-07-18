@@ -6,5 +6,5 @@ This action plan outlines the steps to install and configure Arch Linux on a Len
 
 Observation: Not adopting linux-hardened kernel because of complexity in the setup.
 
-**Attention:** Before executing commands, especially those involving** dd, mkfs, cryptsetup, parted, and efibootmgr, re-read them multiple times to ensure you understand their effect** and that the target device/partition is correct. Ensure LUKS and TPM unlocking work perfectly before touching Secure Boot, and ensure Secure Boot works before diving into the eGPU.
+**Attention:** Before executing commands, especially those involving**dd, mkfs, cryptsetup, parted, and efibootmgr, re-read them multiple times to ensure you understand their effect** and that the target device/partition is correct. Ensure LUKS and TPM unlocking work perfectly before touching Secure Boot, and ensure Secure Boot works before diving into the eGPU.
 
