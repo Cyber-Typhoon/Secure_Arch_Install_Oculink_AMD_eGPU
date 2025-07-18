@@ -219,10 +219,10 @@ f) Generate fstab:
 
 g) Check network:
 
-  - ping -c 3 archlinux.org
-  - nmcli device wifi connect <SSID> password <password>  # If using Wi-Fi
-  - Copy DNS into the new system so it can resolve mirrors
-  - cp /etc/resolv.conf /mnt/etc/resolv.conf #Copying /etc/resolv.conf from the live environment can be problematic if the network configuration changes or if the live environment's DNS servers aren't reliable/private for your permanent installation. NetworkManager will typically manage resolv.conf once installed and enabled.
+      - ping -c 3 archlinux.org
+      - nmcli device wifi connect <SSID> password <password>  # If using Wi-Fi
+      - Copy DNS into the new system so it can resolve mirrors
+      - cp /etc/resolv.conf /mnt/etc/resolv.conf #Copying /etc/resolv.conf from the live environment can be problematic if the network configuration changes or if the live environment's DNS servers aren't reliable/private for your permanent installation. NetworkManager will typically manage resolv.conf once installed and enabled.
 
 # Step 5: Install Arch Linux
 
