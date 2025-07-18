@@ -267,7 +267,7 @@ g) Check network:
     - EOF
 
     Create User Account
-
+    
     - Set root password:
       - passwd
     - Create a user with Zsh as the default shell:
@@ -275,23 +275,48 @@ g) Check network:
       - passwd <username>
     - Configure `sudo`:
       - sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
+      - 127.0.0.1 l
 
 # Step 7: Set Up TPM and LUKS2
 
-Install tpm2-tools: pacman -S --noconfirm tpm2-tools
+    Install tpm2-tools: 
+    - pacman -S --noconfirm tpm2-tools
 
-Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state).
+    Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
 
-    systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+      - systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
-Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf.
+    Testing the TPM unlocking works with the current PCR value:
 
-Update /etc/crypttab to use the TPM for unlocking.
+      - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
 
-    echo "cryptroot /dev/nvme1n1p2 /root/luks-keyfile luks,tpm2-device=auto" >> /etc/crypttab
+    Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
 
-Enable Plymouth for a graphical boot splash.
+      - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
+      - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/lib\/systemd\/systemd-cryptsetup \/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
+      - echo 'FILES=(/root/luks-keyfile)' >> /etc/mkinitcpio.conf
+      - mkinitcpio -P
 
-    Add the plymouth hook to mkinitcpio.conf before sd-encrypt.
+    Update /etc/crypttab to use the TPM for unlocking:
 
-    mkinitcpio -P
+      - echo "cryptroot /dev/nvme1n1p2 /root/luks-keyfile luks,tpm2-device=auto,tpm2-pcrs=0+4+7" >> /etc/crypttab
+      - tpm2_pcrread sha256:0,4,7 #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase.
+
+    Enable Plymouth for a graphical boot splash. Add the plymouth hook to mkinitcpio.conf before sd-encrypt:
+
+      - pacman -S --noconfirm plymouth
+      - plymouth-set-default-theme -R bgrt
+      - sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf #Ensure the order is: base systemd autodetect modconf block plymouth sd-encrypt resume filesystems. Incorrect order can cause Plymouth to fail or LUKS to prompt incorrectly. Ensure `plymouth` is before `sd-encrypt` in `/etc/mkinitcpio.conf` HOOKS and regenerate.
+      - mkinitcpio -P
+
+    Back up keyfile to a secure USB::
+
+      - lsblk
+      - mkfs.fat -F32 /dev/sdX1 **Replace sdX1 with USB partition confirmed via lsblk previously executed**
+      - mkdir -p /mnt/usb
+      - mount /dev/sdX1 /mnt/usb **Replace sdb1 with USB partition confirmed via lsblk previously executed**
+      - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+      - tpm2_exportpolicy --policy=/mnt/usb/tpm2-policy.bin --tpm-device=/dev/tpmrm0 --pcr-bank=sha256 --pcr-ids=0,4,7 /dev/nvme1n1p2
+      - tpm2_createpolicy --policy-pcr -l sha256:0,4,7 -L /mnt/usb/tpm2-policy.bin **execute this one if the command above doesn't work, otherwise skip this step**
+      - umount /mnt/usb
+      - echo "WARNING: Store the LUKS recovery passphrase securely in Bitwarden. TPM unlocking may fail after firmware updates or Secure Boot changes."
