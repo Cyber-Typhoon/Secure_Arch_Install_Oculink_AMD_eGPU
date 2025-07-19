@@ -570,9 +570,190 @@ g) Check network:
 
 # Step 13: Configure Snapper and Backups
 
-    Follow your original plan to configure Snapper for BTRFS snapshots on @, @home, and @data.
+    Create global filter:
+    -  mkdir -p /etc/snapper/filters
+    -  echo -e "/home/.cache\n/tmp\n/run\n/.snapshots" | sudo tee /etc/snapper/filters/global-filter.txt
 
-    Enable the snapper-timeline.timer and snapper-cleanup.timer.
+    Create configurations: 
+    -  snapper --config root create-config /
+    -  snapper --config home create-config /home
+    -  snapper --config data create-config /data
+
+    Edit /etc/snapper/configs/root: 
+    cat << 'EOF' | sudo tee /etc/snapper/configs/root 
+    -  TIMELINE_CREATE="yes"
+    -  TIMELINE_CLEANUP="yes"
+    -  TIMELINE_MIN_AGE="1800"
+    -  TIMELINE_LIMIT_HOURLY="0"
+    -  TIMELINE_LIMIT_DAILY="7"
+    -  TIMELINE_LIMIT_WEEKLY="4"
+    -  TIMELINE_LIMIT_MONTHLY="6"
+    -  TIMELINE_LIMIT_YEARLY="0"
+    -  SUBVOLUME="/"
+    -  ALLOW_GROUPS=""
+    -  SYNC_ACL="no"
+    -  FILTER="/etc/snapper/filters/global-filter.txt"
+    EOF
+
+    Edit /etc/snapper/configs/home and /etc/snapper/configs/data similarly, updating SUBVOLUME to /home and /data:
+    cat << 'EOF' | sudo tee /etc/snapper/configs/home
+    -  TIMELINE_CREATE="yes"
+    -  TIMELINE_CLEANUP="yes"
+    -  TIMELINE_MIN_AGE="1800"
+    -  TIMELINE_LIMIT_HOURLY="0"
+    -  TIMELINE_LIMIT_DAILY="7"
+    -  TIMELINE_LIMIT_WEEKLY="4"
+    -  TIMELINE_LIMIT_MONTHLY="6"
+    -  TIMELINE_LIMIT_YEARLY="0"
+    -  SUBVOLUME="/home"
+    -  ALLOW_GROUPS=""
+    -  SYNC_ACL="no"
+    -  FILTER="/etc/snapper/filters/global-filter.txt"
+    EOF
+
+    cat << 'EOF' | sudo tee /etc/snapper/configs/data
+    -  TIMELINE_CREATE="yes"
+    -  TIMELINE_CLEANUP="yes"
+    -  TIMELINE_MIN_AGE="1800"
+    -  TIMELINE_LIMIT_HOURLY="0"
+    -  TIMELINE_LIMIT_DAILY="7"
+    -  TIMELINE_LIMIT_WEEKLY="4"
+    -  TIMELINE_LIMIT_MONTHLY="6"
+    -  TIMELINE_LIMIT_YEARLY="0"
+    -  SUBVOLUME="/data"
+    -  ALLOW_GROUPS=""
+    -  SYNC_ACL="no"
+    -  FILTER="/etc/snapper/filters/global-filter.txt"
+    EOF
+
+    Enable Snapper: 
+    -  systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
+
+    Config permissions:
+    -  chmod 640 /etc/snapper/configs/*
+
+    Verify configuration: 
+    -  snapper --config root get-config
+    -  snapper --config home get-config
+    -  snapper --config data get-config
+
+    Test snapshot creation: 
+    -  snapper --config root create --description "Initial test snapshot"
+    -  snapper --config home create --description "Initial test snapshot"
+    -  snapper --config data create --description "Initial test snapshot"
+    -  snapper list
+
+# Step 14: Configure Dotfiles
+  - Install chezmoi:
+    - yay -S chezmoi
+    - chezmoi init --apply
+    - chezmoi add ~/.zshrc
+    - chezmoi add -r ~/.config/gnome
+    - dconf dump /org/gnome/ > ~/.config/gnome-settings.dconf
+    - chezmoi add ~/.config/gnome-settings.dconf
+    - chezmoi cd
+    - git add . && git commit -m "Initial dotfiles"
+   
+ # Step 15: Test the Setup
+  - Reboot and confirm `systemd-boot` shows Arch and Windows entries.
+  - Test Arch boot with TPM-based LUKS unlocking and passphrase fallback.
+  - Test Windows boot.
+  - Test eGPU:
+   - **AMD GPU**:
+     - lspci | grep -i amd
+     - dmesg | grep -i amdgpu
+     - ls /sys/class/drm/card*
+     - DRI_PRIME=1 glxinfo | grep "OpenGL renderer"   
+ - Test hotplugging:
+   -  udevadm monitor
+   -  echo "0000:xx:00.0" | sudo tee /sys/bus/pci/devices/0000:xx:00.0/remove
+   -  echo 1 | sudo tee /sys/bus/pci/rescan
+   -  pkill -HUP gnome-shell
+ - Test hibernation:
+   - systemctl hibernate
+   - dmesg | grep -i "hibernate\|swap" # After resuming, check dmesg for errors
+   - filefrag -v /mnt/swap/swapfile  # Ensure no fragmentation
+   - systemctl enable systemd-hibernate-resume.service
+ - Test fwupd
+   - fwupdmgr refresh
+   - fwupdmgr update
+ - Check for ThinkBook-specific quirks:
+   - dmesg | grep -i "firmware\|wifi\|suspend\|battery" # Look for unusual warnings or errors related to hardware 
+ - Test Snapshots
+   - snapper --config root create --description "Test snapshot"
+   - snapper list
+ - Test Timers
+   - journalctl -u yay-update.timer
+   - journalctl -u snapper-timeline.timer
+   - journalctl -u fstrim.timer
+   - journalctl -u lynis-audit.timer
+ - Stress Test
+   - yay -S stress-ng memtester fio
+   - stress-ng --cpu 4 --io 2 --vm 2 --vm-bytes 1G --timeout 72h
+   - memtester 1024 5
+   - fio --name=write_test --filename=/data/fio_test --size=1G --rw=write
+ - Verify Wayland
+   - echo $XDG_SESSION_TYPE
+ - Verify Security
+   - auditctl -l
+   - apparmor_status 
+ - Test AUR builds with /tmp (no noexec)
+   - yay --builddir ~/.cache/yay_build
+ - Verify Security Boot
+   - mokutil --sb-state 
+
+# Step 16: Create Recovery Documentation
+  - Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
+  - Create a recovery USB with Arch ISO, minimal UKI, and `systemd-cryptsetup`.
+    - dd if=archlinux-<version>-x86_64.iso of=/dev/sdb bs=4M status=progress oflag=sync 
+  - Back up LUKS header and SBCTL keys:
+    - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /path/to/luks-header-backup
+    - cp -r /etc/sbctl /path/to/backup/sbctl-keys
+
+# Step 17: Backup Strategy
+  - Local Snapshots:
+    - Managed by Snapper for `@`, `@home`, `@data`, excluding `/var`, `/var/lib`, `/log`, `/tmp`, `/run`.
+  - Offsite Snapshots:
+    - To be refined savig the data in local server - check btrbk and restic
+   
+# Step 18: Post-Installation Maintenance and Verification
+   a) Regular System Updates:
+     - Always update your system regularly: `sudo pacman -Syu`
+     - Check for AUR updates: `yay -Syu`
+
+  b) BTRFS Scrub:
+    - Schedule weekly or monthly BTRFS scrubs to check for data integrity issues:
+      - `sudo btrfs scrub start /`
+      - `sudo btrfs scrub status /`
+      - Consider setting up a systemd timer for this (e.g., `btrfs-scrub@.timer` and `btrfs-scrub@.service` if provided by `btrfs-progs` or a custom one).
+
+  c) Remove Orphaned Packages:
+    - Periodically remove packages that are no longer required: `sudo pacman -Rns $(pacman -Qdtq)`
+
+  d) Review Snapper Snapshots:
+    - Regularly review your snapshots: `snapper list`
+    - Manually delete old snapshots if needed (though `snapper-cleanup.timer` handles this): `snapper delete <snapshot_number>`
+
+  e) Check for SUID/SGID Changes (AIDE):
+    - `sudo aide --check` (After running `aide --init` and `mv` in initial setup)
+
+  f) Perform Security Audits:
+    - Run `lynis audit system` weekly/monthly (already scheduled by your timer).
+    - Run `rkhunter --check` periodically.
+    - Run `sudo usbguard generate-policy` if you add new USB devices and need to update rules.
+
+  g) Verify Firmware Updates:
+    - `fwupdmgr refresh` and `fwupdmgr update` periodically.
+
+  h) Check Systemd Journal for Errors:
+    - `journalctl -p 3 -xb` (errors from current boot)
+    - `journalctl -p 3` (all errors)
+
+  i) Test AUR builds with /tmp (if noexec applied):**
+    - If you encounter issues, consider configuring `yay` to use a different build directory (e.g., `yay --builddir ~/.cache/yay_build`) or temporarily removing `noexec` from `/tmp` for builds, then re-adding it. (This point is already in your Step 16, but it's good to reiterate it in maintenance as it's an ongoing consideration).
+    
+
+    
 
     
 
