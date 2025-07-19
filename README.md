@@ -66,17 +66,24 @@ b) Format ESP:
 
 c) Set Up LUKS2 Encryption for the BTRFS file system:
 
+    Format the partition:
     cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 1000000
+
+    Open it:
     cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+
+    Create the keyfile for automatic unlocking (recommended for TPM):
+    dd if=/dev/random of=/mnt/crypto_keyfile bs=512 count=4 iflag=fullblock
+    chmod 600 /mnt/crypto_keyfile
+
+    Add the keyfile to LUKS:
+    cryptsetup luksAddKey /dev/nvme1n1p2 /mnt/crypto_keyfile
+
+    Back it up to USB:
     mkdir -p /mnt/usb
     lsblk
     mount /dev/sdX1 /mnt/usb # **Replace sdX1 with USB partition confirmed via lsblk previously executed**
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
-
-    Create a keyfile for automatic unlocking (recommended for TPM):
-        dd if=/dev/random of=/mnt/crypto_keyfile bs=512 count=4 iflag=fullblock
-        chmod 600 /mnt/crypto_keyfile
-        cryptsetup luksAddKey /dev/nvme1n1p2 /mnt/crypto_keyfile
 
 d) Create BTRFS Filesystem and Subvolumes:
 
@@ -118,9 +125,13 @@ e) Configure Swap File:
         mkswap /mnt/swap/swapfile || { echo "mkswap failed"; exit 1; }
 
         Obtain the swapfile's physical offset for hibernation:
-            SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
-            echo $SWAP_OFFSET > /mnt/etc/swap_offset
-            umount /mnt/swap
+        SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
+        #Replace $SWAP_OFFSET with actual precomputed values:
+        
+        echo $SWAP_OFFSET > /mnt/etc/swap_offset
+        umount /mnt/swap
+        #Replace $SWAP_OFFSET with actual precomputed values:
+        echo "/swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0" >> /mnt/etc/fstab
 
 f) Generate fstab:
 
@@ -149,8 +160,8 @@ f) Generate fstab:
       - tmpfs /var/tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777 0 0
 
     **Add swapfile entry (with numerical resume offset):
-    Replace <12345678> with the real number
-      - /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=12345678 0 0
+    #Replace $SWAP_OFFSET with actual precomputed values:
+      - /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
 
     **Validation Steps (List ESP UUIDs and check mapping):
       - blkid | grep -E 'nvme0n1p1|nvme1n1p1' #(Ensure each UUID matches the correct fstab line for /boot and /windows-efi)
@@ -172,7 +183,7 @@ g) Check network:
     -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
 
     Install base system and necessary packages:
-    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git
+    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon
 
     Chroot into the system:
     -  arch-chroot /mnt
@@ -186,6 +197,7 @@ g) Check network:
     - pacman-key --init
     - pacman-key --populate archlinux
     - pacman -Sy
+    - pacman -Syy
 
 # Step 6: System Configuration
 
@@ -214,37 +226,39 @@ g) Check network:
 
 # Step 7: Set Up TPM and LUKS2
 
-    Install tpm2-tools: 
-    - pacman -S --noconfirm tpm2-tools systemd-ukify
+    Install tpm2-tools and dependencies: 
+      - pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify
+
+    Verify TPM device is detected
+      - tpm2_getcap properties-fixed 
 
     Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
       - systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
     Testing the TPM unlocking works with the current PCR value:
       - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
-      - systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 #This helps catch firmware changes in the future.
+      - systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt #This helps catch firmware changes in the future.
 
     Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
       - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm #This command is for informational purposes, to see if the TPM slot is registered. It doesn't directly modify mkinitcpio.conf
+      - sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf #Ensure the order is: base systemd autodetect modconf block plymouth sd-encrypt resume filesystems. Incorrect order can cause Plymouth to fail or LUKS to prompt incorrectly. Ensure `plymouth` is before `sd-encrypt` in `/etc/mkinitcpio.conf` HOOKS and regenerate.
       - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/lib\/systemd\/systemd-cryptsetup \/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
       - echo 'FILES=(/root/luks-keyfile)' >> /etc/mkinitcpio.conf
       - mkinitcpio -P
 
     Update /etc/crypttab to use the TPM for unlocking:
       - echo "cryptroot /dev/nvme1n1p2 /root/luks-keyfile luks,tpm2-device=auto,tpm2-pcrs=0+4+7" >> /etc/crypttab
-      - tpm2_pcrread sha256:0,4,7 #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase.
+      - tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-initial.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
 
     Enable Plymouth for a graphical boot splash. Add the plymouth hook to mkinitcpio.conf before sd-encrypt:
       - pacman -S --noconfirm plymouth
       - plymouth-set-default-theme -R bgrt
-      - sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf #Ensure the order is: base systemd autodetect modconf block plymouth sd-encrypt resume filesystems. Incorrect order can cause Plymouth to fail or LUKS to prompt incorrectly. Ensure `plymouth` is before `sd-encrypt` in `/etc/mkinitcpio.conf` HOOKS and regenerate.
-      - mkinitcpio -P
 
     Back up keyfile to a secure USB:
       - lsblk
       - mkfs.fat -F32 /dev/sdX1 **Replace sdX1 with USB partition confirmed via lsblk previously executed**
       - mkdir -p /mnt/usb
-      - mount /dev/sdX1 /mnt/usb **Replace sdb1 with USB partition confirmed via lsblk previously executed**
+      - mount /dev/sdX1 /mnt/usb **Replace sdX1 with USB partition confirmed via lsblk previously executed**
       - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
       - umount /mnt/usb
       - echo "WARNING: Store the LUKS recovery passphrase securely in Bitwarden. TPM unlocking may fail after firmware updates or Secure Boot changes."
@@ -310,8 +324,8 @@ g) Check network:
     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
     Create fallback boot entry (/boot/loader/entries/arch-fallback.conf):
     cat <<EOF > /boot/loader/entries/arch-fallback.conf
-    -  title   Arch Linux (Fallback)
-    -  efi     /EFI/Linux/arch.efi
+    -  title Arch Linux (Fallback)
+    -  efi /EFI/Linux/arch-fallback.efi
     #Replace <LUKS_UUID> and <ROOT_UUID> with actual precomputed values:
     -  options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID rw pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1
     -  EOF    
@@ -336,6 +350,12 @@ g) Check network:
     EOF
     -  sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
     -  umount /mnt/usb
+
+    Ensure the initramfs includes necessary hooks:
+    -  cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
+    -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block sd-encrypt filesystems)/' /mnt/usb/mkinitcpio-rescue.conf
+    -  mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
+    -  cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
 
     Add Pacman Hook for UKI Regeneration:
     -  mkdir -p /etc/pacman.d/hooks
@@ -400,7 +420,7 @@ g) Check network:
     Install applications via pacman,yay or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
 
     Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter
-    After enabling all systemd services, run systemctl. It should display "failed to check for misconfigurations or missing dependencies."
+    After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
 
     Configure Flatseal for Flatpak apps:
     -  flatpak override --user --filesystem=home
@@ -420,6 +440,8 @@ g) Check network:
     -  CLUTTER_BACKEND=wayland
     -  QT_QPA_PLATFORM=wayland
     -  SDL_VIDEODRIVER=wayland
+    -  GBM_BACKEND=amdgpu
+    -  LIBVA_DRIVER_NAME=radeonsi
     EOF
 
     Configure MAC randomization:
@@ -478,8 +500,10 @@ g) Check network:
 
     Configure usbguard with GSConnect exception:
     -  usbguard generate-policy > /etc/usbguard/rules.conf
+    Test usbguard rules before enabling:
     -  usbguard list-devices # Identify GSConnect device ID
-    -  usbguard allow-device 
+    -  usbguard allow-device <device-id> # For GSConnect and other known devices
+    If passed the USB test enable it:
     -  systemctl enable --now usbguard
 
     Run Lynis audit and create timer:
@@ -632,6 +656,11 @@ g) Check network:
     Config permissions:
     -  chmod 640 /etc/snapper/configs/*
 
+    Add a disk space limit to Snapper configs:
+    -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/root
+    -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/home
+    -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/data
+
     Verify configuration: 
     -  snapper --config root get-config
     -  snapper --config home get-config
@@ -653,6 +682,8 @@ g) Check network:
     - chezmoi add ~/.config/gnome-settings.dconf
     - chezmoi cd
     - git add . && git commit -m "Initial dotfiles"
+  Backup existing configs before applying:
+    - cp -r ~/.zshrc ~/.config/gnome ~/.config/gnome-backup
    
  # Step 15: Test the Setup
   - Reboot and confirm `systemd-boot` shows Arch and Windows entries.
@@ -688,6 +719,8 @@ g) Check network:
    - journalctl -u fstrim.timer
    - journalctl -u lynis-audit.timer
  - Stress Test
+   Run stress tests incrementally:
+   - stress-ng --cpu 2 --io 1 --vm 1 --vm-bytes 512M --timeout 24h
    - yay -S stress-ng memtester fio
    - stress-ng --cpu 4 --io 2 --vm 2 --vm-bytes 1G --timeout 72h
    - memtester 1024 5
@@ -709,6 +742,8 @@ g) Check network:
   - Back up LUKS header and SBCTL keys:
     - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /path/to/luks-header-backup
     - cp -r /etc/sbctl /path/to/backup/sbctl-keys
+  - Store LUKS header on USB (Missing LUKS header backup could prevent recovery from disk failure):
+    - cp /mnt/usb/luks-header-backup /mnt/usb2/luks-header-backup
 
 # Step 17: Backup Strategy
   - Local Snapshots:
@@ -751,6 +786,25 @@ g) Check network:
 
   i) Test AUR builds with /tmp (if noexec applied):**
     - If you encounter issues, consider configuring `yay` to use a different build directory (e.g., `yay --builddir ~/.cache/yay_build`) or temporarily removing `noexec` from `/tmp` for builds, then re-adding it. (This point is already in your Step 15, but it's good to reiterate it in maintenance as it's an ongoing consideration).
+
+  j) Schedule periodic BTRFS balance:
+    cat <<'EOF' > /etc/systemd/system/btrfs-balance.timer
+    -  [Unit]
+    -  Description=Run BTRFS balance monthly
+    -  [Timer]
+    -  OnCalendar=monthly
+    -  Persistent=true
+    -  [Install]
+    -  WantedBy=timers.target
+    EOF
+    cat <<'EOF' > /etc/systemd/system/btrfs-balance.service
+    -  [Unit]
+    -  Description=Run BTRFS balance
+    -  [Service]
+    -  Type=oneshot
+    -  ExecStart=/usr/bin/btrfs balance start -dusage=50 /
+    EOF
+    -  systemctl enable --now btrfs-balance.timer
     
 
     
