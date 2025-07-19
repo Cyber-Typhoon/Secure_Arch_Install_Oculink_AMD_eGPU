@@ -172,7 +172,7 @@ g) Check network:
     -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
 
     Install base system and necessary packages:
-    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver
+    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git
 
     Chroot into the system:
     -  arch-chroot /mnt
@@ -354,22 +354,227 @@ g) Check network:
 
 # Step 9: Configure Secure Boot
 
-    Install sbctl: pacman -S sbctl
+    Create and enroll your keys into the firmware:
+     -  sbctl create-keys
+     -  sbctl enroll-keys --tpm-eventlog
 
-    Create and enroll your keys into the firmware.
-
-        sbctl create-keys
-
-        sbctl enroll-keys --tpm-eventlog
-
-        Reboot and enroll the keys when prompted by your UEFI BIOS.
+    Reboot and enroll the keys when prompted by your UEFI BIOS.
 
     After rebooting back into the chroot, sign your bootloader and UKI.
+     -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+     -  sbctl sign -s /boot/EFI/Linux/arch.efi
+     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+     -  sbctl sign --all
 
-        sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+     Confirm “Secure Boot enabled; all OK”
+     -  sbctl status
+     #Replace secure_boot_number with secure boot number, the command bellow should return 0
+     -  efivar -p -n secure_boot_number-SetupMode
+     If enrollment fails, re-run sbctl enroll-keys --tpm-eventlog and reboot again, ensuring the MOK enrollment prompt is completed correctly.
 
-        sbctl sign -s /boot/EFI/Linux/arch.efi
+    Reboot and Enable Secure Boot in the UEFI BIOS.
 
-    Enable Secure Boot in the UEFI BIOS.
+    Verify Secure Boot is active:
+    -  bootctl status | grep -i secure - sbctl status - sbctl verify /boot/EFI/Linux/arch.efi
+    #Should return "signed"
 
+# Step 10: Install and Configure DE and Applications
+
+    Update the system: pacman -Syu
+    Install GNOME: pacman -S --needed gnome
+    Install Yay: git clone https://aur.archlinux.org/yay.git && cd yay && makepkg -si
+    -  Configure to show PKGBUILD diffs (edit the Yay config file):
+    -  yay -Y --editmenu
+    -  diffmenu = true
+    -  useask = true
+    -  Verify if Yay shows the PKGBUILD diffs
+    -  yay -Pg | grep -E 'diffmenu|answerdiff'
+    Install Bubblejail: yay -S --needed bubblejail
+    Install Alacritty: pacman -S --needed alacritty #https://www.youtube.com/watch?v=76GbxnD8wnM
+    -  Configure Bubblejail for Alacritty: bubblejail create --profile generic-gui-app alacritty
+    -  Allow eGPU access: bubblejail config alacritty --add-service wayland --add-service dri
+    -  Test if is correct: bubblejail run Alacritty -- env | grep -E 'WAYLAND|XDG_SESSION_TYPE'
+    Install Flatpak: pacman -S --needed flatpak
+    Install Thinklmi to verify BIOS settings: pacman -S --needed thinklmi #Check BIOS settings: sudo thinklmi
+
+    Install applications via pacman,yay or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
+
+    Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter
+    After enabling all systemd services, run systemctl. It should display "failed to check for misconfigurations or missing dependencies."
+
+    Configure Flatseal for Flatpak apps:
+    -  flatpak override --user --filesystem=home
+    Allow GPU access for Steam:
+    -  flatpak override --user com.valvesoftware.Steam --device=dri
+
+# Step 11: Configure Power Management, Security and Privacy
+
+    Configure Power Management:
+    -  systemctl mask power-profiles-daemon
+    -  systemctl disable power-profiles-daemon
+
+    Configure Wayland envars:
+    cat << 'EOF' > /etc/environment 
+    -  MOZ_ENABLE_WAYLAND=1
+    -  GDK_BACKEND=wayland
+    -  CLUTTER_BACKEND=wayland
+    -  QT_QPA_PLATFORM=wayland
+    -  SDL_VIDEODRIVER=wayland
+    EOF
+
+    Configure MAC randomization:
+    -  mkdir -p /etc/NetworkManager/conf.d
+    cat << 'EOF' > /etc/NetworkManager/conf.d/00-macrandomize.conf 
+    -  [device]
+    -  wifi.scan-rand-mac-address=yes
+    -  [connection]
+    -  wifi.cloned-mac-address=random
+    EOF
+    -  systemctl restart NetworkManager
+    -  nmcli connection down <connection_name> && nmcli connection up <connection_name>
+
+    Configure firewall:
+    -  ufw allow ssh
+    -  ufw default deny incoming
+    -  ufw default allow outgoing
+    -  ufw enable
+
+    Configure GNOME privacy:
+    -  gsettings set org.gnome.desktop.privacy send-software-usage-info false
+    -  gsettings set org.gnome.desktop.privacy report-technical-problems false
+
+    Configure IP spoofing protection:
+    cat << 'EOF' > /etc/host.conf
+    -  order bind,hosts
+    -  nospoof on
+    EOF
+
+    Configure security limits:
+    cat << 'EOF' >> /etc/security/limits.conf 
+    -  hard nproc 8192
+    EOF
+
+    Configure auditd:
+    cat << 'EOF' > /etc/audit/rules.d/audit.rules
+    -  -w /etc/passwd -p wa -k passwd_changes
+    -  -w /etc/shadow -p wa -k shadow_changes
+    -  -a always,exit -F arch=b64 -S execve -k exec
+    EOF
+    -  systemctl restart auditd
+
+    Configure dnscrypt-proxy:
+    -  nmcli connection modify <connection_name> ipv4.dns "127.0.0.1" ipv4.ignore-auto-dns yes #replace <connection_name> with actual network connection (e.g., nmcli connection show to find it)
+    -  nmcli connection modify <connection_name> ipv6.dns "::1" ipv6.ignore-auto-dns yes
+    cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml 
+    -  server_names = ["quad9-dnscrypt-ip4-filter-pri", "adguard-dns", "mullvad-adblock"]
+    -  listen_addresses = ["127.0.0.1:53", "[::1]:53"]
+    -  require_dnssec = true
+    -  require_nolog = true
+    -  require_nofilter = false
+    EOF
+    -  systemctl restart dnscrypt-proxy
+    Test DNS resolution:
+    -  drill -D archlinux.org
+
+    Configure usbguard with GSConnect exception:
+    -  usbguard generate-policy > /etc/usbguard/rules.conf
+    -  usbguard list-devices # Identify GSConnect device ID
+    -  usbguard allow-device 
+    -  systemctl enable --now usbguard
+
+    Run Lynis audit and create timer:
+    cat << 'EOF' > /etc/systemd/system/lynis-audit.timer
+    -  [Unit]
+    -  Description=Run Lynis audit weekly
+    -  [Timer]
+    -  OnCalendar=weekly
+    -  Persistent=true
+    -  [Install]
+    -  WantedBy=timers.target
+    EOF
+    cat << 'EOF' > /etc/systemd/system/lynis-audit.service
+    -  [Unit]
+    -  Description=Run Lynis audit
+    -  [Service]
+    -  Type=oneshot
+    -  ExecStart=/usr/bin/lynis audit system
+    EOF
+    -  systemctl enable --now lynis-audit.timer
+    -  systemctl enable lynis-audit.service
+
+    Configure AIDE:
+    -  aide --init
+    -  mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+    -  systemctl enable --now aide-check.timer
+
+    Configure sysctl hardening:
+    cat << 'EOF' > /etc/sysctl.d/99-hardening.conf
+    -  net.ipv4.conf.default.rp_filter=1
+    -  net.ipv4.conf.all.rp_filter=1
+    -  net.ipv4.tcp_syncookies=1
+    -  net.ipv4.ip_forward=0
+    -  net.ipv4.conf.all.accept_redirects=0
+    -  net.ipv6.conf.all.accept_redirects=0
+    -  net.ipv4.conf.default.accept_redirects=0
+    -  net.ipv6.conf.default.accept_redirects=0
+    -  net.ipv4.conf.all.send_redirects=0
+    -  net.ipv4.conf.default.send_redirects=0
+    -  net.ipv4.conf.all.accept_source_route=0
+    -  net.ipv6.conf.all.accept_source_route=0
+    -  net.ipv4.conf.default.accept_source_route=0
+    -  net.ipv6.conf.default.accept_source_route=0
+    -  net.ipv4.conf.all.log_martians=1
+    -  net.ipv4.icmp_ignore_bogus_error_responses=1
+    -  net.ipv4.icmp_echo_ignore_broadcasts=1
+    -  kernel.randomize_va_space=2
+    -  kernel.dmesg_restrict=1
+    -  kernel.kptr_restrict=2
+    -  net.core.bpf_jit_harden=2
+    EOF
+    -  sysctl -p /etc/sysctl.d/99-hardening.conf
+
+    Audit SUID binaries:
+    -  find / -perm -4000 -type f -exec ls -l {} ; > /data/suid_audit.txt
+    -  cat /data/suid_audit.txt # Remove SUID from non-essential binaries
+    -  chmod u-s /usr/bin/ping
+    -  setcap cap_net_raw+ep /usr/bin/ping
+
+    Configure zram:
+    cat << 'EOF' > /etc/systemd/zram-generator.conf 
+    -  [zram0]
+    -  zram-size = 50%
+    -  compression-algorithm = zstd
+    EOF
+    -  systemctl enable --now systemd-zram-setup@zram0.service
+
+# Step 12: Configure eGPU (AMD)
+
+    Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
+
+    Enable switcheroo-control for better integration:
+    -  pacman -S switcheroo-control
+    -  systemctl enable --now switcheroo-control
+
+    Install bolt for managing Thunderbolt/USB4 devices, which may also handle the OCuLink connection:
+    -  pacman -S bolt
+    -  systemctl enable --now bolt
+    #Authorize the OCuLink dock if listed
+    -  boltctl list
+    -  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
+
+    Enable PCIe hotplug:
+    -  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
+
+    Verify GPU switching:
+    -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" # Should show AMD
+
+# Step 13: Configure Snapper and Backups
+
+    Follow your original plan to configure Snapper for BTRFS snapshots on @, @home, and @data.
+
+    Enable the snapper-timeline.timer and snapper-cleanup.timer.
+
+    
+
+    
 
