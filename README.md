@@ -750,7 +750,7 @@ g) Check network:
     - `journalctl -p 3` (all errors)
 
   i) Test AUR builds with /tmp (if noexec applied):**
-    - If you encounter issues, consider configuring `yay` to use a different build directory (e.g., `yay --builddir ~/.cache/yay_build`) or temporarily removing `noexec` from `/tmp` for builds, then re-adding it. (This point is already in your Step 16, but it's good to reiterate it in maintenance as it's an ongoing consideration).
+    - If you encounter issues, consider configuring `yay` to use a different build directory (e.g., `yay --builddir ~/.cache/yay_build`) or temporarily removing `noexec` from `/tmp` for builds, then re-adding it. (This point is already in your Step 15, but it's good to reiterate it in maintenance as it's an ongoing consideration).
     
 
     
