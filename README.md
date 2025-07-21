@@ -66,24 +66,25 @@ b) Format ESP:
 
 c) Set Up LUKS2 Encryption for the BTRFS file system:
 
-    Format the partition:
+    Format the partition with LUKS2, using pbkdf2 for compatibility with systemd-cryptenroll:
     cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 1000000
 
-    Open it:
+    Open the LUKS partition:
     cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
 
-    Create the keyfile for automatic unlocking (recommended for TPM):
+    Create a keyfile for recovery purposes (e.g., GRUB rescue USB), not for initramfs. WHY: The modern systemd approach uses sd-encrypt and systemd-cryptenroll for TPM-based unlocking, eliminating the need for a keyfile in the initramfs. The keyfile is retained for recovery scenarios:
     dd if=/dev/urandom of=/mnt/crypto_keyfile bs=512 count=4 iflag=fullblock
     chmod 600 /mnt/crypto_keyfile
 
-    Add the keyfile to LUKS:
-    cryptsetup luksAddKey /dev/nvme1n1p2 /mnt/crypto_keyfile
+    Add the keyfile to LUKS in keyslot 1 for clarity. # WHY: Explicitly specifying keyslot 1 avoids ambiguity and ensures the passphrase (in keyslot 0) and keyfile are distinct, improving key management for recovery purposes:
+    cryptsetup luksAddKey /dev/nvme1n1p2 /mnt/crypto_keyfile --key-slot 1
 
     Back it up to USB:
     mkdir -p /mnt/usb
     lsblk
     mount /dev/sdX1 /mnt/usb # **Replace sdX1 with USB partition confirmed via lsblk previously executed**
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
+    echo "WARNING: Store the LUKS keyfile securely in Bitwarden for recovery purposes."
 
 d) Create BTRFS Filesystem and Subvolumes:
 
@@ -188,8 +189,9 @@ g) Check network:
     Chroot into the system:
     -  arch-chroot /mnt
 
-    Move the crypto keyfile: 
+    #DEPRECATED - DO NOT EXECUTE. Move the crypto keyfile: 
     -  mv /crypto_keyfile /root/luks-keyfile && chmod 600 /root/luks-keyfile
+    #Do not move the crypto keyfile to /root/luks-keyfile. WHY: The keyfile is no longer needed in the initramfs for TPM-based unlocking with sd-encrypt. It is retained on the USBs for recovery purposes (e.g., GRUB rescue USB).
 
     Keyring initialization:
     - nano /etc/pacman.conf uncomment [multilib]
@@ -231,7 +233,7 @@ g) Check network:
 # Step 7: Set Up TPM and LUKS2
 
     Install tpm2-tools and dependencies: 
-      - pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify
+      - pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
 
     Verify TPM device is detected
       - tpm2_getcap properties-fixed 
@@ -246,13 +248,18 @@ g) Check network:
     Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
       - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm #This command is for informational purposes, to see if the TPM slot is registered. It doesn't directly modify mkinitcpio.conf
       - sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf #Ensure the order is: base systemd autodetect modconf block plymouth sd-encrypt resume filesystems. Incorrect order can cause Plymouth to fail or LUKS to prompt incorrectly. Ensure `plymouth` is before `sd-encrypt` in `/etc/mkinitcpio.conf` HOOKS and regenerate.
+      Include btrfs binary for BTRFS filesystem support
+      - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
+      - mkinitcpio -P
+      BELOW TWO NEXT COMMANDS ARE DEPRECATED. Do not add FILES=(/root/luks-keyfile) or /usr/lib/systemd/systemd-cryptsetup. WHY: sd-encrypt automatically includes systemd-cryptsetup, and no keyfile is needed for TPM unlocking:
       - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/lib\/systemd\/systemd-cryptsetup \/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
       - echo 'FILES=(/root/luks-keyfile)' >> /etc/mkinitcpio.conf
-      - mkinitcpio -P
 
-    Update /etc/crypttab to use the TPM for unlocking:
+    BELOW COMMAND IS DEPRECATED. Do not create /etc/crypttab for the root volume. WHY: sd-encrypt automatically detects and unlocks LUKS volumes enrolled with systemd-cryptenroll, making an /etc/crypttab entry unnecessary for the root volume. 
       - echo "cryptroot /dev/nvme1n1p2 /root/luks-keyfile luks,tpm2-device=auto,tpm2-pcrs=0+4+7" >> /etc/crypttab
-      - tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-initial.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
+
+    Back up PCR values for stability checking:
+      - tpm2_pcrread sha256:0,2,4,7 > /mnt/usb/tpm-pcr-backup.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
 
     Enable Plymouth for a graphical boot splash. Add the plymouth hook to mkinitcpio.conf before sd-encrypt:
       - pacman -S --noconfirm plymouth
@@ -346,13 +353,13 @@ g) Check network:
     -  pacman -Sy grub
     -  grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB
     -  cp /root/luks-keyfile /mnt/usb/luks-keyfile
-    -  chmod 600 /mnt/usb/luks-keyfile
+    -  chmod 600 /mnt/usb/luks-recovery-key.txt
     -  cp /boot/vmlinuz-linux /mnt/usb/
     -  cp /boot/initramfs-linux.img /mnt/usb/
     cat <<'EOF' > /mnt/usb/boot/grub/grub.cfg
     -  set timeout=5
     #Replace /dev/sdX1 with your USB partition confirmed via lsblk, $LUKS_UUID and $ROOT_UUID
-    -  menuentry "Arch Linux Rescue" {linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot cryptkey=UUID=$(blkid -s UUID -o value /dev/sdX1):fat32:/luks-keyfile root=UUID=$ROOT_UUID rw initrd /initramfs-linux.img}
+    -  menuentry "Arch Linux Rescue" {linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID rw initrd /initramfs-linux.img}
     EOF
     -  sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
     -  umount /mnt/usb
