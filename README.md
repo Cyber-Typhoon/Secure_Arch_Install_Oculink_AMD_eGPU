@@ -244,6 +244,9 @@ g) Check network:
       - sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf #Ensure the order is: base systemd autodetect modconf block plymouth sd-encrypt resume filesystems. Incorrect order can cause Plymouth to fail or LUKS to prompt incorrectly. Ensure `plymouth` is before `sd-encrypt` in `/etc/mkinitcpio.conf` HOOKS and regenerate.
       - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/lib\/systemd\/systemd-cryptsetup \/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
       - echo 'FILES=(/root/luks-keyfile)' >> /etc/mkinitcpio.conf
+    
+    The Arch Wiki on Intel graphics recommends adding the i915 module to /etc/mkinitcpio.conf for early KMS (Kernel Mode Setting) to prevent flickering or display issues during boot:
+      - echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
       - mkinitcpio -P
 
     Update /etc/crypttab to use the TPM for unlocking:
@@ -303,6 +306,7 @@ g) Check network:
     #Replace <LUKS_UUID>, <ROOT_UUID>, <SWAP_OFFSET> with actual precomputed values:
     -  options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1
     EOF
+    -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch.conf
 
     Check with bootctl list (confirm both entries appear):
     -  bootctl list
@@ -328,7 +332,8 @@ g) Check network:
     -  efi /EFI/Linux/arch-fallback.efi
     #Replace <LUKS_UUID> and <ROOT_UUID> with actual precomputed values:
     -  options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID rw pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1
-    -  EOF    
+    -  EOF
+    -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch-fallback.conf
 
     Create GRUB USB for recovery:
     #Replace /dev/sdX1 with your USB partition confirmed via lsblk
@@ -432,6 +437,9 @@ g) Check network:
     Configure Power Management:
     -  systemctl mask power-profiles-daemon
     -  systemctl disable power-profiles-daemon
+
+    The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
+    -  echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
 
     Configure Wayland envars:
     cat << 'EOF' > /etc/environment 
@@ -662,6 +670,11 @@ g) Check network:
     -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/root
     -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/home
     -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/data
+
+    Enable NUMBER_CLEANUP to Snapper configs:
+    -  echo "NUMBER_CLEANUP=yes" >> /etc/snapper/configs/root
+    -  echo "NUMBER_CLEANUP=yes" >> /etc/snapper/configs/home
+    -  echo "NUMBER_CLEANUP=yes" >> /etc/snapper/configs/data
 
     Verify configuration: 
     -  snapper --config root get-config
