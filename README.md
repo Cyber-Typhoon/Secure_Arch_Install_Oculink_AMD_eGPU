@@ -610,6 +610,10 @@ g) Check network:
     Verify GPU switching:
     -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" # Should show AMD
 
+    Verification step for OCuLink detection:
+    -  dmesg | grep -i "oculink\|pcieport" # If OCuLink isn’t detected, consider adding kernel parameters like pcie_ports=native or pcie_aspm=force in /boot/loader/entries/arch.conf
+    
+
 # Step 13: Configure Snapper and Backups
 
     Create global filter:
