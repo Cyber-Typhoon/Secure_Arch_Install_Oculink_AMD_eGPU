@@ -73,7 +73,7 @@ c) Set Up LUKS2 Encryption for the BTRFS file system:
     cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
 
     Create the keyfile for automatic unlocking (recommended for TPM):
-    dd if=/dev/random of=/mnt/crypto_keyfile bs=512 count=4 iflag=fullblock
+    dd if=/dev/urandom of=/mnt/crypto_keyfile bs=512 count=4 iflag=fullblock
     chmod 600 /mnt/crypto_keyfile
 
     Add the keyfile to LUKS:
