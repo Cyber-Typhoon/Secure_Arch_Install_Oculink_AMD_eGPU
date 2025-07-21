@@ -457,7 +457,7 @@ g) Check network:
     -  QT_QPA_PLATFORM=wayland
     -  SDL_VIDEODRIVER=wayland
     -  GBM_BACKEND=amdgpu
-    - #The envars below may be removed and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU
+    #The envars below may be NOT INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
     -  LIBVA_DRIVER_NAME=radeonsi
     -  LIBVA_DRIVER_NAME=iHD
     EOF
@@ -772,6 +772,8 @@ g) Check network:
     - cp -r /etc/sbctl /path/to/backup/sbctl-keys
   - Store LUKS header on USB (Missing LUKS header backup could prevent recovery from disk failure):
     - cp /mnt/usb/luks-header-backup /mnt/usb2/luks-header-backup
+  - Text for recovery steps:
+    - echo -e "1. Boot from USB\n2. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot\n3. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt\n4. Chroot: arch-chroot /mnt\n5. Use /mnt/usb/luks-keyfile for recovery" > /mnt/usb/recovery.txt
 
 # Step 17: Backup Strategy
   - Local Snapshots:
@@ -833,6 +835,17 @@ g) Check network:
     -  ExecStart=/usr/bin/btrfs balance start -dusage=50 /
     EOF
     -  systemctl enable --now btrfs-balance.timer
+
+  k) Automation? script to automate common maintenance tasks:
+    #!/bin/bash
+    pacman -Syu
+    yay -Syu
+    btrfs scrub start /
+    snapper list
+    aide --check
+    lynis audit system
+
+    Save it as /usr/local/bin/maintain.sh and run it weekly via a systemd timer.
     
 
     
