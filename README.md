@@ -441,7 +441,9 @@ g) Check network:
     -  QT_QPA_PLATFORM=wayland
     -  SDL_VIDEODRIVER=wayland
     -  GBM_BACKEND=amdgpu
+    - #The envars below may be removed and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU
     -  LIBVA_DRIVER_NAME=radeonsi
+    -  LIBVA_DRIVER_NAME=iHD
     EOF
 
     Configure MAC randomization:
