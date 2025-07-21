@@ -199,6 +199,10 @@ g) Check network:
     - pacman -Sy
     - pacman -Syy
 
+    The Arch Wiki on Intel graphics recommends adding the i915 module to /etc/mkinitcpio.conf for early KMS (Kernel Mode Setting) to prevent flickering or display issues during boot:
+    - echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
+    - mkinitcpio -P
+
 # Step 6: System Configuration
 
     Set timezone, locale, and hostname.
@@ -244,9 +248,6 @@ g) Check network:
       - sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf #Ensure the order is: base systemd autodetect modconf block plymouth sd-encrypt resume filesystems. Incorrect order can cause Plymouth to fail or LUKS to prompt incorrectly. Ensure `plymouth` is before `sd-encrypt` in `/etc/mkinitcpio.conf` HOOKS and regenerate.
       - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/lib\/systemd\/systemd-cryptsetup \/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
       - echo 'FILES=(/root/luks-keyfile)' >> /etc/mkinitcpio.conf
-    
-    The Arch Wiki on Intel graphics recommends adding the i915 module to /etc/mkinitcpio.conf for early KMS (Kernel Mode Setting) to prevent flickering or display issues during boot:
-      - echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
       - mkinitcpio -P
 
     Update /etc/crypttab to use the TPM for unlocking:
