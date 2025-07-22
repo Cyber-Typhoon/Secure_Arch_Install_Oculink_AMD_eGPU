@@ -694,6 +694,43 @@ g) Check network:
     -  snapper --config home get-config
     -  snapper --config data get-config
 
+    Create pacman hooks for Snapper snapshots before and after updates:
+    -  mkdir -p /etc/pacman.d/hooks
+    -  cat << 'EOF' > /etc/pacman.d/hooks/50-snapper-pre-update.hook
+       -  [Trigger]
+       -  Operation = Upgrade
+       -  Operation = Install
+       -  Operation = Remove
+       -  Type = Package
+       -  Target = *
+       -  [Action]
+       -  Description = Creating Snapper snapshot before pacman update
+       -  DependsOn = snapper
+       -  When = PreTransaction
+       -  Exec = /usr/bin/snapper --config root create --description "Pre-pacman update" --type pre
+       -  Exec = /usr/bin/snapper --config home create --description "Pre-pacman update" --type pre
+       -  Exec = /usr/bin/snapper --config data create --description "Pre-pacman update" --type pre
+    -  EOF
+    -  cat << 'EOF' > /etc/pacman.d/hooks/51-snapper-post-update.hook
+       -  [Trigger]
+       -  Operation = Upgrade
+       -  Operation = Install
+       -  Operation = Remove
+       -  Type = Package
+       -  Target = *
+       -  [Action]
+       -  Description = Creating Snapper snapshot after pacman update
+       -  DependsOn = snapper
+       -  When = PostTransaction
+       -  Exec = /usr/bin/snapper --config root create --description "Post-pacman update" --type post
+       -  Exec = /usr/bin/snapper --config home create --description "Post-pacman update" --type post
+       -  Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
+    -  EOF
+
+    Set permissions for hooks
+    -  chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
+    -  chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
+
     Test snapshot creation: 
     -  snapper --config root create --description "Initial test snapshot"
     -  snapper --config home create --description "Initial test snapshot"
@@ -846,11 +883,48 @@ g) Check network:
     lynis audit system
 
     Save it as /usr/local/bin/maintain.sh and run it weekly via a systemd timer.
-    
 
-    
+    i) Monitor Arch Linux News:
+    #Install jaq for RSS parsing
+    pacman -S --noconfirm jaq
 
-    
+    # Create script to fetch and notify about Arch news
+    cat << 'EOF' > /usr/local/bin/check-arch-news.sh
+      #!/bin/bash
+      NEWS_FILE="/var/log/arch_news.log"
+      TEMP_FILE="/tmp/arch_news.txt"
+      curl -s https://archlinux.org/feeds/news/ | jaq -r '.channel.item[] | select(.pubDate | fromdateiso8601 > (now - 604800)) | .title + ": " + .description' > "$TEMP_FILE"
+      if [[ -s "$TEMP_FILE" ]]; then
+      if ! cmp -s "$TEMP_FILE" "$NEWS_FILE"; then
+      notify-send --urgency=critical "Arch Linux News" "$(cat "$TEMP_FILE")" --icon=system-software-update
+      mv "$TEMP_FILE" "$NEWS_FILE"
+      fi
+      fi
+    EOF
 
-    
+    #Set permissions
+    chmod 755 /usr/local/bin/check-arch-news.sh
 
+    #Create systemd service
+    cat << 'EOF' > /etc/systemd/system/arch-news.service
+      [Unit]
+      Description=Check Arch Linux news
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/check-arch-news.sh
+      User=<username>  # Replace with actual username
+    EOF
+
+    #Create systemd timer
+    cat << 'EOF' > /etc/systemd/system/arch-news.timer
+      [Unit]
+      Description=Check Arch Linux news daily
+      [Timer]
+      OnCalendar=daily
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+    EOF
+ 
+    #Enable and start the timer
+    systemctl enable --now arch-news.timer
