@@ -116,6 +116,15 @@ d) Create BTRFS Filesystem and Subvolumes:
         mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap # Ensure NoCoW is set!
         mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
 
+   #Why These Subvolumes?
+   
+       `@`: Isolates the root filesystem for easy snapshotting and rollback.
+       `@home`: Separates user data, allowing independent snapshots and backups.
+       `@snapshots`: Stores Snapper snapshots for system recovery.
+       `@var`, `@var_lib`, `@log`: Disables Copy-on-Write (noatime, nodatacow) to improve performance for frequently written data.
+       `@swap`: Ensures swapfile compatibility with hibernation (noatime, nodatacow).
+       `@srv`, `@data`: Provides flexible storage for server data or user files with compression (zstd:3).
+
 e) Configure Swap File:
 
     Create a swap file on the @swap subvolume, ensuring chattr +C is set to disable Copy-on-Write.
@@ -240,7 +249,6 @@ g) Check network:
 
     Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
       - systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
-      - systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p2
 
     Testing the TPM unlocking works with the current PCR value:
       - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
@@ -260,7 +268,7 @@ g) Check network:
       - echo "cryptroot /dev/nvme1n1p2 /root/luks-keyfile luks,tpm2-device=auto,tpm2-pcrs=0+4+7" >> /etc/crypttab
 
     Back up PCR values for stability checking:
-      - tpm2_pcrread sha256:0,2,4,7 > /mnt/usb/tpm-pcr-backup.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
+      - tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
 
     Enable Plymouth for a graphical boot splash. Add the plymouth hook to mkinitcpio.conf before sd-encrypt:
       - pacman -S --noconfirm plymouth
@@ -348,7 +356,7 @@ g) Check network:
     -  EOF
     -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch-fallback.conf
 
-    Create GRUB USB for recovery:
+    Create GRUB USB for recovery (it’s for recovery only, not a primary bootloader option, systemd-boot is the primary option):
     #Replace /dev/sdX1 with your USB partition confirmed via lsblk
     -  lsblk
     -  mkfs.fat -F32 -n RESCUE_USB /dev/sdX1
@@ -410,6 +418,20 @@ g) Check network:
      #Replace secure_boot_number with secure boot number, the command bellow should return 0
      -  efivar -p -n secure_boot_number-SetupMode
      If enrollment fails, re-run sbctl enroll-keys --tpm-eventlog and reboot again, ensuring the MOK enrollment prompt is completed correctly.
+
+     Automatically sign updated EFI binaries:
+     cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
+     -  [Trigger]
+     -  Operation = Install
+     -  Operation = Upgrade
+     -  Type = Package
+     -  Target = systemd
+     -  Target = linux
+     -  [Action]
+     -  Description = Signing EFI binaries with sbctl
+     -  When = PostTransaction
+     -  Exec = /usr/bin/sbctl sign --all
+     EOF
 
     Reboot and Enable Secure Boot in the UEFI BIOS.
 
