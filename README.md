@@ -244,17 +244,14 @@ g) Check network:
     Create and enroll your keys into the firmware:
      -  sbctl create-keys
      -  sbctl enroll-keys --tpm-eventlog
-
-    Reboot and enroll the keys when prompted by your UEFI BIOS.
-
-    After rebooting back into the chroot, sign your bootloader and UKI.
      -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
      -  sbctl sign -s /boot/EFI/Linux/arch.efi
      -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
      -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
      -  sbctl sign --all
 
-     Confirm “Secure Boot enabled; all OK”
+     Reboot and enroll the keys when prompted by your UEFI BIOS.
+     After rebooting back into the chroot, confirm “Secure Boot enabled; all OK”
      -  sbctl status
      #Replace secure_boot_number with secure boot number, the command bellow should return 0
      -  efivar -p -n secure_boot_number-SetupMode
@@ -622,6 +619,17 @@ g) Check network:
     EOF
     -  systemctl enable --now systemd-zram-setup@zram0.service
 
+    Configure fwupd for Firmware Updates:
+    -  pacman -S fwupd udisks2
+    -  systemctl enable --now udisks2.service
+    -  echo '[uefi_capsule]\nDisableShimForSecureBoot=true' >> /etc/fwupd/fwupd.conf
+    -  fwupdmgr refresh
+    -  fwupdmgr get-updates
+    -  fwupdmgr update
+    -  sbctl sign -s /efi/EFI/arch/fwupdx64.efi
+    #Note: Firmware updates may change TPM PCR values (e.g., PCR 0). Back up LUKS recovery passphrase and re-enroll TPM if unlocking fails:
+    -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+
 # Step 12: Configure eGPU (AMD)
 
     Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
@@ -840,7 +848,10 @@ g) Check network:
  - Test AUR builds with /tmp (no noexec)
    - yay --builddir ~/.cache/yay_build
  - Verify Security Boot
-   - mokutil --sb-state 
+   - mokutil --sb-state
+ - Verify fwupd (configured in Step 11)
+   - fwupdmgr refresh
+   - fwupdmgr update
 
 # Step 16: Create Recovery Documentation
   - Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
