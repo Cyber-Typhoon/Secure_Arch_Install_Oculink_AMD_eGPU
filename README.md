@@ -937,7 +937,7 @@ g) Check network:
 
     Save it as /usr/local/bin/maintain.sh and run it weekly via a systemd timer.
 
-    i) Monitor Arch Linux News:
+  i) Monitor Arch Linux News:
     #Install jaq for RSS parsing
     pacman -S --noconfirm jaq
 
