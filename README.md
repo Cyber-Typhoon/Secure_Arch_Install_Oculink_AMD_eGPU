@@ -1,4 +1,4 @@
-# Secure_Arch_Install_Oculink_AMD_eGPU
+# Secure Arch Install AMD eGPU via Oculink
 Installation Steps for a new Lenovo Thinkbook TGX (Oculink) Security Enhanhed Arch Gnome Wayland AMD only
 
 # Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
