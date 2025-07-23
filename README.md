@@ -239,7 +239,48 @@ g) Check network:
       - sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
       - 127.0.0.1 l
 
-# Step 7: Set Up TPM and LUKS2
+# Step 7: Configure Secure Boot
+
+    Create and enroll your keys into the firmware:
+     -  sbctl create-keys
+     -  sbctl enroll-keys --tpm-eventlog
+
+    Reboot and enroll the keys when prompted by your UEFI BIOS.
+
+    After rebooting back into the chroot, sign your bootloader and UKI.
+     -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+     -  sbctl sign -s /boot/EFI/Linux/arch.efi
+     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+     -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
+     -  sbctl sign --all
+
+     Confirm “Secure Boot enabled; all OK”
+     -  sbctl status
+     #Replace secure_boot_number with secure boot number, the command bellow should return 0
+     -  efivar -p -n secure_boot_number-SetupMode
+     If enrollment fails, re-run sbctl enroll-keys --tpm-eventlog and reboot again, ensuring the MOK enrollment prompt is completed correctly.
+
+     Automatically sign updated EFI binaries:
+     cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
+     -  [Trigger]
+     -  Operation = Install
+     -  Operation = Upgrade
+     -  Type = Package
+     -  Target = systemd
+     -  Target = linux
+     -  [Action]
+     -  Description = Signing EFI binaries with sbctl
+     -  When = PostTransaction
+     -  Exec = /usr/bin/sbctl sign --all
+     EOF
+
+    Reboot and Enable Secure Boot in the UEFI BIOS.
+
+    Verify Secure Boot is active:
+    -  bootctl status | grep -i secure - sbctl status - sbctl verify /boot/EFI/Linux/arch.efi
+    #Should return "signed"
+
+# Step 8: Set Up TPM and LUKS2
 
     Install tpm2-tools and dependencies: 
       - pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
@@ -283,7 +324,7 @@ g) Check network:
       - umount /mnt/usb
       - echo "WARNING: Store the LUKS recovery passphrase securely in Bitwarden. TPM unlocking may fail after firmware updates or Secure Boot changes."
 
-# Step 8: Configure systemd-boot with UKI
+# Step 9: Configure systemd-boot with UKI
 
     Install systemd-boot: 
     -  mount /dev/nvme1n1p1 /boot
@@ -398,46 +439,10 @@ g) Check network:
     -  Exec = /usr/bin/mkinitcpio -P
     EOF
 
-# Step 9: Configure Secure Boot
-
-    Create and enroll your keys into the firmware:
-     -  sbctl create-keys
-     -  sbctl enroll-keys --tpm-eventlog
-
-    Reboot and enroll the keys when prompted by your UEFI BIOS.
-
-    After rebooting back into the chroot, sign your bootloader and UKI.
-     -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
-     -  sbctl sign -s /boot/EFI/Linux/arch.efi
-     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-     -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
-     -  sbctl sign --all
-
-     Confirm “Secure Boot enabled; all OK”
-     -  sbctl status
-     #Replace secure_boot_number with secure boot number, the command bellow should return 0
-     -  efivar -p -n secure_boot_number-SetupMode
-     If enrollment fails, re-run sbctl enroll-keys --tpm-eventlog and reboot again, ensuring the MOK enrollment prompt is completed correctly.
-
-     Automatically sign updated EFI binaries:
-     cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
-     -  [Trigger]
-     -  Operation = Install
-     -  Operation = Upgrade
-     -  Type = Package
-     -  Target = systemd
-     -  Target = linux
-     -  [Action]
-     -  Description = Signing EFI binaries with sbctl
-     -  When = PostTransaction
-     -  Exec = /usr/bin/sbctl sign --all
-     EOF
-
-    Reboot and Enable Secure Boot in the UEFI BIOS.
-
-    Verify Secure Boot is active:
-    -  bootctl status | grep -i secure - sbctl status - sbctl verify /boot/EFI/Linux/arch.efi
-    #Should return "signed"
+    Enable systemd-homed and create user accounts with LUKS2-encrypted home directories:
+    -  systemctl enable --now systemd-homed.service
+    -  chattr +C /home
+    -  homectl create username --storage=luks --fs-type=btrfs --shell=/bin/zsh --member-of=wheel --disk-size=500G
 
 # Step 10: Install and Configure DE and Applications
 
