@@ -240,6 +240,7 @@ g) Check network:
 
     Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
       - systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+      - systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p2
 
     Testing the TPM unlocking works with the current PCR value:
       - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
@@ -279,6 +280,8 @@ g) Check network:
     Install systemd-boot: 
     -  mount /dev/nvme1n1p1 /boot
     -  bootctl --esp-path=/boot/EFI install
+    -  pacman -S systemd-boot
+    -  bootctl install
 
     Configure /etc/mkinitcpio.d/linux.preset with kernel parameters: 
     cat <<'EOF' > /etc/mkinitcpio.d/linux.preset # Do not append UKI_OUTPUT_PATH directly to /etc/mkinitcpio.conf. 
@@ -311,8 +314,10 @@ g) Check network:
     cat <<EOF > /boot/loader/entries/arch.conf
     -  title Arch Linux
     -  efi /EFI/Linux/arch.efi
+    -  linux /vmlinuz-linux
+    -  initrd /initramfs-linux.img
     #Replace <LUKS_UUID>, <ROOT_UUID>, <SWAP_OFFSET> with actual precomputed values:
-    -  options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1
+    -  options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1
     EOF
     -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch.conf
 
@@ -397,6 +402,7 @@ g) Check network:
      -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
      -  sbctl sign -s /boot/EFI/Linux/arch.efi
      -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+     -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
      -  sbctl sign --all
 
      Confirm “Secure Boot enabled; all OK”
@@ -727,7 +733,16 @@ g) Check network:
        -  Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
     -  EOF
 
-    Set permissions for hooks
+    Installing and configuring Snapper with systemd timers:
+    -  pacman -S snapper snap-pac
+    -  snapper --config root create-config /
+    -  systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
+
+    Integrate grub-btrfs for bootable snapshots:
+    -  pacman -S grub-btrfs
+    -  systemctl enable grub-btrfsd
+
+    Set permissions for hooks:
     -  chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
     -  chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
 
