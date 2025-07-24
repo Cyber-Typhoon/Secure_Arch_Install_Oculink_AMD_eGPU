@@ -349,8 +349,6 @@ g) Check network:
     Install systemd-boot: 
     -  mount /dev/nvme1n1p1 /boot
     -  bootctl --esp-path=/boot/EFI install
-    -  pacman -S systemd-boot
-    -  bootctl install
 
     Configure /etc/mkinitcpio.d/linux.preset with kernel parameters: 
     cat <<'EOF' > /etc/mkinitcpio.d/linux.preset # Do not append UKI_OUTPUT_PATH directly to /etc/mkinitcpio.conf. 
@@ -889,10 +887,8 @@ g) Check network:
   - Back up LUKS header and SBCTL keys:
     - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /path/to/luks-header-backup
     - cp -r /etc/sbctl /path/to/backup/sbctl-keys
-  - Store LUKS header on USB (Missing LUKS header backup could prevent recovery from disk failure):
-    - cp /mnt/usb/luks-header-backup /mnt/usb2/luks-header-backup
   - Text for recovery steps:
-    - echo -e "1. Boot from USB\n2. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot\n3. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt\n4. Chroot: arch-chroot /mnt\n5. Use /mnt/usb/luks-keyfile or Bitwarden-stored header for recovery" > /mnt/usb/recovery.txt
+    - echo -e "1. Boot from USB\n2. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot\n3. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt\n4. Chroot: arch-chroot /mnt\n5. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery" > /mnt/usb/recovery.txt
 
 # Step 17: Backup Strategy
   - Local Snapshots:
