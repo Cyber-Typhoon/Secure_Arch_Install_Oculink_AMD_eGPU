@@ -275,6 +275,10 @@ g) Check network:
       - umount /mnt/usb
       - echo "WARNING: Store the LUKS recovery passphrase securely in Bitwarden. TPM unlocking may fail after firmware updates or Secure Boot changes."
 
+    Store a copy in an encrypted, offsite location (e.g., Bitwarden or encrypted cloud):
+      - sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
+      - echo "WARNING: Ensure /mnt/usb/luks-header-backup is stored securely. Consider an additional encrypted backup (e.g., Bitwarden attachment or cloud)." 
+
     Test Boot with TPM2/LUKS2. Exit chroot, unmount filesystems, and reboot (with Secure Boot disabled):
       - exit
       - umount -R /mnt
@@ -287,6 +291,7 @@ g) Check network:
      -  arch-chroot /mnt
      -  sbctl create-keys
      -  sbctl enroll-keys --tpm-eventlog
+     -  mkinitcpio -P  #Regenerate UKI first
      -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
      -  sbctl sign -s /boot/EFI/Linux/arch.efi
      -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
@@ -301,26 +306,28 @@ g) Check network:
      -  Type = Package
      -  Target = systemd
      -  Target = linux
+     -  Target = fwupd
      -  [Action]
      -  Description = Signing EFI binaries with sbctl
      -  When = PostTransaction
      -  Exec = /usr/bin/sbctl sign --all
      EOF
 
-     Reboot and enroll the keys when prompted by your UEFI BIOS:
+    Reboot and enroll the keys when prompted by your UEFI BIOS:
      -  exit
      -  umount -R /mnt
      -  reboot
      #Follow the UEFI prompt to enroll the keys. If enrollment fails, rerun sbctl enroll-keys --tpm-eventlog and reboot.
 
-     Enable Secure Boot in UEFI:
+    Enable Secure Boot in UEFI:
      -  Enter the UEFI BIOS and enable Secure Boot.
 
-     Update TPM2 PCR Policy for Secure Boot:
+    Update TPM2 PCR Policy for Secure Boot:
      -  arch-chroot /mnt
+     -  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
      -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
      
-     After rebooting back into the chroot, confirm “Secure Boot enabled; all OK”
+    After rebooting back into the chroot, confirm “Secure Boot enabled; all OK”
      -  sbctl status
 
     Verify Secure Boot is active:
@@ -347,7 +354,7 @@ g) Check network:
 
     Configure /etc/mkinitcpio.d/linux.preset with kernel parameters: 
     cat <<'EOF' > /etc/mkinitcpio.d/linux.preset # Do not append UKI_OUTPUT_PATH directly to /etc/mkinitcpio.conf. 
-     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1"
+     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff"
      - default_uki="/boot/EFI/Linux/arch.efi"
      - all_config="/etc/mkinitcpio.conf"
     EOF
@@ -363,7 +370,7 @@ g) Check network:
 
     Create boot entries in /boot/loader/entries/ for Arch and Windows.
     Copy Windows EFI files to Arch ESP:
-    -  cp -r /mnt/windows-efi/EFI/Microsoft /boot/EFI/
+    -  rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
     -  umount /mnt/windows-efi
 
     Create /boot/loader/entries/windows.conf with:
@@ -376,10 +383,6 @@ g) Check network:
     cat <<EOF > /boot/loader/entries/arch.conf
     -  title Arch Linux
     -  efi /EFI/Linux/arch.efi
-    -  linux /vmlinuz-linux
-    -  initrd /initramfs-linux.img
-    #Replace <LUKS_UUID>, <ROOT_UUID>, <SWAP_OFFSET> with actual precomputed values:
-    -  options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1
     EOF
     -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch.conf
 
@@ -397,7 +400,7 @@ g) Check network:
     Create Fallback Bootload:
     Create minimal UKI config /etc/mkinitcpio-minimal.conf (copy /etc/mkinitcpio.conf, remove non-essential hooks):
     -  cp /etc/mkinitcpio.conf /etc/mkinitcpio-minimal.conf
-    -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block sd-encrypt filesystems)/' /etc/mkinitcpio-minimal.conf
+    -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt filesystems)/' /etc/mkinitcpio-minimal.conf
     -  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-minimal.conf
     -  mkinitcpio -P -c /etc/mkinitcpio-minimal.conf
     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
@@ -405,8 +408,6 @@ g) Check network:
     cat <<EOF > /boot/loader/entries/arch-fallback.conf
     -  title Arch Linux (Fallback)
     -  efi /EFI/Linux/arch-fallback.efi
-    #Replace <LUKS_UUID> and <ROOT_UUID> with actual precomputed values:
-    -  options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID rw pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1
     -  EOF
     -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch-fallback.conf
 
@@ -468,6 +469,8 @@ g) Check network:
     -  useask = true
     -  Verify if Yay shows the PKGBUILD diffs
     -  yay -Pg | grep -E 'diffmenu|answerdiff'
+    -  echo "BUILDDIR=$HOME/.cache/yay-build" >> /etc/makepkg.conf
+    -  mkdir -p ~/.cache/yay-build
     Install Bubblejail: yay -S --needed bubblejail
     Install Alacritty: pacman -S --needed alacritty #https://www.youtube.com/watch?v=76GbxnD8wnM
     -  Configure Bubblejail for Alacritty: bubblejail create --profile generic-gui-app alacritty
@@ -502,7 +505,6 @@ g) Check network:
     -  CLUTTER_BACKEND=wayland
     -  QT_QPA_PLATFORM=wayland
     -  SDL_VIDEODRIVER=wayland
-    -  GBM_BACKEND=amdgpu
     #The envars below may be NOT INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
     -  LIBVA_DRIVER_NAME=radeonsi
     -  LIBVA_DRIVER_NAME=iHD
@@ -643,6 +645,7 @@ g) Check network:
     -  fwupdmgr get-updates
     -  fwupdmgr update
     -  sbctl sign -s /efi/EFI/arch/fwupdx64.efi
+    -  echo "NOTE: fwupd updates may change PCR 0, requiring TPM re-enrollment. Back up the LUKS passphrase in Bitwarden and run 'systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2' if unlocking fails."
     #Note: Firmware updates may change TPM PCR values (e.g., PCR 0). Back up LUKS recovery passphrase and re-enroll TPM if unlocking fails:
     -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
@@ -745,9 +748,12 @@ g) Check network:
     -  chmod 640 /etc/snapper/configs/*
 
     Add a disk space limit to Snapper configs:
-    -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/root
-    -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/home
-    -  echo "NUMBER_LIMIT=50" >> /etc/snapper/configs/data
+    -  echo "NUMBER_LIMIT=100" >> /etc/snapper/configs/root
+    -  echo "NUMBER_LIMIT_IMPORTANT=10" >> /etc/snapper/configs/root
+    -  echo "NUMBER_LIMIT=100" >> /etc/snapper/configs/home
+    -  echo "NUMBER_LIMIT_IMPORTANT=10" >> /etc/snapper/configs/home
+    -  echo "NUMBER_LIMIT=100" >> /etc/snapper/configs/data
+    -  echo "NUMBER_LIMIT_IMPORTANT=10" >> /etc/snapper/configs/data
 
     Enable NUMBER_CLEANUP to Snapper configs:
     -  echo "NUMBER_CLEANUP=yes" >> /etc/snapper/configs/root
@@ -843,7 +849,6 @@ g) Check network:
    - systemctl hibernate
    - dmesg | grep -i "hibernate\|swap" # After resuming, check dmesg for errors
    - filefrag -v /mnt/swap/swapfile  # Ensure no fragmentation
-   - systemctl enable systemd-hibernate-resume.service
  - Test fwupd
    - fwupdmgr refresh
    - fwupdmgr update
@@ -887,7 +892,7 @@ g) Check network:
   - Store LUKS header on USB (Missing LUKS header backup could prevent recovery from disk failure):
     - cp /mnt/usb/luks-header-backup /mnt/usb2/luks-header-backup
   - Text for recovery steps:
-    - echo -e "1. Boot from USB\n2. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot\n3. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt\n4. Chroot: arch-chroot /mnt\n5. Use /mnt/usb/luks-keyfile for recovery" > /mnt/usb/recovery.txt
+    - echo -e "1. Boot from USB\n2. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot\n3. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt\n4. Chroot: arch-chroot /mnt\n5. Use /mnt/usb/luks-keyfile or Bitwarden-stored header for recovery" > /mnt/usb/recovery.txt
 
 # Step 17: Backup Strategy
   - Local Snapshots:
