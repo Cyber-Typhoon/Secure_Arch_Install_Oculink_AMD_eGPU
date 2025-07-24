@@ -130,7 +130,7 @@ e) Configure Swap File:
     Create a swap file on the @swap subvolume, ensuring chattr +C is set to disable Copy-on-Write.
         touch /mnt/swap/swapfile 
         chattr +C /mnt/swap/swapfile
-        fallocate -l 24G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; }
+        fallocate -l 32G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; }
         chmod 600 /mnt/swap/swapfile
         mkswap /mnt/swap/swapfile || { echo "mkswap failed"; exit 1; }
 
@@ -250,10 +250,13 @@ g) Check network:
     Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
       - systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
-    Testing the TPM unlocking works with the current PCR value and Back up PCR values for stability checking::
+    Testing the TPM unlocking works with the current PCR value and Back up PCR values for stability checking:
       - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 #If the test fails, check PCR values (tpm2_pcrread sha256:0,4,7) and ensure the TPM2 module is correctly initialized.
       - systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt #This helps catch firmware changes in the future.
       - tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
+
+    Verification for TPM PCR 4 Measurement:
+      - tpm2_pcrread sha256:4 | grep -v "0x0000000000000000000000000000000000000000000000000000000000000000" #Verify PCR 4 is non-zero (indicating measurement by systemd-boot)
 
     Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
       - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm #This command is for informational purposes, to see if the TPM slot is registered. It doesn't directly modify mkinitcpio.conf
@@ -310,7 +313,7 @@ g) Check network:
      -  [Action]
      -  Description = Signing EFI binaries with sbctl
      -  When = PostTransaction
-     -  Exec = /usr/bin/sbctl sign --all
+     -  Exec = /usr/bin/sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/Linux/arch.efi /boot/EFI/Linux/arch-fallback.efi /boot/EFI/BOOT/BOOTX64.EFI /efi/EFI/arch/fwupdx64.efi 
      EOF
 
     Reboot and enroll the keys when prompted by your UEFI BIOS:
@@ -348,11 +351,11 @@ g) Check network:
 
     Install systemd-boot: 
     -  mount /dev/nvme1n1p1 /boot
-    -  bootctl --esp-path=/boot/EFI install
+    -  bootctl --esp-path=/boot install
 
     Configure /etc/mkinitcpio.d/linux.preset with kernel parameters: 
     cat <<'EOF' > /etc/mkinitcpio.d/linux.preset # Do not append UKI_OUTPUT_PATH directly to /etc/mkinitcpio.conf. 
-     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff"
+     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff tpm2-measure=yes"
      - default_uki="/boot/EFI/Linux/arch.efi"
      - all_config="/etc/mkinitcpio.conf"
     EOF
@@ -398,7 +401,7 @@ g) Check network:
     Create Fallback Bootload:
     Create minimal UKI config /etc/mkinitcpio-minimal.conf (copy /etc/mkinitcpio.conf, remove non-essential hooks):
     -  cp /etc/mkinitcpio.conf /etc/mkinitcpio-minimal.conf
-    -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt filesystems)/' /etc/mkinitcpio-minimal.conf
+    -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems)/' /etc/mkinitcpio-minimal.conf
     -  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-minimal.conf
     -  mkinitcpio -P -c /etc/mkinitcpio-minimal.conf
     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
@@ -418,8 +421,8 @@ g) Check network:
     -  mount /dev/sdX1 /mnt/usb
     -  pacman -Sy grub
     -  grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB
-    -  cp /root/luks-keyfile /mnt/usb/luks-keyfile
-    -  chmod 600 /mnt/usb/luks-recovery-key.txt
+    -  cp /mnt/usb/crypto_keyfile /mnt/usb/luks-keyfile
+    -  chmod 600 /mnt/usb/luks-keyfile
     -  cp /boot/vmlinuz-linux /mnt/usb/
     -  cp /boot/initramfs-linux.img /mnt/usb/
     cat <<'EOF' > /mnt/usb/boot/grub/grub.cfg
@@ -435,6 +438,9 @@ g) Check network:
     -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block sd-encrypt filesystems)/' /mnt/usb/mkinitcpio-rescue.conf
     -  mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
     -  cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
+
+    Ensure hibernation service is disabled:
+    -  systemctl disable systemd-hibernate-resume.service #Disable systemd-hibernate-resume.service, as hibernation is handled by the resume hook and resume_offset.
 
     Add Pacman Hook for UKI Regeneration:
     -  mkdir -p /etc/pacman.d/hooks
@@ -468,6 +474,8 @@ g) Check network:
     -  Verify if Yay shows the PKGBUILD diffs
     -  yay -Pg | grep -E 'diffmenu|answerdiff'
     -  echo "BUILDDIR=$HOME/.cache/yay-build" >> /etc/makepkg.conf
+    -  echo 'export BUILDDIR=$HOME/.cache/yay-build' >> /home/<username>/.zshrc
+    -  chown <username>:<username> /home/<username>/.zshrc
     -  mkdir -p ~/.cache/yay-build
     Install Bubblejail: yay -S --needed bubblejail
     Install Alacritty: pacman -S --needed alacritty #https://www.youtube.com/watch?v=76GbxnD8wnM
@@ -883,7 +891,8 @@ g) Check network:
 # Step 16: Create Recovery Documentation
   - Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
   - Create a recovery USB with Arch ISO, minimal UKI, and `systemd-cryptsetup`.
-    - dd if=archlinux-<version>-x86_64.iso of=/dev/sdb bs=4M status=progress oflag=sync 
+    #Replace /dev/sdX with the USB device confirmed via lsblk
+    - dd if=archlinux-<version>-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
   - Back up LUKS header and SBCTL keys:
     - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /path/to/luks-header-backup
     - cp -r /etc/sbctl /path/to/backup/sbctl-keys
