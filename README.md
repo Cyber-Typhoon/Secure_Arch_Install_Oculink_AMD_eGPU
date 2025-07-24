@@ -239,45 +239,7 @@ g) Check network:
       - sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
       - 127.0.0.1 l
 
-# Step 7: Configure Secure Boot
-
-    Create and enroll your keys into the firmware:
-     -  sbctl create-keys
-     -  sbctl enroll-keys --tpm-eventlog
-     -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
-     -  sbctl sign -s /boot/EFI/Linux/arch.efi
-     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-     -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
-     -  sbctl sign --all
-
-     Reboot and enroll the keys when prompted by your UEFI BIOS.
-     After rebooting back into the chroot, confirm “Secure Boot enabled; all OK”
-     -  sbctl status
-     #Replace secure_boot_number with secure boot number, the command bellow should return 0
-     -  efivar -p -n secure_boot_number-SetupMode
-     If enrollment fails, re-run sbctl enroll-keys --tpm-eventlog and reboot again, ensuring the MOK enrollment prompt is completed correctly.
-
-     Automatically sign updated EFI binaries:
-     cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
-     -  [Trigger]
-     -  Operation = Install
-     -  Operation = Upgrade
-     -  Type = Package
-     -  Target = systemd
-     -  Target = linux
-     -  [Action]
-     -  Description = Signing EFI binaries with sbctl
-     -  When = PostTransaction
-     -  Exec = /usr/bin/sbctl sign --all
-     EOF
-
-    Reboot and Enable Secure Boot in the UEFI BIOS.
-
-    Verify Secure Boot is active:
-    -  bootctl status | grep -i secure - sbctl status - sbctl verify /boot/EFI/Linux/arch.efi
-    #Should return "signed"
-
-# Step 8: Set Up TPM and LUKS2
+# Step 7: Set Up TPM and LUKS2
 
     Install tpm2-tools and dependencies: 
       - pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
@@ -288,9 +250,10 @@ g) Check network:
     Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
       - systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
-    Testing the TPM unlocking works with the current PCR value:
-      - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+    Testing the TPM unlocking works with the current PCR value and Back up PCR values for stability checking::
+      - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 #If the test fails, check PCR values (tpm2_pcrread sha256:0,4,7) and ensure the TPM2 module is correctly initialized.
       - systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt #This helps catch firmware changes in the future.
+      - tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
 
     Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
       - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm #This command is for informational purposes, to see if the TPM slot is registered. It doesn't directly modify mkinitcpio.conf
@@ -298,15 +261,6 @@ g) Check network:
       Include btrfs binary for BTRFS filesystem support
       - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
       - mkinitcpio -P
-      BELOW TWO NEXT COMMANDS ARE DEPRECATED. Do not add FILES=(/root/luks-keyfile) or /usr/lib/systemd/systemd-cryptsetup. WHY: sd-encrypt automatically includes systemd-cryptsetup, and no keyfile is needed for TPM unlocking:
-      - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/lib\/systemd\/systemd-cryptsetup \/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
-      - echo 'FILES=(/root/luks-keyfile)' >> /etc/mkinitcpio.conf
-
-    BELOW COMMAND IS DEPRECATED. Do not create /etc/crypttab for the root volume. WHY: sd-encrypt automatically detects and unlocks LUKS volumes enrolled with systemd-cryptenroll, making an /etc/crypttab entry unnecessary for the root volume. 
-      - echo "cryptroot /dev/nvme1n1p2 /root/luks-keyfile luks,tpm2-device=auto,tpm2-pcrs=0+4+7" >> /etc/crypttab
-
-    Back up PCR values for stability checking:
-      - tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
 
     Enable Plymouth for a graphical boot splash. Add the plymouth hook to mkinitcpio.conf before sd-encrypt:
       - pacman -S --noconfirm plymouth
@@ -320,6 +274,68 @@ g) Check network:
       - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
       - umount /mnt/usb
       - echo "WARNING: Store the LUKS recovery passphrase securely in Bitwarden. TPM unlocking may fail after firmware updates or Secure Boot changes."
+
+    Test Boot with TPM2/LUKS2. Exit chroot, unmount filesystems, and reboot (with Secure Boot disabled):
+      - exit
+      - umount -R /mnt
+      - reboot
+      #Verify that TPM2 automatically unlocks the LUKS2 partition without requiring a passphrase. Repeat 3–5 times to ensure reliability. If unlocking fails, boot with the recovery passphrase, recheck TPM2 configuration, and verify PCR values.
+
+# Step 8: Configure Secure Boot
+
+    Create and enroll your keys into the firmware:
+     -  arch-chroot /mnt
+     -  sbctl create-keys
+     -  sbctl enroll-keys --tpm-eventlog
+     -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+     -  sbctl sign -s /boot/EFI/Linux/arch.efi
+     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+     -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
+     -  sbctl sign --all
+
+    Automatically sign updated EFI binaries:
+     cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
+     -  [Trigger]
+     -  Operation = Install
+     -  Operation = Upgrade
+     -  Type = Package
+     -  Target = systemd
+     -  Target = linux
+     -  [Action]
+     -  Description = Signing EFI binaries with sbctl
+     -  When = PostTransaction
+     -  Exec = /usr/bin/sbctl sign --all
+     EOF
+
+     Reboot and enroll the keys when prompted by your UEFI BIOS:
+     -  exit
+     -  umount -R /mnt
+     -  reboot
+     #Follow the UEFI prompt to enroll the keys. If enrollment fails, rerun sbctl enroll-keys --tpm-eventlog and reboot.
+
+     Enable Secure Boot in UEFI:
+     -  Enter the UEFI BIOS and enable Secure Boot.
+
+     Update TPM2 PCR Policy for Secure Boot:
+     -  arch-chroot /mnt
+     -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+     
+     After rebooting back into the chroot, confirm “Secure Boot enabled; all OK”
+     -  sbctl status
+
+    Verify Secure Boot is active:
+     -  bootctl status | grep -i secure 
+     -  sbctl status 
+     -  sbctl verify /boot/EFI/Linux/arch.efi #Should return "signed"
+    
+    Replace secure_boot_number with secure boot number, the command bellow should return 0
+     -  efivar -p -n secure_boot_number-SetupMode #If enrollment fails, re-run sbctl enroll-keys --tpm-eventlog and reboot again, ensuring the MOK enrollment prompt is completed correctly.
+     -  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+
+    Back up new PCR values post-Secure Boot:
+     -  tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-post-secureboot.txt
+     -  diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt
+     #If TPM2 unlocking fails, use the LUKS recovery passphrase and recheck PCR 7 values.
 
 # Step 9: Configure systemd-boot with UKI
 
@@ -634,6 +650,15 @@ g) Check network:
 
     Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
 
+    Install AMD eGPU drivers and firmware, ensuring Secure Boot compatibility.
+    -  pacman -S --noconfirm linux-firmware amd-ucode
+
+    Sign Kernel Modules
+    -  sbctl sign --all
+
+    Verify eGPU Functionality
+    -  lspci | grep -i vga
+
     Enable switcheroo-control for better integration:
     -  pacman -S switcheroo-control
     -  systemctl enable --now switcheroo-control
@@ -655,7 +680,6 @@ g) Check network:
     Verification step for OCuLink detection:
     -  dmesg | grep -i "oculink\|pcieport" # If OCuLink isn’t detected, consider adding kernel parameters like pcie_ports=native or pcie_aspm=force in /boot/loader/entries/arch.conf
     
-
 # Step 13: Configure Snapper and Backups
 
     Create global filter:
