@@ -13,6 +13,8 @@ Observation: Not adopting linux-hardened kernel because of complexity in the set
         Enable TPM 2.0, Secure Boot, Resizable BAR, SVM/VT-x, and Intel VT-d (IOMMU).
         Check for “Hybrid Graphics” or “PCIe Hotplug” options.
         Set a strong UEFI BIOS password, store it in Bitwarden, and disable legacy boot.
+        #check dmidecode -t 0,1,2,3,9 for PCIe slot. If "PCIe Hotplug" is unavailable, document that kernel parameters like pcie_ports=native may be needed later.
+        - dmidecode -t 9 | grep -i "PCIe\|OCuLink"
 
 # Step 2: Install Windows on Primary NVMe M.2 (/dev/nvme0n1)
 
@@ -176,8 +178,9 @@ f) Generate fstab:
     **Validation Steps (List ESP UUIDs and check mapping):
       - blkid | grep -E 'nvme0n1p1|nvme1n1p1' #(Ensure each UUID matches the correct fstab line for /boot and /windows-efi)
 
-    **Verify your final fstab:
+    **Verify your final fstab and UUIDs:
       - cat /mnt/etc/fstab
+      - blkid | grep -E "$ROOT_UUID|$LUKS_UUID|$ARCH_ESP_UUID|$WINDOWS_ESP_UUID"
 
 g) Check network:
 
@@ -660,7 +663,7 @@ g) Check network:
     Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
 
     Install AMD eGPU drivers and firmware, ensuring Secure Boot compatibility.
-    -  pacman -S --noconfirm linux-firmware amd-ucode
+    -  pacman -S --noconfirm amd-ucode
 
     Sign Kernel Modules
     -  sbctl sign --all
