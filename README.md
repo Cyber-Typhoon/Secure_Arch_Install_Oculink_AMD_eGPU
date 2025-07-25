@@ -669,9 +669,12 @@ g) Check network:
     -  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
     -  mkinitcpio -P
 
+    AMD-specific power management options to complement i915 settings:
+    -  echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
+
     Sign Kernel Modules for Secure Boot
     -  sbctl sign --all
-    -  find /lib/modules/$(uname -r)/kernel/drivers/gpu/drm -name "*.ko" -exec sbctl verify {} \;
+    -  find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
 
     Verify eGPU Functionality
     -  lspci | grep -i vga
@@ -724,6 +727,7 @@ g) Check network:
     Test PCIe bandwidth
     #Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4).
     -  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
+    -  lspci -vv | grep -i "LnkSta" | grep -i "card1"
 
     Check OCuLink dock firmware
     -  fwupdmgr get-devices | grep -i "oculink\|redriver"
