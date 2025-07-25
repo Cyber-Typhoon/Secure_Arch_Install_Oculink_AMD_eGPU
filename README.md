@@ -358,7 +358,7 @@ g) Check network:
 
     Configure /etc/mkinitcpio.d/linux.preset with kernel parameters: 
     cat <<'EOF' > /etc/mkinitcpio.d/linux.preset # Do not append UKI_OUTPUT_PATH directly to /etc/mkinitcpio.conf. 
-     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff tpm2-measure=yes"
+     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff tpm2-measure=yes amdgpu.dc=1 amdgpu.dpm=1"
      - default_uki="/boot/EFI/Linux/arch.efi"
      - all_config="/etc/mkinitcpio.conf"
     EOF
@@ -663,10 +663,15 @@ g) Check network:
     Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
 
     Install AMD eGPU drivers and firmware, ensuring Secure Boot compatibility.
-    -  pacman -S --noconfirm amd-ucode
+    -  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip libva-vdpau-driver
 
-    Sign Kernel Modules
+    Add amdgpu module for early KMS
+    -  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
+    -  mkinitcpio -P
+
+    Sign Kernel Modules for Secure Boot
     -  sbctl sign --all
+    -  find /lib/modules/$(uname -r)/kernel/drivers/gpu/drm -name "*.ko" -exec sbctl verify {} \;
 
     Verify eGPU Functionality
     -  lspci | grep -i vga
@@ -682,15 +687,51 @@ g) Check network:
     -  boltctl list
     -  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
 
+    Verify OCuLink dock detection for bolt
+    -  boltctl list | grep -i oculink
+    -  if [ $? -eq 0 ]; then
+    -  boltctl authorize <uuid>  #Replace with OCuLink device UUID
+    -  fi
+
     Enable PCIe hotplug:
     -  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
+
+    Add udev rule for OCuLink hotplugging
+    #Only add this udev in case hotplug doesn't work
+    -  cat << 'EOF' > /etc/udev/rules.d/99-oculink.rules
+    -  SUBSYSTEM=="pci", ACTION=="add", KERNEL=="0000:*:*.0", RUN+="/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
+    -  EOF
+    -  udevadm control --reload-rules
+    -  udevadm trigger
 
     Verify GPU switching:
     -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" # Should show AMD
     -  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" # For Intel iGPU
+    -  DRI_PRIME=1 vdpauinfo | grep -i radeonsi
 
     Verification step for OCuLink detection:
-    -  dmesg | grep -i "oculink\|pcieport" # If OCuLink isn’t detected, consider adding kernel parameters like pcie_ports=native or pcie_aspm=force in /boot/loader/entries/arch.conf
+    -  dmesg | grep -i "oculink\|pcieport" # If OCuLink isn’t detected, consider adding kernel parameters like pcie_ports=native or pcie_aspm=force or pciehp.pciehp_force=1 in /boot/loader/entries/arch.conf
+
+    Verify eGPU functionality
+    -  lspci | grep -i vga
+    -  lspci | grep -i "serial\|usb\|thunderbolt"
+    -  lspci -vv | grep -i "LnkSta"
+    -  dmesg | grep -i "oculink\|pcieport\|amdgpu\|jhl\|redriver"
+
+    Check for PCIe errors
+    -  dmesg | grep -i "pcieport\|error\|link"
+
+    Test PCIe bandwidth
+    #Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4).
+    -  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
+
+    Check OCuLink dock firmware
+    -  fwupdmgr get-devices | grep -i "oculink\|redriver"
+    -  fwupdmgr update
+
+    Confirm eGPU detection
+    -  lspci | grep -i amd
+    -  dmesg | grep -i amdgpu
     
 # Step 13: Configure Snapper and Backups
 
