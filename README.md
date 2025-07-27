@@ -668,6 +668,7 @@ g) Check network:
     Add amdgpu module for early KMS
     -  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
     -  mkinitcpio -P
+    - #if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter amdgpu.pcie_gen_cap=0x4
 
     AMD-specific power management options to complement i915 settings:
     -  echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
