@@ -196,7 +196,7 @@ g) Check network:
     -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
 
     Install base system and necessary packages:
-    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon
+    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak
 
     Chroot into the system:
     -  arch-chroot /mnt
@@ -488,9 +488,9 @@ g) Check network:
     Install Flatpak: pacman -S --needed flatpak
     Install Thinklmi to verify BIOS settings: pacman -S --needed thinklmi #Check BIOS settings: sudo thinklmi
 
-    Install applications via pacman,yay or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
+    Install applications via pacman,yay or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
 
-    Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter
+    Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter chkrootkit
     After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
 
     Configure Flatseal for Flatpak apps:
@@ -955,9 +955,11 @@ g) Check network:
     - To be refined savig the data in local server - check btrbk and restic
    
 # Step 18: Post-Installation Maintenance and Verification
-   a) Regular System Updates:
-     - Always update your system regularly: `sudo pacman -Syu`
-     - Check for AUR updates: `yay -Syu`
+  a) Regular System Updates:
+    - Always update your system regularly: 
+      -`sudo pacman -Syu`
+    - Check for AUR updates: 
+      - `yay -Syu`
 
   b) BTRFS Scrub:
     - Schedule weekly or monthly BTRFS scrubs to check for data integrity issues:
@@ -978,7 +980,13 @@ g) Check network:
   f) Perform Security Audits:
     - Run `lynis audit system` weekly/monthly (already scheduled by your timer).
     - Run `rkhunter --check` periodically.
+    - Run `chkrootkit --check` periodically.
     - Run `sudo usbguard generate-policy` if you add new USB devices and need to update rules.
+    #Daily rkhunter check, update properties after updates (You'll want to review /var/log/rkhunter.cronjob.log regularly for warnings.)
+    -  0 3 * * * /usr/bin/rkhunter --update --quiet && /usr/bin/rkhunter --propupd --quiet
+    -  0 4 * * * /usr/bin/rkhunter --check --cronjob > /var/log/rkhunter.cronjob.log 2>&1
+    #Daily chkrootkit check (Again, review the log file)
+    -  0 5 * * * /usr/sbin/chkrootkit > /var/log/chkrootkit.log 2>&1
 
   g) Verify Firmware Updates:
     - `fwupdmgr refresh` and `fwupdmgr update` periodically.
@@ -1064,3 +1072,27 @@ g) Check network:
  
     #Enable and start the timer
     systemctl enable --now arch-news.timer
+
+  j) Remove after installation: After completing the installation and verifying the system boots correctly, you can safely remove arch-install-scripts with:
+    - pacman -R arch-install-scripts
+
+  k) Set up a systemd timer for paccache to clean the cache weekly:
+    cat << 'EOF' > /etc/systemd/system/paccache.timer
+      [Unit]
+      Description=Clean Pacman cache weekly
+      [Timer]
+      OnCalendar=weekly
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+    EOF
+
+    cat << 'EOF' > /etc/systemd/system/paccache.service
+      [Unit]
+      Description=Clean Pacman cache
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/paccache -r
+    EOF
+
+    systemctl enable --now paccache.timer
