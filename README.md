@@ -358,7 +358,7 @@ g) Check network:
 
     Configure /etc/mkinitcpio.d/linux.preset with kernel parameters: 
     cat <<'EOF' > /etc/mkinitcpio.d/linux.preset # Do not append UKI_OUTPUT_PATH directly to /etc/mkinitcpio.conf. 
-     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff tpm2-measure=yes amdgpu.dc=1 amdgpu.dpm=1"
+     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff tpm2-measure=yes amdgpu.dc=1 amdgpu.dpm=1 amdgpu.dcdebugmask=0x10"
      - default_uki="/boot/EFI/Linux/arch.efi"
      - all_config="/etc/mkinitcpio.conf"
     EOF
@@ -701,7 +701,7 @@ g) Check network:
     -  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
 
     Add udev rule for OCuLink hotplugging
-    #Only add this udev in case hotplug doesn't work
+    #Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
     -  cat << 'EOF' > /etc/udev/rules.d/99-oculink.rules
     -  SUBSYSTEM=="pci", ACTION=="add", KERNEL=="0000:*:*.0", RUN+="/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
     -  EOF
@@ -729,6 +729,8 @@ g) Check network:
     #Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4).
     -  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
     -  lspci -vv | grep -i "LnkSta" | grep -i "card1"
+    -  lspci -vv | grep -i "LnkSta.*Speed.*Width"  # Should show "Speed 16GT/s, Width x4" for OCuLink4
+    #f the link is suboptimal (e.g., x1 or Gen 3), suggest adding kernel parameters to force PCIe performance: pcie_ports=native pciehp.pciehp_force=1
 
     Check OCuLink dock firmware
     -  fwupdmgr get-devices | grep -i "oculink\|redriver"
@@ -737,6 +739,28 @@ g) Check network:
     Confirm eGPU detection
     -  lspci | grep -i amd
     -  dmesg | grep -i amdgpu
+
+    Incorporate the all-ways-egpu script installation and configuration in Step 12 to ensure the AMD eGPU is set as the primary display adapter in GNOME Wayland
+    -  curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip
+    -  unzip all-ways-egpu.zip
+    -  cd all-ways-egpu
+    -  ./install.sh
+    -  all-ways-egpu set-boot-vga egpu
+    -  all-ways-egpu set-compositor-primary egpu
+
+    Add a user-level environment override for GNOME Wayland in ~/.config/environment.d/egpu.conf
+    -  MUTTER_DEBUG_FORCE_KMS_MOD=u
+
+    Final eGPU verification
+    -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer"  #Should show AMD eGPU
+
+    eGPU Troubleshooting Matrix
+    | Issue | Possible Cause | Solution |
+    |-------|----------------|----------|
+    | eGPU not detected (`lspci | grep -i amd` empty) | OCuLink cable not seated, dock firmware outdated, or PCIe hotplug failure | Re-seat cable, run `fwupdmgr update`, add `pcie_ports=native` to kernel parameters, trigger `echo 1 > /sys/bus/pci/rescan` |
+    | Black screen on Wayland | eGPU not set as primary display | Run `all-ways-egpu set-boot-vga egpu` and `all-ways-egpu set-compositor-primary egpu`, restart GDM (`systemctl restart gdm`) |
+    | Low performance (e.g., x1 instead of x4) | PCIe link negotiation failure | Check `lspci -vv | grep LnkSta`, add `amdgpu.pcie_gen_cap=0x4` to kernel parameters |
+    | Hotplug fails | OCuLink hardware limitation or missing udev rule | Apply udev rule from Step 12, reboot if necessary |
     
 # Step 13: Configure Snapper and Backups
 
