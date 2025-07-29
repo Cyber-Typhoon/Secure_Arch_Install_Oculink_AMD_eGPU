@@ -751,6 +751,9 @@ g) Check network:
     Add a user-level environment override for GNOME Wayland in ~/.config/environment.d/egpu.conf
     -  MUTTER_DEBUG_FORCE_KMS_MOD=u
 
+    Verify switcheroo-control for dynamic GPU switching
+    -  cat /sys/class/drm/card*/device/uevent | grep DRIVER  #Should show i915 and amdgpu
+
     Final eGPU verification
     -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer"  #Should show AMD eGPU
 
