@@ -747,6 +747,7 @@ g) Check network:
     Check OCuLink dock firmware
     -  fwupdmgr get-devices | grep -i "oculink\|redriver"
     -  fwupdmgr update
+    -  sbctl sign -s /efi/EFI/arch/fwupdx64.efi  # Re-sign fwupd EFI binary if updated
 
     Confirm eGPU detection
     -  lspci | grep -i amd
