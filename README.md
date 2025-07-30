@@ -22,7 +22,7 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
 
     Install Windows 11 Pro for BIOS/firmware updates via Lenovo Vantage. Allow Windows to create its default partitions, including a ~100-300 MB EFI System Partition (ESP) at /dev/nvme0n1p1. 
     Disable Windows Fast Startup to prevent ESP lockout (powercfg /h off).
-    Disable BitLocker if not needed (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:" c) powercfg /a
+    Disable BitLocker if not needed (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:" c) powercfg /h off
     Verify TPM 2.0 is active using tpm.msc. Clear TPM if previously provisioned.
     Verify Windows boots correctly and **check Resizable BAR sizes in Device Manager** or wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType or `dmesg | grep -i "BAR.*size"` (in Linux later).
     Check Oculink support 'dmidecode -s bios-version'
