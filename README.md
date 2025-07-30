@@ -668,7 +668,7 @@ g) Check network:
     Add amdgpu module for early KMS
     -  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
     -  mkinitcpio -P
-    - #if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter amdgpu.pcie_gen_cap=0x4
+    - #if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter. Example: options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1. Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
 
     AMD-specific power management options to complement i915 settings:
     -  echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
@@ -677,8 +677,18 @@ g) Check network:
     -  sbctl sign --all
     -  find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
 
-    Verify eGPU Functionality
-    -  lspci | grep -i vga
+    Install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland
+    -  cd ~; curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip; unzip all-ways-egpu.zip; cd all-ways-egpu-main; chmod +x install.sh; sudo ./install.sh; cd ../; rm -rf all-ways-egpu.zip all-ways-egpu-main 
+
+    Verify all-ways-egpu installation
+    -  sbctl verify /usr/bin/all-ways-egpu  #Ensure binary is signed for Secure Boot
+
+    Configure all-ways-egpu
+    -  all-ways-egpu setup
+    #During setup, choose "n" for "Attempt to re-enable these iGPU/initially disabled devices after boot" to avoid black screen with AMD eGPU:
+    -  all-ways-egpu set-boot-vga egpu
+    -  all-ways-egpu set-compositor-primary egpu
+    #Note: If Plymouth splash screen fails (e.g., blank screen), remove 'splash' from kernel parameters in /boot/loader/entries/arch.conf and regenerate UKI with `mkinitcpio -P` 
 
     Enable switcheroo-control for better integration:
     -  pacman -S switcheroo-control
@@ -709,6 +719,7 @@ g) Check network:
     -  udevadm trigger
 
     Verify GPU switching:
+    -  glxinfo | grep "OpenGL renderer"  # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary) 
     -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" # Should show AMD
     -  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" # For Intel iGPU
     -  DRI_PRIME=1 vdpauinfo | grep -i radeonsi
@@ -724,7 +735,8 @@ g) Check network:
 
     Check for PCIe errors
     -  dmesg | grep -i "pcieport\|error\|link"
-
+    -  cat /sys/class/drm/card*/device/uevent | grep DRIVER  #Should show i915 and amdgpu
+    
     Test PCIe bandwidth
     #Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4).
     -  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
@@ -739,23 +751,6 @@ g) Check network:
     Confirm eGPU detection
     -  lspci | grep -i amd
     -  dmesg | grep -i amdgpu
-
-    Incorporate the all-ways-egpu script installation and configuration in Step 12 to ensure the AMD eGPU is set as the primary display adapter in GNOME Wayland
-    -  curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip
-    -  unzip all-ways-egpu.zip
-    -  cd all-ways-egpu
-    -  ./install.sh
-    -  all-ways-egpu set-boot-vga egpu
-    -  all-ways-egpu set-compositor-primary egpu
-
-    Add a user-level environment override for GNOME Wayland in ~/.config/environment.d/egpu.conf
-    -  MUTTER_DEBUG_FORCE_KMS_MOD=u
-
-    Verify switcheroo-control for dynamic GPU switching
-    -  cat /sys/class/drm/card*/device/uevent | grep DRIVER  #Should show i915 and amdgpu
-
-    Final eGPU verification
-    -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer"  #Should show AMD eGPU
 
     eGPU Troubleshooting Matrix
     | Issue | Possible Cause | Solution |
