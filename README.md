@@ -295,13 +295,6 @@ g) Check network:
 
     Create and enroll your keys into the firmware:
      -  arch-chroot /mnt
-     #Enable GDM to test it honors Secure Boot by signing its binaries with MOK before enabling Secure Boot
-     -  systemctl enable gdm
-     -  cat << 'EOF' > /etc/gdm/custom.conf
-        -  [daemon]
-        -  WaylandEnable=true
-        -  DefaultSession=gnome-wayland.desktop
-     -  EOF
      -  sbctl create-keys
      -  sbctl enroll-keys --tpm-eventlog
      -  mkinitcpio -P  #Regenerate UKI first
@@ -314,6 +307,13 @@ g) Check network:
      -  sbctl verify /usr/lib/plymouth/plymouthd
      #If Plymouth binaries are unsigned, sign them:
      -  sbctl sign -s /usr/lib/plymouth/plymouthd
+
+    Check GDM compatibility with Secure Boot:
+     -  sbctl verify /usr/lib/gdm/gdm
+     #If GDM binaries are unsigned, sign them:
+     -  sbctl sign -s /usr/lib/gdm/gdm
+
+    Final Sign:
      -  sbctl sign --all
 
     Automatically sign updated EFI binaries:
@@ -511,6 +511,15 @@ g) Check network:
     Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter chkrootkit
     After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
 
+    Configure GDM:
+    -  cat << 'EOF' > /etc/gdm/custom.conf
+       -  [daemon]
+       -  WaylandEnable=true
+       -  DefaultSession=gnome-wayland.desktop
+    -  EOF
+    #Install GDM Settings tool for cosmetic changes
+    -  paru -S gdm-settings
+    
     Configure Flatseal for Flatpak apps:
     -  flatpak override --user --filesystem=home
     Allow GPU access for Steam:
