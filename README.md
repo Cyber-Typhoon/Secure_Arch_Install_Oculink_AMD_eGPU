@@ -196,7 +196,7 @@ g) Check network:
     -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
 
     Install base system and necessary packages:
-    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak
+    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak gdm
 
     Chroot into the system:
     -  arch-chroot /mnt
@@ -295,6 +295,13 @@ g) Check network:
 
     Create and enroll your keys into the firmware:
      -  arch-chroot /mnt
+     #Enable GDM to test it honors Secure Boot by signing its binaries with MOK before enabling Secure Boot
+     -  systemctl enable gdm
+     -  cat << 'EOF' > /etc/gdm/custom.conf
+        -  [daemon]
+        -  WaylandEnable=true
+        -  DefaultSession=gnome-wayland.desktop
+     -  EOF
      -  sbctl create-keys
      -  sbctl enroll-keys --tpm-eventlog
      -  mkinitcpio -P  #Regenerate UKI first
@@ -302,6 +309,11 @@ g) Check network:
      -  sbctl sign -s /boot/EFI/Linux/arch.efi
      -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
      -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
+
+    Check Plymouth compatibility with Secure Boot:
+     -  sbctl verify /usr/lib/plymouth/plymouthd
+     #If Plymouth binaries are unsigned, sign them:
+     -  sbctl sign -s /usr/lib/plymouth/plymouthd
      -  sbctl sign --all
 
     Automatically sign updated EFI binaries:
@@ -316,7 +328,7 @@ g) Check network:
      -  [Action]
      -  Description = Signing EFI binaries with sbctl
      -  When = PostTransaction
-     -  Exec = /usr/bin/sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/Linux/arch.efi /boot/EFI/Linux/arch-fallback.efi /boot/EFI/BOOT/BOOTX64.EFI /efi/EFI/arch/fwupdx64.efi 
+     -  Exec = /usr/bin/sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/Linux/arch.efi /boot/EFI/Linux/arch-fallback.efi /boot/EFI/BOOT/BOOTX64.EFI /efi/EFI/arch/fwupdx64.efi /usr/lib/plymouth/plymouthd
      EOF
 
     Reboot and enroll the keys when prompted by your UEFI BIOS:
