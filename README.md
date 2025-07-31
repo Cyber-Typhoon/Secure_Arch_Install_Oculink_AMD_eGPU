@@ -4,7 +4,7 @@ Installation Steps for a new Lenovo Thinkbook TGX (Oculink) Security Enhanced Ar
 # Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
 This action plan outlines the steps to install and configure Arch Linux on a Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H without dGPU but with Intel iGPU (Intel Arc 140T), **using GNOME Wayland, BTRFS, LUKS2, TPM2, AppArmor, systemd-boot with UKI, Secure Boot, and an OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**. This laptop has two M.2, we will have Windows in a slot to help updating BIOS and Firmware at least in the beginning.
 
-Observation: Not adopting linux-hardened kernel because of complexity in the setup.
+Observation: Not adopting linux-hardened kernel because of complexity in the setup using eGPU and performance penalty. Nevertheless, a lot of the security changes from the linux-hardened kernel are manually introduced. 
 
 **Attention:** Before executing commands, especially those involving **dd, mkfs, cryptsetup, parted, and efibootmgr, re-read them multiple times to ensure you understand their effect** and that the target device/partition is correct. Ensure LUKS and TPM unlocking work perfectly before touching Secure Boot, and ensure Secure Boot works before diving into the eGPU.
 
