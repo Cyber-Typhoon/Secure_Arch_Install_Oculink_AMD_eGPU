@@ -469,26 +469,31 @@ g) Check network:
 
     Update the system: pacman -Syu
     Install GNOME: pacman -S --needed gnome
-    Install Yay: git clone https://aur.archlinux.org/yay.git && cd yay && makepkg -si
-    -  Configure to show PKGBUILD diffs (edit the Yay config file):
-    -  yay -Y --editmenu
+    Install Paru: git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
+    -  Configure to show PKGBUILD diffs (edit the Paru config file):
+    -  paru -Y --editmenu
     -  diffmenu = true
     -  useask = true
-    -  Verify if Yay shows the PKGBUILD diffs
-    -  yay -Pg | grep -E 'diffmenu|answerdiff'
-    -  echo "BUILDDIR=$HOME/.cache/yay-build" >> /etc/makepkg.conf
-    -  echo 'export BUILDDIR=$HOME/.cache/yay-build' >> /home/<username>/.zshrc
+    -  CombinedUpgrade = false
+    -  PgpFetch = true
+    -  Verify if paru shows the PKGBUILD diffs
+    -  paru -Pg | grep -E 'diffmenu|answerdiff|combinedupgrade' #Should show: combinedupgrade: Off diffmenu: Edit answerdiff: Edit
+    -  echo "BUILDDIR=$HOME/.cache/paru-build" >> /etc/makepkg.conf
+    -  echo 'export BUILDDIR=$HOME/.cache/paru-build' >> /home/<username>/.zshrc
     -  chown <username>:<username> /home/<username>/.zshrc
-    -  mkdir -p ~/.cache/yay-build
-    Install Bubblejail: yay -S --needed bubblejail
-    Install Alacritty: pacman -S --needed alacritty #https://www.youtube.com/watch?v=76GbxnD8wnM
+    -  mkdir -p ~/.cache/paru-build
+    Install Bubblejail: paru -S --needed bubblejail
+    Install Alacritty with SIXEL support from ayosec/alacritty latest version, double check if this reamains the latest otherwise change v0.15.1-graphics: git clone https://aur.archlinux.org/alacritty-sixel-git.git
+      -  cd alacritty-sixel-git
+      -  sed -i 's/source=("git+.*"/source=("git+https:\/\/github.com\/ayosec\/alacritty.git#tag=v0.15.1-graphics"/' PKGBUILD))
+      -  paru -S --needed . && cd .. && rm -rf alacritty-sixel-git
     -  Configure Bubblejail for Alacritty: bubblejail create --profile generic-gui-app alacritty
     -  Allow eGPU access: bubblejail config alacritty --add-service wayland --add-service dri
     -  Test if is correct: bubblejail run Alacritty -- env | grep -E 'WAYLAND|XDG_SESSION_TYPE'
     Install Flatpak: pacman -S --needed flatpak
     Install Thinklmi to verify BIOS settings: pacman -S --needed thinklmi #Check BIOS settings: sudo thinklmi
 
-    Install applications via pacman,yay or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
+    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
 
     Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter chkrootkit
     After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
@@ -897,7 +902,7 @@ g) Check network:
 
 # Step 14: Configure Dotfiles
   - Install chezmoi:
-    - yay -S chezmoi
+    - paru -S chezmoi
     - chezmoi init --apply
     - chezmoi add ~/.zshrc
     - chezmoi add -r ~/.config/gnome
@@ -936,14 +941,14 @@ g) Check network:
    - snapper --config root create --description "Test snapshot"
    - snapper list
  - Test Timers
-   - journalctl -u yay-update.timer
+   - journalctl -u paru-update.timer
    - journalctl -u snapper-timeline.timer
    - journalctl -u fstrim.timer
    - journalctl -u lynis-audit.timer
  - Stress Test
    Run stress tests incrementally:
    - stress-ng --cpu 2 --io 1 --vm 1 --vm-bytes 512M --timeout 24h
-   - yay -S stress-ng memtester fio
+   - paru -S stress-ng memtester fio
    - stress-ng --cpu 4 --io 2 --vm 2 --vm-bytes 1G --timeout 72h
    - memtester 1024 5
    - fio --name=write_test --filename=/data/fio_test --size=1G --rw=write
@@ -953,7 +958,7 @@ g) Check network:
    - auditctl -l
    - apparmor_status 
  - Test AUR builds with /tmp (no noexec)
-   - yay --builddir ~/.cache/yay_build
+   - paru --builddir ~/.cache/paru_build
  - Verify Security Boot
    - mokutil --sb-state
  - Verify fwupd (configured in Step 11)
@@ -982,7 +987,7 @@ g) Check network:
     - Always update your system regularly: 
       -`sudo pacman -Syu`
     - Check for AUR updates: 
-      - `yay -Syu`
+      - `paru -Syu`
 
   b) BTRFS Scrub:
     - Schedule weekly or monthly BTRFS scrubs to check for data integrity issues:
@@ -1019,7 +1024,7 @@ g) Check network:
     - `journalctl -p 3` (all errors)
 
   i) Test AUR builds with /tmp (if noexec applied):**
-    - If you encounter issues, consider configuring `yay` to use a different build directory (e.g., `yay --builddir ~/.cache/yay_build`) or temporarily removing `noexec` from `/tmp` for builds, then re-adding it. (This point is already in your Step 15, but it's good to reiterate it in maintenance as it's an ongoing consideration).
+    - If you encounter issues, consider configuring `paru` to use a different build directory (e.g., `paru --builddir ~/.cache/paru_build`) or temporarily removing `noexec` from `/tmp` for builds, then re-adding it. (This point is already in your Step 15, but it's good to reiterate it in maintenance as it's an ongoing consideration).
 
   j) Schedule periodic BTRFS balance:
     cat <<'EOF' > /etc/systemd/system/btrfs-balance.timer
@@ -1041,13 +1046,16 @@ g) Check network:
     -  systemctl enable --now btrfs-balance.timer
 
   k) Automation? script to automate common maintenance tasks:
+    cat << 'EOF' > /usr/local/bin/maintain.sh
     #!/bin/bash
     pacman -Syu
-    yay -Syu
+    paru -Syu
     btrfs scrub start /
     snapper list
     aide --check
     lynis audit system
+    EOF
+    chmod +x /usr/local/bin/maintain.sh
 
     Save it as /usr/local/bin/maintain.sh and run it weekly via a systemd timer.
 
