@@ -705,7 +705,38 @@ g) Check network:
     -  sbctl sign --all
     -  find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
 
-    Install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland
+    Install supergfxctl from the AUR
+    -  git clone https://aur.archlinux.org/supergfxctl.git
+    -  cd supergfxctl
+    -  makepkg -si
+    -  cd .. && rm -rf supergfxctl
+
+    Enable supergfxd service for GPU switching
+    -  systemctl enable --now supergfxd
+
+    Configure supergfxctl for AMD eGPU and OCuLink hotplugging
+    -  cat << 'EOF' > /etc/supergfxd.conf
+      -  "mode": "Hybrid",
+      -  "vfio_enable": true,
+      -  "vfio_save": false,
+      -  "always_reboot": false,
+      -  "no_logind": true,
+      -  "logout_timeout_s": 180,
+      -  "hotplug_type": "Asus"
+    -  EOF
+
+    #If there are issues in power management add the following, otherwise skip (TLP configured to avoid GPU power management conflicts with supergfxctl.")
+    -  cat << 'EOF' > /etc/tlp.conf
+      -  #Exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
+      -  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915"
+    -  EOF
+    -  systemctl restart tlp
+
+    Sign supergfxctl binaries for Secure Boot
+    -  sbctl sign -s /usr/bin/supergfxctl
+    -  sbctl sign -s /usr/lib/supergfxctl/supergfxd
+
+    #If supergfxctl do not handle the hotplug try to install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland -- this is a fallback plan, should not be used at first. First test the setup without, in other words skip to the switcheroo-control setup below
     -  cd ~; curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip; unzip all-ways-egpu.zip; cd all-ways-egpu-main; chmod +x install.sh; sudo ./install.sh; cd ../; rm -rf all-ways-egpu.zip all-ways-egpu-main 
 
     Verify all-ways-egpu installation
@@ -746,11 +777,20 @@ g) Check network:
     -  udevadm control --reload-rules
     -  udevadm trigger
 
+    Configure systemd-logind for rebootless switching fallback
+    -  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
+    -  systemctl restart systemd-logind
+    
     Verify GPU switching:
+    -  supergfxctl -s # Show supported modes
+    -  supergfxctl -g # Get current mode
+    -  supergfxctl -S # Check current power status
+    -  supergfxctl -m Hybrid # Set to Hybrid mode
     -  glxinfo | grep "OpenGL renderer"  # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary) 
     -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" # Should show AMD
     -  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" # For Intel iGPU
     -  DRI_PRIME=1 vdpauinfo | grep -i radeonsi
+    -  supergfxctl -m VFIO # Test VFIO mode for VM
 
     Verification step for OCuLink detection:
     -  dmesg | grep -i "oculink\|pcieport" # If OCuLink isn’t detected, consider adding kernel parameters like pcie_ports=native or pcie_aspm=force or pciehp.pciehp_force=1 in /boot/loader/entries/arch.conf
@@ -759,6 +799,7 @@ g) Check network:
     -  lspci | grep -i vga
     -  lspci | grep -i "serial\|usb\|thunderbolt"
     -  lspci -vv | grep -i "LnkSta"
+    -  lspci -k | grep -i vfio # Verify VFIO binding
     -  dmesg | grep -i "oculink\|pcieport\|amdgpu\|jhl\|redriver"
 
     Check for PCIe errors
@@ -1077,6 +1118,7 @@ g) Check network:
     snapper list
     aide --check
     lynis audit system
+    supergfxctl -g
     EOF
     chmod +x /usr/local/bin/maintain.sh
 
