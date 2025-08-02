@@ -325,6 +325,7 @@ g) Check network:
      -  Target = systemd
      -  Target = linux
      -  Target = fwupd
+     -  Target = plymouth
      -  [Action]
      -  Description = Signing EFI binaries with sbctl
      -  When = PostTransaction
