@@ -326,10 +326,12 @@ g) Check network:
      -  Target = linux
      -  Target = fwupd
      -  Target = plymouth
+     -  Target = astal
+     -  Target = ags
      -  [Action]
      -  Description = Signing EFI binaries with sbctl
      -  When = PostTransaction
-     -  Exec = /usr/bin/sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/Linux/arch.efi /boot/EFI/Linux/arch-fallback.efi /boot/EFI/BOOT/BOOTX64.EFI /efi/EFI/arch/fwupdx64.efi /usr/lib/plymouth/plymouthd
+     -  Exec = /usr/bin/sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/Linux/arch.efi /boot/EFI/Linux/arch-fallback.efi /boot/EFI/BOOT/BOOTX64.EFI /efi/EFI/arch/fwupdx64.efi /usr/lib/plymouth/plymouthd /usr/lib/plymouth/plymouthd /usr/bin/astal /usr/bin/ags
      EOF
 
     Reboot and enroll the keys when prompted by your UEFI BIOS:
@@ -504,10 +506,16 @@ g) Check network:
     -  Configure Bubblejail for Alacritty: bubblejail create --profile generic-gui-app alacritty
     -  Allow eGPU access: bubblejail config alacritty --add-service wayland --add-service dri
     -  Test if is correct: bubblejail run Alacritty -- env | grep -E 'WAYLAND|XDG_SESSION_TYPE'
+    -  Install Astal: paru -S astal-git ags-git 
+    -  Sign Astal and AGS: sbctl sign -s /usr/bin/astal && /usr/bin/ags
+    -  Configure Bubblejail for Astal: bubblejail create --profile generic-gui-app astal
+    -  Configure Bubblejail access for Astal: bubblejail config astal --add-service wayland --add-service dri
+    -  Test if is correct: bubblejail run astal -- ags -c ~/.config/astal/system-monitor.ts
+    
     Install Flatpak: pacman -S --needed flatpak
     Install Thinklmi to verify BIOS settings: pacman -S --needed thinklmi #Check BIOS settings: sudo thinklmi
-
-    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
+    
+    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git vala gjs fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
 
     Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter chkrootkit
     After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
@@ -525,6 +533,19 @@ g) Check network:
     -  flatpak override --user --filesystem=home
     Allow GPU access for Steam:
     -  flatpak override --user com.valvesoftware.Steam --device=dri
+
+    Enroll Astal and AGS keys into the firmware:
+    #Verify the binaries exist before signing
+    -  ls /usr/bin/astal /usr/bin/ags
+    -  echo "Target = astal-git" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+    -  echo "Target = ags-git" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+    -  echo "/usr/bin/astal /usr/bin/ags" | sed -i '/Exec =/ s|$| /usr/bin/astal /usr/bin/ags|' /etc/pacman.d/hooks/91-sbctl-sign.hook
+    #Test the hook after installation
+    -  pacman -S astal-git  #Simulate an update
+    -  sbctl verify /usr/bin/astal  #Should show "signed"
+
+    Check Secure Boot Violations:
+    -  dmesg | grep -i "secureboot.*failed" #If a binary fails to execute due to Secure Boot, sbctl verify <binary> will show “unsigned.”
 
 # Step 11: Configure Power Management, Security and Privacy
 
@@ -748,6 +769,11 @@ g) Check network:
     Verify all-ways-egpu installation
     -  sbctl verify /usr/bin/all-ways-egpu  #Ensure binary is signed for Secure Boot
 
+    Sign all-ways-egpu
+    -  sbctl sign -s /usr/bin/all-ways-egpu
+    -  echo "Target = all-ways-egpu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+    -  echo "/usr/bin/all-ways-egpu" | sed -i '/Exec =/ s|$| /usr/bin/all-ways-egpu|' /etc/pacman.d/hooks/91-sbctl-sign.hook
+
     Configure all-ways-egpu
     -  all-ways-egpu setup
     #During setup, choose "n" for "Attempt to re-enable these iGPU/initially disabled devices after boot" to avoid black screen with AMD eGPU:
@@ -794,6 +820,16 @@ g) Check network:
     -  echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
     -  mkinitcpio -P
     -  echo "NOTE: Replace '1002:xxxx' with actual AMD eGPU PCIe IDs from 'lspci -nn | grep -i amd'."
+
+    Chek if vfio and qemu needs to be signed
+    -  sbctl verify /usr/bin/qemu-system-x86_64
+    -  sbctl verify /usr/lib/libvirt/libvirtd
+    #If unsigned, sign and add to the pacman hook
+    -  sbctl sign -s /usr/bin/qemu-system-x86_64
+    -  sbctl sign -s /usr/lib/libvirt/libvirtd
+    -  echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+    -  echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+    -  echo "/usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd" | sed -i '/Exec =/ s|$| /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
     
     Verify GPU switching:
     -  supergfxctl -s # Show supported modes
@@ -1133,6 +1169,7 @@ g) Check network:
     aide --check
     lynis audit system
     supergfxctl -g
+    su - <username> -c "pgrep ags || ags -c /home/<username>/.config/astal/security-dashboard.ts &"
     EOF
     chmod +x /usr/local/bin/maintain.sh
 
@@ -1206,3 +1243,55 @@ g) Check network:
     EOF
 
     systemctl enable --now paccache.timer
+
+  l) Astal integrety security checker:
+    #Create a security dashboard widget
+    mkdir -p ~/.config/astal
+    cat << 'EOF' > ~/.config/astal/security-dashboard.ts
+      import { exec } from 'astal';
+      const lynisOutput = exec('sudo tail -n 10 /var/log/lynis.log | grep -i warning');
+      const rkhunterOutput = exec('sudo tail -n 10 /var/log/rkhunter.cronjob.log');
+      const snapperStatus = exec('snapper list | tail -n 5');
+      const securityWidget = new Widget({
+        type: 'scroller',
+        content: `
+          <b>Lynis Warnings:</b>\n${lynisOutput}\n
+          <b>Rkhunter Log:</b>\n${rkhunterOutput}\n
+          <b>Snapper Status:</b>\n${snapperStatus}
+        `,
+      });
+      const window = new Window({
+        title: 'Security Dashboard',
+        widgets: [securityWidget],
+      });
+      window.show();
+      EOF
+      #Compile and run the widget
+      ags -c ~/.config/astal/security-dashboard.ts
+
+      #Automation Script to refresh Astal widgets
+      cat << 'EOF' >> /usr/local/bin/maintain.sh
+      #Refresh Astal widgets
+        ags -c ~/.config/astal/security-dashboard.ts &
+      EOF
+
+      #Create a systemd service for persistent widgets
+      cat << 'EOF' > /etc/systemd/system/astal-widgets.service
+        [Unit]
+        Description=Security Widgets
+        After=gdm.service
+        [Service]
+        Type=simple
+        ExecStart=/usr/bin/bubblejail run astal -- /usr/bin/ags -c /home/<username>/.config/astal/security-dashboard.ts #Replace <username> with the actual username (e.g., john)
+        Restart=always
+        User=<username>
+        Environment="GDK_BACKEND=wayland"
+        [Install]
+        WantedBy=graphical.target
+      EOF
+      systemctl enable --now astal-widgets.service
+
+      #Ensure ~/.config/astal/security-dashboard.ts is readable by <username>:
+      chown <username>:<username> /home/<username>/.config/astal/security-dashboard.ts
+      chmod 644 /home/<username>/.config/astal/security-dashboard.ts
+      
