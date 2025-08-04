@@ -1261,7 +1261,7 @@ g) Check network:
     
     systemctl enable --now maintain.timer
     systemctl enable --now paccache.timer
-
+    
   l) Astal integrety security checker:
     #Create a security dashboard widget
     mkdir -p ~/.config/astal
