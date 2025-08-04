@@ -196,7 +196,7 @@ g) Check network:
     -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
 
     Install base system and necessary packages:
-    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak gdm
+    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak gdm acpi acpid laptop-mode-tools thermald intel-gpu-tools nvme-cli wireless-regdb ethool
 
     Chroot into the system:
     -  arch-chroot /mnt
@@ -513,7 +513,7 @@ g) Check network:
     
     Install Thinklmi to verify BIOS settings: pacman -S --needed thinklmi #Check BIOS settings: sudo thinklmi
     
-    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git vala gjs fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch
+    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak networkmanager bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh snapper fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git vala gjs fwupd xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch timeshift baobab gnome-system-monitor hardened-malloc wireguard-tools vulkan-tools libva-utils clinfo mangohud obs-studio inkscape 
 
     Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter chkrootkit
     After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
