@@ -326,8 +326,6 @@ g) Check network:
      -  Target = linux
      -  Target = fwupd
      -  Target = plymouth
-     -  Target = astal
-     -  Target = ags
      -  [Action]
      -  Description = Signing EFI binaries with sbctl
      -  When = PostTransaction
@@ -507,7 +505,8 @@ g) Check network:
     -  Allow eGPU access: bubblejail config alacritty --add-service wayland --add-service dri
     -  Test if is correct: bubblejail run Alacritty -- env | grep -E 'WAYLAND|XDG_SESSION_TYPE'
     -  Install Astal: paru -S astal-git ags-git 
-    -  Sign Astal and AGS: sbctl sign -s /usr/bin/astal && /usr/bin/ags
+    -  Check if need to sign Astal and AGS: dmesg | grep -i "secureboot.*failed.*astal" && dmesg | grep -i "secureboot.*failed.*ags" #If no violations occur, you can skip signing and remove the sbctl sign and hook creation for Astal/AGS.
+    -  Sign Astal and AGS: sbctl sign -s /usr/bin/astal /usr/bin/ags
     -  Configure Bubblejail for Astal: bubblejail create --profile generic-gui-app astal
     -  Configure Bubblejail access for Astal: bubblejail config astal --add-service wayland --add-service dri
     -  Test if is correct: bubblejail run astal -- ags -c ~/.config/astal/system-monitor.ts
@@ -1242,6 +1241,25 @@ g) Check network:
       ExecStart=/usr/bin/paccache -r
     EOF
 
+    #Timer creation
+    cat << 'EOF' > /etc/systemd/system/maintain.timer
+      [Unit]
+      Description=Run maintenance tasks weekly
+      [Timer]
+      OnCalendar=weekly
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+    EOF
+    cat << 'EOF' > /etc/systemd/system/maintain.service
+      [Unit]
+      Description=Run maintenance tasks
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/bash /usr/local/bin/maintain.sh
+    EOF
+    
+    systemctl enable --now maintain.timer
     systemctl enable --now paccache.timer
 
   l) Astal integrety security checker:
@@ -1249,9 +1267,9 @@ g) Check network:
     mkdir -p ~/.config/astal
     cat << 'EOF' > ~/.config/astal/security-dashboard.ts
       import { exec } from 'astal';
-      const lynisOutput = exec('sudo tail -n 10 /var/log/lynis.log | grep -i warning');
-      const rkhunterOutput = exec('sudo tail -n 10 /var/log/rkhunter.cronjob.log');
-      const snapperStatus = exec('snapper list | tail -n 5');
+      const lynisOutput = exec('sudo tail -n 10 /var/log/lynis.log | grep -i warning') || 'Lynis: No warnings or error running command';
+      const rkhunterOutput = exec('sudo tail -n 10 /var/log/rkhunter.cronjob.log') || 'Rkhunter: No logs or error running command';
+      const snapperStatus = exec('snapper list | tail -n 5') || 'Snapper: No snapshots or error running command';
       const securityWidget = new Widget({
         type: 'scroller',
         content: `
@@ -1266,14 +1284,22 @@ g) Check network:
       });
       window.show();
       EOF
+      chmod g+r /var/log/lynis.log /var/log/rkhunter.cronjob.log
       #Compile and run the widget
       ags -c ~/.config/astal/security-dashboard.ts
 
       #Automation Script to refresh Astal widgets
       cat << 'EOF' >> /usr/local/bin/maintain.sh
-      #Refresh Astal widgets
-        ags -c ~/.config/astal/security-dashboard.ts &
+        -  pacman -Syu
+        -  paru -Syu
+        -  btrfs scrub start /
+        -  snapper list
+        -  aide --check
+        -  lynis audit system
+        -  supergfxctl -g
+        -  su - <username> -c "pgrep ags || /usr/bin/bubblejail run astal -- /usr/bin/ags -c /home/<username>/.config/astal/security-dashboard.ts &" #Replace <username> with the actual username (e.g., john)
       EOF
+      chmod +x /usr/local/bin/maintain.sh
 
       #Create a systemd service for persistent widgets
       cat << 'EOF' > /etc/systemd/system/astal-widgets.service
