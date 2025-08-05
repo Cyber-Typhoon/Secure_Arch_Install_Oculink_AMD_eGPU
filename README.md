@@ -27,12 +27,17 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
     Verify Windows boots correctly and **check Resizable BAR sizes in Device Manager** or wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType or `dmesg | grep -i "BAR.*size"` (in Linux later).
     Check Oculink support 'dmidecode -s bios-version'
     Verify NVMe drives **Windows Disk Management**.
+    Back up the Windows EFI partition UUID: blkid | grep /dev/nvme0n1p1 > /mnt/usb/windows-esp-uuid.txt (Store this on a USB or in Bitwarden.)
 
 Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/), [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) and [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
+
+#Milestone 1: After Step 2 (Windows Installation) - Can pause at this point
 
 # Step 3: Prepare Installation Media
     Download the latest Arch Linux ISO from archlinux.org.
     Verify the ISO signature and create a bootable USB drive.
+    Verify network connectivity
+    -  ping -c 3 archlinux.org
 
 # Step 4: Pre-Arch Installation Steps
 
@@ -182,6 +187,8 @@ f) Generate fstab:
       - cat /mnt/etc/fstab
       - blkid | grep -E "$ROOT_UUID|$LUKS_UUID|$ARCH_ESP_UUID|$WINDOWS_ESP_UUID"
 
+#Milestone 2: After Step 4f (fstab Generation) - Can pause at this point
+
 g) Check network:
 
       - ping -c 3 archlinux.org
@@ -242,6 +249,8 @@ g) Check network:
       - sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
       - 127.0.0.1 l
 
+#Milestone 3: After Step 6 (System Configuration) - Can pause at this point
+
 # Step 7: Set Up TPM and LUKS2
 
     Install tpm2-tools and dependencies: 
@@ -290,6 +299,8 @@ g) Check network:
       - umount -R /mnt
       - reboot
       #Verify that TPM2 automatically unlocks the LUKS2 partition without requiring a passphrase. Repeat 3–5 times to ensure reliability. If unlocking fails, boot with the recovery passphrase, recheck TPM2 configuration, and verify PCR values.
+
+#Milestone 4: After Step 7 (TPM and LUKS2 Setup, Before Secure Boot) - Can stop at this point
 
 # Step 8: Configure Secure Boot
 
@@ -479,6 +490,8 @@ g) Check network:
     -  chattr +C /home
     -  homectl create username --storage=luks --fs-type=btrfs --shell=/bin/zsh --member-of=wheel --disk-size=500G
 
+#Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can stop at this point
+
 # Step 10: Install and Configure DE and Applications
 
     Update the system: pacman -Syu
@@ -517,6 +530,10 @@ g) Check network:
 
     Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter chkrootkit
     After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
+
+    Check if services failed to initiate:
+    -  systemctl --failed
+    -  journalctl -p 3 -xb
 
     Configure GDM:
     -  cat << 'EOF' > /etc/gdm/custom.conf
@@ -704,6 +721,8 @@ g) Check network:
     -  echo "NOTE: fwupd updates may change PCR 0, requiring TPM re-enrollment. Back up the LUKS passphrase in Bitwarden and run 'systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2' if unlocking fails."
     #Note: Firmware updates may change TPM PCR values (e.g., PCR 0). Back up LUKS recovery passphrase and re-enroll TPM if unlocking fails:
     -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+
+#Milestone 6: After Step 11 - Can stop at this point
 
 # Step 12: Configure eGPU (AMD)
 
