@@ -31,6 +31,28 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
 
 Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/), [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) and [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
 
+    Disables diagnostic data, feedback, and telemetry services (powershell):
+    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowTelemetry" -Value 0
+    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0
+    -  Stop-Service -Name "DiagTrack" -Force
+    -  Set-Service -Name "DiagTrack" -StartupType Disabled
+
+    Restrict App Permissions:
+    -  Open Settings > Privacy & Security > General:
+      - Turn off “Let apps show me personalized ads”.
+      - Turn off “Let Windows improve Start and search”.
+
+    Disables Cortana and web search in Start menu (powershell):
+    -  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "AllowCortana" -Value 0
+    -  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0
+
+    Uninstalls preinstalled apps (e.g., Xbox, Candy Crush) (powershell):
+    -  Get-AppxPackage -AllUsers *Xbox* | Remove-AppxPackage
+    -  Get-AppxPackage -AllUsers *CandyCrush* | Remove-AppxPackage
+    -  Get-AppxPackage -AllUsers *Microsoft.3DBuilder* | Remove-AppxPackage
+
+    Enable tamper protection and real-time protection via Settings > Windows Security > Virus & Threat Protection.
+    
 #Milestone 1: After Step 2 (Windows Installation) - Can pause at this point
 
 # Step 3: Prepare Installation Media
@@ -548,6 +570,10 @@ g) Check network:
     -  flatpak override --user --filesystem=home
     Allow GPU access for Steam:
     -  flatpak override --user com.valvesoftware.Steam --device=dri
+
+    Enable hardened-malloc Globally:
+    -  echo "LD_PRELOAD=/usr/lib/libhardened_malloc.so" >> /etc/environment
+    #If specific apps (e.g., Steam, OBS) crash, apply hardened-malloc selectively via Bubblejail/Flatpak -- bubblejail config <app> --unset-env LD_PRELOAD
 
     Enroll Astal and AGS keys into the firmware:
     #Verify the binaries exist before signing
