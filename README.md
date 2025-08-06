@@ -605,6 +605,7 @@ g) Check network:
     Allow GPU access for Steam:
     -  flatpak override --user com.valvesoftware.Steam --device=dri
 
+    #DO NOT ADOPT THIS FOR NOW -- IT MAY INTRODUCE ADDITIONAL OVERHEAD IN USABILITY
     Enable hardened-malloc Globally:
     -  echo "LD_PRELOAD=/usr/lib/libhardened_malloc.so" >> /etc/environment
     #If specific apps (e.g., Steam, OBS) crash, apply hardened-malloc selectively via Bubblejail/Flatpak -- bubblejail config <app> --unset-env LD_PRELOAD
