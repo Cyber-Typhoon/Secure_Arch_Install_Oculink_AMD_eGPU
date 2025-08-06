@@ -32,8 +32,10 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
 
 Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/), [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) and [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
 
+    Before start the next steps backup privacy settings (powershell):
+    -  reg export "HKLM\SOFTWARE\Policies\Microsoft\Windows" C:\privacy.reg
+
     Disables diagnostic data, feedback, and telemetry services (powershell):
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowTelemetry" -Value 0
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0
     -  Stop-Service -Name "DiagTrack" -Force
     -  Set-Service -Name "DiagTrack" -StartupType Disabled
@@ -44,7 +46,7 @@ Review the guides for additional Privacy on the post installation [Group Police]
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowDeviceNameInTelemetry" -Value 0
     -  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" -Name "Enabled" -Value 0
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 0
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DisableWindowsUpdateAccess" -Value 1
+    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\NetSh" -Name "MeteredConnection" -Value 1
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name "AllowMUUpdateService" -Value 0
     -  Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "`n0.0.0.0 vortex.data.microsoft.com`n0.0.0.0 settings-win.data.microsoft.com`n0.0.0.0 watson.telemetry.microsoft.com"
     -  Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("9.9.9.9","149.112.112.112")
@@ -62,11 +64,14 @@ Review the guides for additional Privacy on the post installation [Group Police]
     -  Get-AppxPackage -AllUsers *Xbox* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *CandyCrush* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *Microsoft.3DBuilder* | Remove-AppxPackage
-    -  Get-AppxPackage -AllUsers | Where-Object {$_.Name -notlike "*Store*" -and $_.Name -notlike "*Calculator*" -and $_.Name -notlike "*Photos*"} | Remove-AppxPackage
+    -  Get-AppxPackage -AllUsers *MicrosoftNews* | Remove-AppxPackage
+    -  Get-AppxPackage -AllUsers *Weather* | Remove-AppxPackage
+    -  Get-AppxPackage -AllUsers *Teams* | Remove-AppxPackage
 
     Disable cloud-based protection and sample submission to prevent data uploads (powershell):
     -  Set-MpPreference -MAPSReporting Disabled
     -  Set-MpPreference -SubmitSamplesConsent 2
+    -  Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $true -DisableScriptScanning $true
 
     Disable unnecessary services (e.g., Xbox Live, Game Bar) that might run in the background (powershell):
     -  Stop-Service -Name "XboxGipSvc" -Force
@@ -139,6 +144,7 @@ c) Set Up LUKS2 Encryption for the BTRFS file system:
     lsblk
     mount /dev/sdX1 /mnt/usb # **Replace sdX1 with USB partition confirmed via lsblk previously executed**
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
+    shred -u /mnt/crypto_keyfile
     echo "WARNING: Store the LUKS keyfile securely in Bitwarden for recovery purposes."
 
 d) Create BTRFS Filesystem and Subvolumes:
@@ -263,8 +269,6 @@ g) Check network:
     Keyring initialization:
     - nano /etc/pacman.conf uncomment [multilib]
     - add **Include = /etc/pacman.d/mirrorlist** below the [core], [extra], [community], and [multilib] sections in /etc/pacman.conf
-    - pacman-key --init
-    - pacman-key --populate archlinux
     - pacman -Sy
     - pacman -Syy
 
@@ -295,7 +299,6 @@ g) Check network:
       - passwd <username>
     - Configure `sudo`:
       - sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
-      - 127.0.0.1 l
 
 #Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
@@ -372,8 +375,8 @@ g) Check network:
      #If GDM binaries are unsigned, sign them:
      -  sbctl sign -s /usr/lib/gdm/gdm
 
-    Final Sign:
-     -  sbctl sign --all
+    Verification step for MOK enrollment:
+     -  mokutil --list-enrolled
 
     Automatically sign updated EFI binaries:
      cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
@@ -468,6 +471,11 @@ g) Check network:
 
     Perform a sanity check on the value in the resume_offset:
     -  grep resume_offset /mnt/etc/fstab /boot/loader/entries/arch.conf # ensure the numerical value (e.g., resume_offset=12345678) is present and not a variable.
+    #if above doesn't work uses the following:
+    -  grep resume_offset /etc/fstab /boot/loader/entries/arch.conf
+
+    Step to verify UKI integrity:
+    -  sbctl verify /boot/EFI/Linux/arch.efi
 
     Set Boot Order:
     -  BOOT_ARCH=$(efibootmgr | grep 'Arch Linux' | awk '{print $1}' | sed 's/Boot//;s/*//')
@@ -692,7 +700,7 @@ g) Check network:
     Configure usbguard with GSConnect exception:
     -  usbguard generate-policy > /etc/usbguard/rules.conf
     Test usbguard rules before enabling:
-    -  usbguard list-devices # Identify GSConnect device ID
+    -  usbguard list-devices | grep -i "GSConnect\|KDEConnect" # Identify GSConnect device ID
     -  usbguard allow-device <device-id> # For GSConnect and other known devices
     If passed the USB test enable it:
     -  systemctl enable --now usbguard
@@ -773,6 +781,10 @@ g) Check network:
     -  echo "NOTE: fwupd updates may change PCR 0, requiring TPM re-enrollment. Back up the LUKS passphrase in Bitwarden and run 'systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2' if unlocking fails."
     #Note: Firmware updates may change TPM PCR values (e.g., PCR 0). Back up LUKS recovery passphrase and re-enroll TPM if unlocking fails:
     -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+
+    Configure opensnitch:
+    -  systemctl enable --now opensnitch
+    -  opensnitch-ui
 
 #Milestone 6: After Step 11 - Can stop at this point
 
@@ -886,9 +898,11 @@ g) Check network:
     -  pacman -S --needed qemu libvirt virt-manager
     -  systemctl enable --now libvirtd
     -  echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
+    -  fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
+    -  echo "NOTE: Replace '1002:xxxx' with actual AMD eGPU PCIe IDs from 'lspci -nn | grep -i amd'."
     -  echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
     -  mkinitcpio -P
-    -  echo "NOTE: Replace '1002:xxxx' with actual AMD eGPU PCIe IDs from 'lspci -nn | grep -i amd'."
+
 
     Chek if vfio and qemu needs to be signed
     -  sbctl verify /usr/bin/qemu-system-x86_64
