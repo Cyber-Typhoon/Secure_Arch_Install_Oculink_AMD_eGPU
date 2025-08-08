@@ -19,13 +19,13 @@ Observation: Not adopting linux-hardened kernel because of complexity in the set
 Follow some of the installations Privacy advises from the Privacy Guides Wiki Minimizing [Windows 11 Data Collection](https://discuss.privacyguides.net/t/minimizing-windows-11-data-collection/28193)
 
     Install Windows 11 Pro for BIOS/firmware updates via Lenovo Vantage. Allow Windows to create its default partitions, including a ~100-300 MB EFI System Partition (ESP) at /dev/nvme0n1p1. 
-    Disable Windows Fast Startup to prevent ESP lockout (powercfg /h off).
-    Disable BitLocker if not needed (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:" c) powercfg /h off
+    Disable Windows Fast Startup to prevent ESP lockout: powercfg /h off
+    Disable BitLocker (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:"
+    Disable Secure Boot temporarily in UEFI.
     Verify TPM 2.0 is active using tpm.msc. Clear TPM if previously provisioned.
     Verify Windows boots correctly and **check Resizable BAR sizes in Device Manager** or wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType or `dmesg | grep -i "BAR.*size"` (in Linux later).
     Verify NVMe drives **Windows Disk Management**.
-    Back up the Windows EFI partition UUID: blkid | grep /dev/nvme0n1p1 > /mnt/usb/windows-esp-uuid.txt (Store this on a USB or in Bitwarden.)
-
+    
 Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/) and [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) 
 
     Before start the next steps backup privacy settings (powershell):
@@ -68,18 +68,27 @@ Review the guides for additional Privacy on the post installation [Group Police]
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableSoftLanding" -Value 1
     
     Enable tamper protection and real-time protection via Settings > Windows Security > Virus & Threat Protection.
+
+    Back up the Windows EFI partition UUID - (powershell, store this on a USB or in Bitwarden):
+    -  Insert a USB drive (e.g., F:)
+    -  Mount the ESP: mountvol Z: /S
+    -  Back up the ESP contents: robocopy Z:\ F:\EFI-Backup /MIR /XJ #Replace F: with the USB drive letter
+    -  Record the ESP UUID: Get-Partition -DiskNumber 0 -PartitionNumber 1 | Select-Object -ExpandProperty Guid | Out-File F:\windows-esp-uuid.txt
+    -  Unmount the ESP: mountvol Z: /D
+    -  Store F:\EFI-Backup and F:\windows-esp-uuid.txt securely (e.g., Bitwarden or encrypted cloud).    
     
 #Milestone 1: After Step 2 (Windows Installation) - Can pause at this point
 
 # Step 3: Prepare Installation Media
     Download the latest Arch Linux ISO from archlinux.org.
-    Verify the ISO signature and create a bootable USB drive.
+    Verify the ISO signature using gpg (see Arch Linux website for instructions) and create a bootable USB drive (Use Rufus or Ventoy in Windows to create a bootable USB -- DD mode in Rufus).
+    Test the USB by rebooting and selecting it in the BIOS boot menu.
     Verify network connectivity
     -  ping -c 3 archlinux.org
 
 # Step 4: Pre-Arch Installation Steps
 
-Boot Arch Live USB (disable Secure Boot temporarily in UEFI).
+Boot Arch Live USB
   - Pre-computation and Pre-determination of System Identifiers
     - **LUKS for rd.luks.uuid and Partition UUID:**
     - After encrypting your chosen partition (e.g. /dev/nvme1n1p2) with LUKS, retrieve its UUID. This UUID is distinct from the UUID of the logical volume within the LUKS container:
