@@ -9,9 +9,10 @@ Observation: Not adopting linux-hardened kernel because of complexity in the set
 **Attention:** Before executing commands, especially those involving **dd, mkfs, cryptsetup, parted, and efibootmgr, re-read them multiple times to ensure you understand their effect** and that the target device/partition is correct. Ensure LUKS and TPM unlocking work perfectly before touching Secure Boot, and ensure Secure Boot works before diving into the eGPU.
 
 # Step 1: Verify Hardware
-    Access UEFI BIOS (F2 at boot):
-        Enable TPM 2.0, Secure Boot, Resizable BAR, SVM/VT-x, and Intel VT-d (IOMMU).
+    Access UEFI BIOS (F1 at boot):
+        Enable TPM 2.0 (Security Chip) and Intel VT-d (IOMMU).
         Set a strong UEFI BIOS password and store it in Bitwarden.
+        Disable Secure Boot temporarily in UEFI.
         Visit the builds that are working: Filter by "Thinkbook" - https://egpu.io/best-external-graphics-card-builds/
 
 # Step 2: Install Windows on Primary NVMe M.2 (/dev/nvme0n1)
@@ -21,14 +22,13 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
     Install Windows 11 Pro for BIOS/firmware updates via Lenovo Vantage. Allow Windows to create its default partitions, including a ~100-300 MB EFI System Partition (ESP) at /dev/nvme0n1p1. 
     Disable Windows Fast Startup to prevent ESP lockout: powercfg /h off
     Disable BitLocker (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:"
-    Disable Secure Boot temporarily in UEFI.
     Verify TPM 2.0 is active using tpm.msc. Clear TPM if previously provisioned.
     Verify Windows boots correctly and **check Resizable BAR sizes in Device Manager** or wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType or `dmesg | grep -i "BAR.*size"` (in Linux later).
     Verify NVMe drives **Windows Disk Management**.
     
 Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/) and [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) 
 
-    Before start the next steps backup privacy settings (powershell):
+    Before start the next steps backup registry settings (powershell):
     -  reg export "HKLM\SOFTWARE" C:\backup_registry.reg
 
     Disables diagnostic data, feedback, and telemetry services (powershell):
