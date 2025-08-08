@@ -11,10 +11,7 @@ Observation: Not adopting linux-hardened kernel because of complexity in the set
 # Step 1: Verify Hardware
     Access UEFI BIOS (F2 at boot):
         Enable TPM 2.0, Secure Boot, Resizable BAR, SVM/VT-x, and Intel VT-d (IOMMU).
-        Check for “Hybrid Graphics” or “PCIe Hotplug” options.
         Set a strong UEFI BIOS password, store it in Bitwarden, and disable legacy boot.
-        #check dmidecode -t 0,1,2,3,9 for PCIe slot. If "PCIe Hotplug" is unavailable, document that kernel parameters like pcie_ports=native may be needed later.
-        - dmidecode -t 9 | grep -i "PCIe\|OCuLink"
         Visit the builds that are working: Filter by "Thinkbook" - https://egpu.io/best-external-graphics-card-builds/
 
 # Step 2: Install Windows on Primary NVMe M.2 (/dev/nvme0n1)
@@ -26,14 +23,13 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
     Disable BitLocker if not needed (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:" c) powercfg /h off
     Verify TPM 2.0 is active using tpm.msc. Clear TPM if previously provisioned.
     Verify Windows boots correctly and **check Resizable BAR sizes in Device Manager** or wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType or `dmesg | grep -i "BAR.*size"` (in Linux later).
-    Check Oculink support 'dmidecode -s bios-version'
     Verify NVMe drives **Windows Disk Management**.
     Back up the Windows EFI partition UUID: blkid | grep /dev/nvme0n1p1 > /mnt/usb/windows-esp-uuid.txt (Store this on a USB or in Bitwarden.)
 
 Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/) and [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) 
 
     Before start the next steps backup privacy settings (powershell):
-    -  reg export "HKLM\SOFTWARE\Policies\Microsoft\Windows" C:\privacy.reg
+    -  reg export "HKLM\SOFTWARE" C:\backup_registry.reg
 
     Disables diagnostic data, feedback, and telemetry services (powershell):
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0
@@ -56,9 +52,8 @@ Review the guides for additional Privacy on the post installation [Group Police]
     -  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0
 
     Uninstalls preinstalled apps (e.g., Xbox, Candy Crush) (powershell):
-    -  Get-AppxPackage -AllUsers *Xbox* | Remove-AppxPackage
+    -  Get-AppxPackage -AllUsers *XboxApp* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *CandyCrush* | Remove-AppxPackage
-    -  Get-AppxPackage -AllUsers *Microsoft.3DBuilder* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *MicrosoftNews* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *Weather* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *Teams* | Remove-AppxPackage
