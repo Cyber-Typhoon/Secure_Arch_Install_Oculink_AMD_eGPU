@@ -15,6 +15,7 @@ Observation: Not adopting linux-hardened kernel because of complexity in the set
         Set a strong UEFI BIOS password, store it in Bitwarden, and disable legacy boot.
         #check dmidecode -t 0,1,2,3,9 for PCIe slot. If "PCIe Hotplug" is unavailable, document that kernel parameters like pcie_ports=native may be needed later.
         - dmidecode -t 9 | grep -i "PCIe\|OCuLink"
+        Visit the builds that are working: Filter by "Thinkbook" - https://egpu.io/best-external-graphics-card-builds/
 
 # Step 2: Install Windows on Primary NVMe M.2 (/dev/nvme0n1)
 
