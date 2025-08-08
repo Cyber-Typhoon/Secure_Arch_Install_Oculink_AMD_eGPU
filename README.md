@@ -43,8 +43,6 @@ Review the guides for additional Privacy on the post installation [Group Police]
     -  Set-Service -Name "dmwappushservice" -StartupType Disabled
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "LimitDiagnosticLogCollection" -Value 1
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowDeviceNameInTelemetry" -Value 0
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\NetSh" -Name "MeteredConnection" -Value 1
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name "AllowMUUpdateService" -Value 0
     -  Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "`n0.0.0.0 vortex.data.microsoft.com`n0.0.0.0 settings-win.data.microsoft.com`n0.0.0.0 watson.telemetry.microsoft.com"
     -  Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("9.9.9.9","149.112.112.112")
 
