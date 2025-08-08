@@ -81,7 +81,8 @@ Review the guides for additional Privacy on the post installation [Group Police]
 
 # Step 3: Prepare Installation Media
     Download the latest Arch Linux ISO from archlinux.org.
-    Verify the ISO signature using gpg (see Arch Linux website for instructions) and create a bootable USB drive (Use Rufus or Ventoy in Windows to create a bootable USB -- DD mode in Rufus).
+    Verify the ISO signature using gpg (see Arch Linux website for instructions) and create a bootable USB drive (Use Rufus in Windows to create a bootable USB -- DD mode in Rufus). Do not use Ventoy. Just use dd or gnome-disks or more trusted programs like Rufus.
+Also don’t use Balena Etcher either, that thing has trackers.
     Test the USB by rebooting and selecting it in the BIOS boot menu.
     Verify network connectivity
     -  ping -c 3 archlinux.org
