@@ -11,7 +11,7 @@ Observation: Not adopting linux-hardened kernel because of complexity in the set
 # Step 1: Verify Hardware
     Access UEFI BIOS (F2 at boot):
         Enable TPM 2.0, Secure Boot, Resizable BAR, SVM/VT-x, and Intel VT-d (IOMMU).
-        Set a strong UEFI BIOS password, store it in Bitwarden, and disable legacy boot.
+        Set a strong UEFI BIOS password and store it in Bitwarden.
         Visit the builds that are working: Filter by "Thinkbook" - https://egpu.io/best-external-graphics-card-builds/
 
 # Step 2: Install Windows on Primary NVMe M.2 (/dev/nvme0n1)
