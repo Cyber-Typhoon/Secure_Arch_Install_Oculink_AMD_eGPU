@@ -23,7 +23,6 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
     Install Windows 11 Pro for BIOS/firmware updates via Lenovo Vantage. Allow Windows to create its default partitions, including a ~100-300 MB EFI System Partition (ESP) at /dev/nvme0n1p1. 
     Disable Windows Fast Startup to prevent ESP lockout (powercfg /h off).
     Disable BitLocker if not needed (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:" c) powercfg /h off
-    Configure Windows Firewall to block outbound telemetry connections before connecting to the internet (Powershell): New-NetFirewallRule -DisplayName "Block Telemetry" -Direction Outbound -Action Block -RemoteAddress 13.69.65.22,13.69.65.23,13.78.139.147,40.77.226.250 # Microsoft telemetry IPs
     Verify TPM 2.0 is active using tpm.msc. Clear TPM if previously provisioned.
     Verify Windows boots correctly and **check Resizable BAR sizes in Device Manager** or wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType or `dmesg | grep -i "BAR.*size"` (in Linux later).
     Check Oculink support 'dmidecode -s bios-version'
@@ -37,13 +36,13 @@ Review the guides for additional Privacy on the post installation [Group Police]
 
     Disables diagnostic data, feedback, and telemetry services (powershell):
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0
+    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "LimitDiagnosticLogCollection" -Value 1
+    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowDeviceNameInTelemetry" -Value 0
+    -  Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "`n0.0.0.0 vortex.data.microsoft.com`n0.0.0.0 settings-win.data.microsoft.com`n0.0.0.0 watson.telemetry.microsoft.com"
     -  Stop-Service -Name "DiagTrack" -Force
     -  Set-Service -Name "DiagTrack" -StartupType Disabled
     -  Stop-Service -Name "dmwappushservice" -Force
     -  Set-Service -Name "dmwappushservice" -StartupType Disabled
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "LimitDiagnosticLogCollection" -Value 1
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowDeviceNameInTelemetry" -Value 0
-    -  Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "`n0.0.0.0 vortex.data.microsoft.com`n0.0.0.0 settings-win.data.microsoft.com`n0.0.0.0 watson.telemetry.microsoft.com"
     -  Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("9.9.9.9","149.112.112.112")
 
     Restrict App Permissions:
@@ -62,11 +61,6 @@ Review the guides for additional Privacy on the post installation [Group Police]
     -  Get-AppxPackage -AllUsers *MicrosoftNews* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *Weather* | Remove-AppxPackage
     -  Get-AppxPackage -AllUsers *Teams* | Remove-AppxPackage
-
-    Disable cloud-based protection and sample submission to prevent data uploads (powershell):
-    -  Set-MpPreference -MAPSReporting Disabled
-    -  Set-MpPreference -SubmitSamplesConsent 2
-    -  Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $true -DisableScriptScanning $true
 
     Disable unnecessary services (e.g., Xbox Live, Game Bar) that might run in the background (powershell):
     -  Stop-Service -Name "XboxGipSvc" -Force
