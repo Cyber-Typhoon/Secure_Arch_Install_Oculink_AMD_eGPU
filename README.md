@@ -30,7 +30,7 @@ Follow some of the installations Privacy advises from the Privacy Guides Wiki Mi
     Verify NVMe drives **Windows Disk Management**.
     Back up the Windows EFI partition UUID: blkid | grep /dev/nvme0n1p1 > /mnt/usb/windows-esp-uuid.txt (Store this on a USB or in Bitwarden.)
 
-Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/), [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) and [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
+Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/) and [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) 
 
     Before start the next steps backup privacy settings (powershell):
     -  reg export "HKLM\SOFTWARE\Policies\Microsoft\Windows" C:\privacy.reg
@@ -1402,4 +1402,6 @@ g) Check network:
       #Ensure ~/.config/astal/security-dashboard.ts is readable by <username>:
       chown <username>:<username> /home/<username>/.config/astal/security-dashboard.ts
       chmod 644 /home/<username>/.config/astal/security-dashboard.ts
+
+      m) [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
       
