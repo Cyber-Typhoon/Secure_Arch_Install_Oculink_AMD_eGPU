@@ -35,7 +35,6 @@ Review the guides for additional Privacy on the post installation [Group Police]
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "LimitDiagnosticLogCollection" -Value 1
     -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowDeviceNameInTelemetry" -Value 0
-    -  Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "`n0.0.0.0 vortex.data.microsoft.com`n0.0.0.0 settings-win.data.microsoft.com`n0.0.0.0 watson.telemetry.microsoft.com"
     -  Stop-Service -Name "DiagTrack" -Force
     -  Set-Service -Name "DiagTrack" -StartupType Disabled
     -  Stop-Service -Name "dmwappushservice" -Force
