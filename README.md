@@ -949,6 +949,20 @@ g) Check network:
     -  lspci | grep -i amd
     -  dmesg | grep -i amdgpu
 
+    Enable VRR
+    -  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
+    Verify VRR is active:
+    -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
+    -  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
+    Verify VRR support on the eGPU:
+    -  DRI_PRIME=1 vdpauinfo | grep -i radeonsi #Confirms AMD driver
+    #If VRR fails, check dmesg for amdgpu errors:
+    -  dmesg | grep -i amdgpu
+    Ensure 4K OLED is set to its maximum refresh rate and VRR range:
+    -  xrandr --output <output-name> --mode 3840x2160 --rate 120 #replace output name with HDMI-1 or DP-1 (check via 'xrandr')
+    In Wayland, confirm VRR:
+    wlr-randr --output <output-name> #check refresh rate range
+    
     eGPU Troubleshooting Matrix
     | Issue | Possible Cause | Solution |
     |-------|----------------|----------|
