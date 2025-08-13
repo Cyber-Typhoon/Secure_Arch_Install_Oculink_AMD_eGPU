@@ -1414,4 +1414,76 @@ g) Check network:
       chmod 644 /home/<username>/.config/astal/security-dashboard.ts
 
       m) [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
+
+# Step 19: User Customizations
+
+     a) Setup Adwaita (preferable) or Osaka Light as the Gnome Shell theme in the gnome-tweaks #Skip Osaka Light or Catppuccin as separate themes, replicating their aesthetics with CSS to align with Libadwaita.
+     b) Create CSS Files (For Kanagawa Wave):
+        - /* ~/.config/gtk-4.0/gtk-kanagawa.css */
+        - window {
+        -  background-color: #1f1f28;
+        -  color: #dcd7ba;
+        -  font-family: Inter;
+        - }
+        - .adw-header-bar {
+        -  background-color: #2a2a37;
+        -  border-bottom: 1px solid #6a9589;
+        - }
+        - button {
+        -  background-color: #76946a;
+        -  color: #1f1f28;
+        -  border-radius: 6px;
+        - }
+     c) Create CSS Files (For Rosé Pine Dawn):
+        - /* ~/.config/gtk-4.0/gtk-rose-pine-dawn.css */
+        - window {
+        -  background-color: #faf4ed;
+        -  color: #575279;
+        -  font-family: Inter;
+        - }
+        - .adw-header-bar {
+        -  background-color: #fffaf3;
+        -  border-bottom: 1px solid #ea9d34;
+        - }
+        - button {
+        -  background-color: #ea9d34;
+        -  color: #faf4ed;
+        -  border-radius: 6px;
+        - }
+     d) Symlink the active CSS:
+        - ln -sf ~/.config/gtk-4.0/gtk-kanagawa.css ~/.config/gtk-4.0/gtk.css
+     e) Create GTK 3.0 CSS:
+        - /* ~/.config/gtk-3.0/gtk.css */
+        - window {
+        -  background-color: #1f1f28;
+        -  color: #dcd7ba;
+        - }
+        - headerbar {
+        -  background-color: #2a2a37;
+        -  border-bottom: 1px solid #6a9589;
+        - }
+     f) Manage with Chezmoi:
+        - chezmoi add ~/.config/gtk-4.0 ~/.config/gtk-3.0
+        - chezmoi cd
+        - git add . && git commit -m "Add GTK CSS for Libadwaita and legacy apps"
+     g) Ensure Flatpak Compatibility:
+        - flatpak override --user --env=GTK_THEME=Adwaita --filesystem=xdg-config/gtk-4.0 --filesystem=xdg-config/gtk-3.0
+     h) Toggle Script:
+        - #!/bin/bash
+        - # /usr/local/bin/toggle-theme.sh
+        - if [ "$1" = "dark" ]; then
+        -  ln -sf ~/.config/gtk-4.0/gtk-kanagawa.css ~/.config/gtk-4.0/gtk.css
+        -  ln -sf ~/.config/gtk-3.0/gtk-kanagawa.css ~/.config/gtk-3.0/gtk.css
+        -  gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+        -  gsettings set org.gnome.desktop.background picture-uri 'file:///home/<username>/.local/share/backgrounds/abstract-kanagawa.jpg'
+        -  gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Dark'
+        - else
+        -  ln -sf ~/.config/gtk-4.0/gtk-rose-pine-dawn.css ~/.config/gtk-4.0/gtk.css
+        -  ln -sf ~/.config/gtk-3.0/gtk-rose-pine-dawn.css ~/.config/gtk-3.0/gtk.css
+        -  gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'
+        -  gsettings set org.gnome.desktop.background picture-uri 'file:///home/<username>/.local/share/backgrounds/abstract-rose-pine.jpg'
+        -  gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Sameerasw'
+        - fi
+        - chmod +x /usr/local/bin/toggle-theme.sh
+        - chezmoi add /usr/local/bin/toggle-theme.sh
       
