@@ -1424,15 +1424,25 @@ g) Check network:
         -  background-color: #1f1f28;
         -  color: #dcd7ba;
         -  font-family: Inter;
+        -  border: none; /* Remove window border */
+        -  box-shadow: none; /* Remove window shadow */ 
         - }
         - .adw-header-bar {
         -  background-color: #2a2a37;
-        -  border-bottom: 1px solid #6a9589;
+        -  border-bottom: none; /* Remove header bar border */
+        -  box-shadow: none; /* Remove header bar shadow */ 
         - }
         - button {
         -  background-color: #76946a;
         -  color: #1f1f28;
         -  border-radius: 6px;
+        -  border: none; /* Remove button borders */
+        - }
+        - /* Target CSD window decorations */
+        - .csd {
+        -  border: none;
+        -  box-shadow: none; 
+        -  margin: 0; /* Remove margin for tighter tiling */ 
         - }
      c) Create CSS Files (For Rosé Pine Dawn):
         - /* ~/.config/gtk-4.0/gtk-rose-pine-dawn.css */
@@ -1457,10 +1467,18 @@ g) Check network:
         - window {
         -  background-color: #1f1f28;
         -  color: #dcd7ba;
+        -  border: none; /* Remove window border */
+        -  box-shadow: none; /* Remove window shadow */ 
         - }
         - headerbar {
         -  background-color: #2a2a37;
-        -  border-bottom: 1px solid #6a9589;
+        -  border-bottom: none; /* Remove header bar border */
+        -  box-shadow: none; /* Remove header bar shadow */
+        - }
+        - .csd {
+        -  border: none;
+        -  box-shadow: none;
+        -  margin: 0; 
         - }
      f) Manage with Chezmoi:
         - chezmoi add ~/.config/gtk-4.0 ~/.config/gtk-3.0
@@ -1476,14 +1494,28 @@ g) Check network:
         -  ln -sf ~/.config/gtk-3.0/gtk-kanagawa.css ~/.config/gtk-3.0/gtk.css
         -  gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
         -  gsettings set org.gnome.desktop.background picture-uri 'file:///home/<username>/.local/share/backgrounds/abstract-kanagawa.jpg'
-        -  gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Dark'
+        -  gsettings set org.gnome.shell.extensions.pop-shell gap-inner 2
+        -  gsettings set org.gnome.shell.extensions.pop-shell gap-outer 2 
         - else
         -  ln -sf ~/.config/gtk-4.0/gtk-rose-pine-dawn.css ~/.config/gtk-4.0/gtk.css
         -  ln -sf ~/.config/gtk-3.0/gtk-rose-pine-dawn.css ~/.config/gtk-3.0/gtk.css
         -  gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'
         -  gsettings set org.gnome.desktop.background picture-uri 'file:///home/<username>/.local/share/backgrounds/abstract-rose-pine.jpg'
-        -  gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Sameerasw'
+        -  gsettings set org.gnome.shell.extensions.pop-shell gap-inner 2
+        -  gsettings set org.gnome.shell.extensions.pop-shell gap-outer 2
         - fi
         - chmod +x /usr/local/bin/toggle-theme.sh
         - chezmoi add /usr/local/bin/toggle-theme.sh
+     i) Adjust Pop Shell Gaps:
+        - gsettings set org.gnome.shell.extensions.pop-shell gap-inner 2
+        - gsettings set org.gnome.shell.extensions.pop-shell gap-outer 2
+
+     j) (Optional) Use Orchis Shell Theme:
+        - paru -S orchis-theme
+        - gsettings set org.gnome.shell.extensions.user-theme name 'Orchis'
+        #Orchis has thinner borders and minimal shadows compared to Adwaita, closer to Hyprland’s aesthetic.
+        - Ensure the AUR package is signed for Secure Boot:
+        - sbctl verify /usr/share/themes/Orchis
+        - sbctl sign -s /usr/share/themes/Orchis
+        - echo "Target = orchis-theme" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
       
