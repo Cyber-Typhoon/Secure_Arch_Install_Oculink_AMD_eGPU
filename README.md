@@ -575,9 +575,9 @@ g) Check network:
     
     Install Thinklmi to verify BIOS settings: pacman -S --needed thinklmi #Check BIOS settings: sudo thinklmi
     
-    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh fapolicyd sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git vala gjs xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid-git rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch baobab gnome-system-monitor hardened-malloc wireguard-tools vulkan-tools libva-utils clinfo mangohud obs-studio inkscape 
+    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git vala gjs xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid-git rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch baobab gnome-system-monitor hardened-malloc wireguard-tools vulkan-tools libva-utils clinfo mangohud obs-studio inkscape 
 
-    Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy fapolicyd sshguard rkhunter chkrootkit
+    Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit
     After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
 
     Check if services failed to initiate:
@@ -962,6 +962,20 @@ g) Check network:
     -  xrandr --output <output-name> --mode 3840x2160 --rate 120 #replace output name with HDMI-1 or DP-1 (check via 'xrandr')
     In Wayland, confirm VRR:
     wlr-randr --output <output-name> #check refresh rate range
+
+    Pacman Hook for Binary Verification - mimicks fapolicyd’s package-based trust model (After updates, check /var/log/pacman.log for pacman -Qkk output. If altered files are detected, investigate with pacman -Qkk | grep -v '0 altered files'.)
+    -  cat << 'EOF' > /etc/pacman.d/hooks/90-pacman-verify.hook
+    -   [Trigger]
+    -   Operation = Install
+    -   Operation = Upgrade
+    -   Type = Package
+    -   Target = *
+    -   [Action]
+    -   Description = Verifying package file integrity
+    -   When = PostTransaction
+    -   Exec = /usr/bin/pacman -Qkk
+    -  EOF
+    -  chmod 644 /etc/pacman.d/hooks/90-pacman-verify.hook
     
     eGPU Troubleshooting Matrix
     | Issue | Possible Cause | Solution |
@@ -1255,6 +1269,7 @@ g) Check network:
     #!/bin/bash
     pacman -Syu
     paru -Syu
+    pacman -Qkk | grep -v '0 altered files' || echo "No altered package files detected"
     btrfs scrub start /
     snapper list
     aide --check
