@@ -815,7 +815,7 @@ g) Check network:
       -  "always_reboot": false,
       -  "no_logind": true,
       -  "logout_timeout_s": 180,
-      -  "hotplug_type": "Asus"
+      -  "hotplug_type": "Std" # Use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
     -  EOF
 
     Enable supergfxd service for GPU switching
