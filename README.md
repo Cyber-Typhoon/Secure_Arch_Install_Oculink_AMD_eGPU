@@ -1290,7 +1290,16 @@ g) Check network:
     [Action]
     Description = Re-enrolling TPM2 for LUKS after kernel update
     When = PostTransaction
-    Exec = /bin/sh -c 'systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2 && systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2'
+    Depends = mkinitcpio
+    Exec = /bin/sh -c 'LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2); systemd-cryptenroll --wipe-slot=tpm2 UUID=$LUKS_UUID && systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 UUID=$LUKS_UUID || { echo "TPM re-enrollment failed for UUID=$LUKS_UUID" >> /var/log/tpm-reenroll.log; exit 1; }'
+    sudo chmod 644 /etc/pacman.d/hooks/92-tpm-reenroll.hook
+
+    # Test the hook:
+    sudo pacman -Syu linux --overwrite "*" # Simulate a kernel update
+    cat /var/log/tpm-reenroll.log # Check for errors if the hook fails
+    systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 # Verify TPM unlocking
+
+    # Note: If the hook fails, check /var/log/tpm-reenroll.log, verify TPM availability (tpm2_getcap properties-fixed), and ensure PCRs 0, 4, and 7 are stable (tpm2_pcrread sha256:0,4,7). Back up the LUKS passphrase in Bitwarden for recovery.
 
   m) Monitor Arch Linux News:
     #Install jaq for RSS parsing
