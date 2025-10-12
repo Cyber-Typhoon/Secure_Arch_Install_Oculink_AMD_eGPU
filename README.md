@@ -1068,7 +1068,6 @@ g) Check network:
     -  snapper --config data get-config
 
     Create pacman hooks for Snapper snapshots before and after updates:
-    -  mkdir -p /etc/pacman.d/hooks
     -  cat << 'EOF' > /etc/pacman.d/hooks/50-snapper-pre-update.hook
        -  [Trigger]
        -  Operation = Upgrade
@@ -1266,22 +1265,34 @@ g) Check network:
 
   k) Automation? script to automate common maintenance tasks:
     cat << 'EOF' > /usr/local/bin/maintain.sh
-    #!/bin/bash
-    pacman -Syu
-    paru -Syu
-    pacman -Qkk | grep -v '0 altered files' || echo "No altered package files detected"
-    btrfs scrub start /
-    snapper list
-    aide --check
-    lynis audit system
-    supergfxctl -g
-    su - <username> -c "pgrep ags || ags -c /home/<username>/.config/astal/security-dashboard.ts &"
+    -  #!/bin/bash
+    -  pacman -Syu
+    -  paru -Syu
+    -  pacman -Qkk | grep -v '0 altered files' || echo "No altered package files detected"
+    -  btrfs scrub start /
+    -  snapper list
+    -  aide --check
+    -  lynis audit system
+    -  supergfxctl -g
+    -  su - <username> -c "pgrep ags || ags -c /home/<username>/.config/astal/security-dashboard.ts &"
     EOF
     chmod +x /usr/local/bin/maintain.sh
 
     Save it as /usr/local/bin/maintain.sh and run it weekly via a systemd timer.
 
-  i) Monitor Arch Linux News:
+  l) Automation TPM Reenroll Hook for Kernel Updates
+    sudo nano /etc/pacman.d/hooks/90-tpm-reenroll.hook
+    [Trigger]
+    Operation = Upgrade
+    Type = Package
+    Target = linux
+    Target = linux-lts
+    [Action]
+    Description = Re-enrolling TPM2 for LUKS after kernel update
+    When = PostTransaction
+    Exec = /bin/sh -c 'systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2 && systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2'
+
+  m) Monitor Arch Linux News:
     #Install jaq for RSS parsing
     pacman -S --noconfirm jaq
 
@@ -1326,10 +1337,10 @@ g) Check network:
     #Enable and start the timer
     systemctl enable --now arch-news.timer
 
-  j) Remove after installation: After completing the installation and verifying the system boots correctly, you can safely remove arch-install-scripts with:
+  n) Remove after installation: After completing the installation and verifying the system boots correctly, you can safely remove arch-install-scripts with:
     - pacman -R arch-install-scripts
 
-  k) Set up a systemd timer for paccache to clean the cache weekly:
+  o) Set up a systemd timer for paccache to clean the cache weekly:
     cat << 'EOF' > /etc/systemd/system/paccache.timer
       [Unit]
       Description=Clean Pacman cache weekly
@@ -1369,7 +1380,7 @@ g) Check network:
     systemctl enable --now maintain.timer
     systemctl enable --now paccache.timer
     
-  l) Astal integrety security checker:
+  p) Astal integrety security checker:
     #Create a security dashboard widget
     mkdir -p ~/.config/astal
     cat << 'EOF' > ~/.config/astal/security-dashboard.ts
@@ -1428,12 +1439,13 @@ g) Check network:
       chown <username>:<username> /home/<username>/.config/astal/security-dashboard.ts
       chmod 644 /home/<username>/.config/astal/security-dashboard.ts
 
-      m) [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
+  q) [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
 
 # Step 19: User Customizations
 
-     a) Setup Adwaita (preferable) or Osaka Light as the Gnome Shell theme in the gnome-tweaks #Skip Osaka Light or Catppuccin as separate themes, replicating their aesthetics with CSS to align with Libadwaita.
-     b) Create CSS Files (For Kanagawa Wave):
+  a) Setup Adwaita (preferable) or Osaka Light as the Gnome Shell theme in the gnome-tweaks #Skip Osaka Light or Catppuccin as separate themes, replicating their aesthetics with CSS to align with Libadwaita.
+
+  b) Create CSS Files (For Kanagawa Wave):
         - /* ~/.config/gtk-4.0/gtk-kanagawa.css */
         - window {
         -  background-color: #1f1f28;
@@ -1459,7 +1471,8 @@ g) Check network:
         -  box-shadow: none; 
         -  margin: 0; /* Remove margin for tighter tiling */ 
         - }
-     c) Create CSS Files (For Rosé Pine Dawn):
+
+  c) Create CSS Files (For Rosé Pine Dawn):
         - /* ~/.config/gtk-4.0/gtk-rose-pine-dawn.css */
         - window {
         -  background-color: #faf4ed;
@@ -1475,9 +1488,11 @@ g) Check network:
         -  color: #faf4ed;
         -  border-radius: 6px;
         - }
-     d) Symlink the active CSS:
+
+  d) Symlink the active CSS:
         - ln -sf ~/.config/gtk-4.0/gtk-kanagawa.css ~/.config/gtk-4.0/gtk.css
-     e) Create GTK 3.0 CSS:
+
+  e) Create GTK 3.0 CSS:
         - /* ~/.config/gtk-3.0/gtk.css */
         - window {
         -  background-color: #1f1f28;
@@ -1495,13 +1510,16 @@ g) Check network:
         -  box-shadow: none;
         -  margin: 0; 
         - }
-     f) Manage with Chezmoi:
+
+  f) Manage with Chezmoi:
         - chezmoi add ~/.config/gtk-4.0 ~/.config/gtk-3.0
         - chezmoi cd
         - git add . && git commit -m "Add GTK CSS for Libadwaita and legacy apps"
-     g) Ensure Flatpak Compatibility:
+
+  g) Ensure Flatpak Compatibility:
         - flatpak override --user --env=GTK_THEME=Adwaita --filesystem=xdg-config/gtk-4.0 --filesystem=xdg-config/gtk-3.0
-     h) Toggle Script:
+
+  h) Toggle Script:
         - #!/bin/bash
         - # /usr/local/bin/toggle-theme.sh
         - if [ "$1" = "dark" ]; then
@@ -1521,11 +1539,12 @@ g) Check network:
         - fi
         - chmod +x /usr/local/bin/toggle-theme.sh
         - chezmoi add /usr/local/bin/toggle-theme.sh
-     i) Adjust Pop Shell Gaps:
+
+  i) Adjust Pop Shell Gaps:
         - gsettings set org.gnome.shell.extensions.pop-shell gap-inner 2
         - gsettings set org.gnome.shell.extensions.pop-shell gap-outer 2
 
-     j) (Optional) Use Orchis Shell Theme:
+  j) (Optional) Use Orchis Shell Theme:
         - paru -S orchis-theme
         - gsettings set org.gnome.shell.extensions.user-theme name 'Orchis'
         #Orchis has thinner borders and minimal shadows compared to Adwaita, closer to Hyprland’s aesthetic.
@@ -1533,4 +1552,3 @@ g) Check network:
         - sbctl verify /usr/share/themes/Orchis
         - sbctl sign -s /usr/share/themes/Orchis
         - echo "Target = orchis-theme" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-      
