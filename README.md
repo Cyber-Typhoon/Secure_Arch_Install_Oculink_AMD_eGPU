@@ -250,7 +250,7 @@ g) Check network:
     -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
 
     Install base system and necessary packages:
-    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak gdm acpi acpid thermald intel-gpu-tools nvme-cli wireless-regdb ethtool
+    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak gdm acpi acpid thermald intel-gpu-tools nvme-cli wireless-regdb ethtool v4l-utils guvcview
 
     Chroot into the system:
     -  arch-chroot /mnt
