@@ -893,7 +893,8 @@ g) Check network:
     -  systemctl enable --now libvirtd
     -  echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
     -  fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
-    -  echo "NOTE: Replace '1002:xxxx' with actual AMD eGPU PCIe IDs from 'lspci -nn | grep -i amd'."
+    -  echo "NOTE: Replace '1002:xxxx' with actual AMD eGPU PCIe IDs from 'lspci -nn | grep -i amd'." 
+    -  echo "Run 'lspci -nn | grep -i amd' to find PCIe IDs (e.g., 1002:73df for RX 6700 XT). Replace '1002:xxxx' in /etc/modprobe.d/vfio.conf with the correct IDs."
     -  echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
     -  mkinitcpio -P
 
@@ -1291,8 +1292,8 @@ g) Check network:
     Description = Re-enrolling TPM2 for LUKS after kernel update
     When = PostTransaction
     Depends = mkinitcpio
-    Exec = /bin/sh -c 'LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2); systemd-cryptenroll --wipe-slot=tpm2 UUID=$LUKS_UUID && systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 UUID=$LUKS_UUID || { echo "TPM re-enrollment failed for UUID=$LUKS_UUID" >> /var/log/tpm-reenroll.log; exit 1; }'
-    sudo chmod 644 /etc/pacman.d/hooks/92-tpm-reenroll.hook
+    Exec = /bin/sh -c 'LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2); systemd-cryptenroll --wipe-slot=tpm2 UUID=$LUKS_UUID && systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 UUID=$LUKS_UUID || { echo "TPM re-enrollment failed for UUID=$LUKS_UUID" >> /var/log/tpm-reenroll.log; notify-send --urgency=critical "TPM Re-enrollment Failed" "Check /var/log/tpm-reenroll.log and re-enroll manually"; exit 1; }'
+    sudo chmod 644 /etc/pacman.d/hooks/90-tpm-reenroll.hook
 
     # Test the hook:
     sudo pacman -Syu linux --overwrite "*" # Simulate a kernel update
