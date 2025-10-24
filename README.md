@@ -1187,15 +1187,15 @@ g) Check network:
     -  cat ~/aur-packages.txt  # Check for AUR packages
     -  cat ~/flatpak-packages.txt  # Check for Flatpak apps
   - # Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
-  - # 1. Boot from Arch Linux Rescue USB.
-  - # 2. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
-  - # 3. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt
-  - # 4. Chroot: arch-chroot /mnt
-  - # 5. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery.
+  - # a. Boot from Arch Linux Rescue USB.
+  - # b. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+  - # c. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt
+  - # d. Chroot: arch-chroot /mnt
+  - # e. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery.
   - # Troubleshooting
-  - # If chezmoi apply fails: chezmoi doctor; journalctl -xe
-  - # If a file is missing: verify path, create if needed (e.g., touch /etc/modprobe.d/amdgpu.conf)
-  - # If git push fails: check remote setup (git remote -v)
+    -  # If chezmoi apply fails: chezmoi doctor; journalctl -xe
+    -  # If a file is missing: verify path, create if needed (e.g., touch /etc/modprobe.d/amdgpu.conf)
+    -  # If git push fails: check remote setup (git remote -v)
    
  # Step 15: Test the Setup
   - Reboot and confirm `systemd-boot` shows Arch and Windows entries.
