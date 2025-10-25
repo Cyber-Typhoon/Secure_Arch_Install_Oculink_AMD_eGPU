@@ -318,7 +318,7 @@
   - **Add Swapfile Entry**:
     - Replace `$SWAP_OFFSET` with the actual value:
       ```bash
-      # /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
+      /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
       ```
   - **Validation Steps**:
     - List ESP UUIDs to confirm:
