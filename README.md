@@ -621,6 +621,7 @@ g) Check network:
 # Step 11: Configure Power Management, Security and Privacy
 
     Configure Power Management:
+    -  #Disable power-profiles-daemon to prevent conflicts with TLP and 
     -  systemctl mask power-profiles-daemon
     -  systemctl disable power-profiles-daemon
 
@@ -847,12 +848,6 @@ g) Check network:
     -  CPU_SCALING_GOVERNOR_ON_AC=performance
     -  systemctl restart tlp
     -  sudo tlp start
-
-    #Geek-like powerprofilesctl (GNOME Integration):
-    -  #Geek approx (AC-only)
-    -  powerprofilesctl set performance  # High TDP
-    -  #Adaptive
-    -  powerprofilesctl set balanced  # Auto-switch
 
     Sign supergfxctl binaries for Secure Boot
     -  sbctl sign -s /usr/bin/supergfxctl
