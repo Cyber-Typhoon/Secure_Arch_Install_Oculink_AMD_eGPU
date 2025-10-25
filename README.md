@@ -209,7 +209,7 @@
     ```bash
     mkdir -p /mnt/usb
     lsblk  # Identify USB device (e.g., /dev/sdX1)
-    mount /dev/sdX1 /mnt/usb
+    mount /dev/sdX1 /mnt/usb # **Replace sdX1 with USB partition confirmed via lsblk previously executed**
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
     shred -u /mnt/crypto_keyfile
     echo "WARNING: Store the LUKS keyfile (/mnt/usb/crypto_keyfile) securely in Bitwarden for recovery purposes."
