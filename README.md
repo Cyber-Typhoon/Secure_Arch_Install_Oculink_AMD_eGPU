@@ -410,6 +410,14 @@
   ```bash
   arch-chroot /mnt
   ```
+- Ensure multilib repository is enabled (required for 32-bit drivers):
+  ```bash
+  sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
+  ```
+- Force-refresh package database and keyring:
+  ```bash
+  pacman -Syy --noconfirm
+  ```
 - Add the `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
   ```bash
   echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
