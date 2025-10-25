@@ -588,7 +588,7 @@
   sbctl verify /boot/EFI/Linux/arch.efi | grep -q "signed" && echo "UKI signed"
   ```
 - Verify Secure Boot is fully enabled:
-```bash
+  ```bash
   # Check SetupMode: 0 = Secure Boot active, 1 = Setup Mode
   efivar -p -n 8be4df61-93ca-11d2-aa0d-00e098032b8c-SetupMode
 
@@ -601,7 +601,7 @@
 
   # If SetupMode=1:
   → Reboot into UEFI, complete MOK enrollment, save keys, then reboot again.
-```
+  ```
 - Back up PCR values post-Secure Boot:
   ```bash
   tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-post-secureboot.txt
