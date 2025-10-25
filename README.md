@@ -574,7 +574,7 @@
   umount -R /mnt
   reboot
   ```
-  - In UEFI, enable **Secure Boot** and enroll the sbctl key when prompted.
+  ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted.
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
   arch-chroot /mnt
