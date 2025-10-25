@@ -1098,8 +1098,20 @@
   ```
 - Configure AppArmor for mandatory access control:
   ```bash
+  # Enable AppArmor service
   systemctl enable apparmor
+  # Start in complain mode to avoid disrupting eGPU or other services
+  aa-complain /etc/apparmor.d/*
+  # Log potential denials for later tuning
+  echo "AppArmor enabled in complain mode. Check /var/log/audit/audit.log or journalctl -u apparmor after Step 15 for denials and tune profiles as needed."
+
+  # Later, after Step 15. Check for AppArmor denials:
+  journalctl -u apparmor | grep -i DENIED
+  aa-logprof
+
+  # After tuning, switch to enforce mode:
   aa-enforce /etc/apparmor.d/*
+  apparmor_status
   ```
 ## Step 12: Configure eGPU (AMD)
 
