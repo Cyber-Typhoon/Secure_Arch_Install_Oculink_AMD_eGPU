@@ -834,7 +834,25 @@ g) Check network:
       -  #Exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
       -  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915"
     -  EOF
+    -  systemctl restart tlp    
+
+    #Geek-like Lenovo Vantage Windows Power Mode: Max TDP on AC TLP
+    -  Test the current max power profile available. If it doesn't reach 70w for CPU implement the etc/tlp.conf updated:
+    -  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
+    -  tlp-stat -p # Check TDP >60W on AC
+    -  nano /etc/tlp.conf
+    -  CPU_ENERGY_PERF_POLICY_ON_AC=performance
+    -  CPU_MAX_PERF_ON_AC=100
+    -  CPU_MIN_PERF_ON_AC=50  # Adaptive ramp-up
+    -  CPU_SCALING_GOVERNOR_ON_AC=performance
     -  systemctl restart tlp
+    -  sudo tlp start
+
+    #Geek-like powerprofilesctl (GNOME Integration):
+    -  #Geek approx (AC-only)
+    -  powerprofilesctl set performance  # High TDP
+    -  #Adaptive
+    -  powerprofilesctl set balanced  # Auto-switch
 
     Sign supergfxctl binaries for Secure Boot
     -  sbctl sign -s /usr/bin/supergfxctl
@@ -1649,3 +1667,9 @@ g) Check network:
         - sbctl verify /usr/share/themes/Orchis
         - sbctl sign -s /usr/share/themes/Orchis
         - echo "Target = orchis-theme" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+
+  k) (Optional) Hardware Fixes:
+     # ideapad-laptop-tb2024g6plus - https://github.com/ty2/ideapad-laptop-tb2024g6plus/blob/main/README.md
+     # lenovo_thinkbook_g7_plus_asp_linux_fixes - https://github.com/Shiro836/lenovo_thinkbook_g7_plus_asp_linux_fixes
+     # EasyEffects-ThinkBook-Presets - https://github.com/Nekoyue/EasyEffects-ThinkBook-Presets
+     # thinkbook-arch kernel config/patch - https://github.com/rcvd/thinkbook-arch/blob/main/linux/linux-6.9.10.arch1-1/sound.patch
