@@ -641,14 +641,33 @@
   sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf
   mkinitcpio -P
   ```
+- Verify configuration:
+  ```bash
+  # Check HOOKS order
+  grep HOOKS /etc/mkinitcpio.conf
+
+  # Verify resume_offset is numeric (not $SWAP_OFFSET)
+  grep resume_offset /etc/fstab /boot/loader/entries/arch.conf
+
+  # List boot entries
+  bootctl list
+
+  # Verify UKI is signed
+  sbctl verify /boot/EFI/Linux/arch.efi
+  ```
 - Create boot entries for dual-boot:
   ```bash
+  # Copy Windows EFI files to Arch ESP:
   rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
   umount /mnt/windows-efi
+  
+  # Create /boot/loader/entries/windows.conf with:
   cat << 'EOF' > /boot/loader/entries/windows.conf
   title Windows 11
   efi /EFI/Microsoft/Boot/bootmgfw.efi
   EOF
+
+  # Create Arch bootloader entry (/boot/loader/entries/arch.conf):
   cat << 'EOF' > /boot/loader/entries/arch.conf
   title Arch Linux
   efi /EFI/Linux/arch.efi
@@ -658,7 +677,7 @@
 - Create a fallback UKI:
   ```bash
   cp /etc/mkinitcpio.conf /etc/mkinitcpio-minimal.conf
-  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems)/' /etc/mkinitcpio-minimal.conf
+  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio-minimal.conf
   echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-minimal.conf
   mkinitcpio -P -c /etc/mkinitcpio-minimal.conf
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
@@ -668,29 +687,75 @@
   EOF
   sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch-fallback.conf
   ```
+- Set Boot Order (Arch first)
+  ```bash
+  BOOT_ARCH=$(efibootmgr | grep 'Arch Linux' | awk '{print $1}' | cut -c5-)
+  BOOT_WIN=$(efibootmgr | grep 'Windows' | awk '{print $1}' | cut -c5-)
+  efibootmgr --bootorder ${BOOT_ARCH},${BOOT_WIN}
+  ```
 - Create a GRUB USB for recovery:
   ```bash
   lsblk  # Identify USB device (e.g., /dev/sdX1)
   mkfs.fat -F32 -n RESCUE_USB /dev/sdX1
   mkdir -p /mnt/usb
-  mount /dev/sdX1 /mnt/usb
+  mount /dev/sdX1 /mnt/usb # Replace /dev/sdX1 with your USB partition confirmed via lsblk
+
   pacman -Sy grub
   grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB
+
+  # Copy keyfile from root (not /mnt/usb!)
   cp /mnt/usb/crypto_keyfile /mnt/usb/luks-keyfile
   chmod 600 /mnt/usb/luks-keyfile
+  
   cp /boot/vmlinuz-linux /mnt/usb/
   cp /boot/initramfs-linux.img /mnt/usb/
+
+  # Create minimal rescue initramfs
+  cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
+  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block sd-encrypt filesystems)/' /mnt/usb/mkinitcpio-rescue.conf
+  mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
+  cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
+
   # Replace $LUKS_UUID and $ROOT_UUID with actual values in the menuentry
   cat << 'EOF' > /mnt/usb/boot/grub/grub.cfg
   set timeout=5
   menuentry "Arch Linux Rescue" {
-      linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID rw
+      linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw
       initrd /initramfs-linux.img
   }
   EOF
+
   sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
   umount /mnt/usb
+
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
+  ```
+- Pacman Hook: Auto-Regenerate UKI on Kernel Update
+  ```bash
+  mkdir -p /etc/pacman.d/hooks
+  cat << 'EOF' > /etc/pacman.d/hooks/90-mkinitcpio.hook
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = linux
+  Target = linux-firmware
+
+  [Action]
+  Description = Regenerating UKI after kernel update
+  When = PostTransaction
+  Exec = /usr/bin/mkinitcpio -P
+  EOF
+  ```
+- Disable Hibernation Resume Service
+  ```bash
+  systemctl disable systemd-hibernate-resume.service
+  ```
+- (Optional) Enable systemd-homed with LUKS-encrypted homes
+  ```bash
+  systemctl enable --now systemd-homed.service
+  chattr +C /home
+  homectl create username --storage=luks --fs-type=btrfs --shell=/bin/zsh --member-of=wheel --disk-size=500G
   ```
 
 ## Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can pause at this point
