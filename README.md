@@ -766,17 +766,17 @@ g) Check network:
     EOF
     -  systemctl enable --now systemd-zram-setup@zram0.service
 
-    Configure fwupd for Firmware Updates:
+    Configure fwupd for Firmware Updates (Chroot-Safe):
+    # Install and enable
     -  pacman -S fwupd udisks2
     -  systemctl enable --now udisks2.service
+    # Secure Boot: Allow capsule updates
     -  echo '[uefi_capsule]\nDisableShimForSecureBoot=true' >> /etc/fwupd/fwupd.conf
-    -  fwupdmgr refresh
-    -  fwupdmgr get-updates
-    -  fwupdmgr update
+    # Sign fwupd EFI binary
     -  sbctl sign -s /efi/EFI/arch/fwupdx64.efi
-    -  echo "NOTE: fwupd updates may change PCR 0, requiring TPM re-enrollment. Back up the LUKS passphrase in Bitwarden and run 'systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2' if unlocking fails."
-    #Note: Firmware updates may change TPM PCR values (e.g., PCR 0). Back up LUKS recovery passphrase and re-enroll TPM if unlocking fails:
-    -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+    # Verify setup (NO update checks)
+    -  fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" && echo "fwupd: UEFI device detected"
+    -  echo "fwupd configured. Updates will be checked in Step 18 (after first boot)."
 
     Configure opensnitch:
     -  systemctl enable --now opensnitch
@@ -1513,8 +1513,30 @@ g) Check network:
       #Ensure ~/.config/astal/security-dashboard.ts is readable by <username>:
       chown <username>:<username> /home/<username>/.config/astal/security-dashboard.ts
       chmod 644 /home/<username>/.config/astal/security-dashboard.ts
-
-  q) [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
+      
+  q) Firmware Updates
+      -  echo "NOTE: fwupd updates may change PCR 0, requiring TPM re-enrollment. Back up the LUKS passphrase in Bitwarden and run 'systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2' if unlocking fails."
+      # Backup LUKS header
+      -  sudo cryptsetup luksHeaderBackup /dev/nvme0n1p2 --header-backup-file ~/luks-header-backup.img
+      -  echo "Store backup on USB + Bitwarden"
+      # Check and apply firmware updates
+      -  sudo fwupdmgr refresh --force
+      -  sudo fwupdmgr get-devices
+      -  sudo fwupdmgr get-updates
+      # If BIOS update available
+      -  echo "PLUG IN AC POWER"
+      -  read -p "Press Enter to apply updates..."
+      -  sudo fwupdmgr update
+      # Reboot immediately
+      -  sudo reboot
+      # Note: Firmware updates may change TPM PCR values (e.g., PCR 0). Back up LUKS recovery passphrase and re-enroll TPM if unlocking fails:
+      -  sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme0n1p2
+      -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+      # Regenerate and re-sign UKI
+      -  sudo mkinitcpio -P
+      -  sudo sbctl sign -s /boot/efi/EFI/Linux/*.efi
+  
+  r) [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
 
 # Step 19: User Customizations
 
