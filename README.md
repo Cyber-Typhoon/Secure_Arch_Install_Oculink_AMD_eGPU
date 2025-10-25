@@ -289,25 +289,25 @@
   - **BTRFS Subvolume and Mount Options**:
     - Replace `$ROOT_UUID` with the actual UUID from `blkid`:
       ```bash
-      # UUID=$ROOT_UUID / btrfs subvol=@,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      # UUID=$ROOT_UUID /home btrfs subvol=@home,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      # UUID=$ROOT_UUID /data btrfs subvol=@data,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      # UUID=$ROOT_UUID /var btrfs subvol=@var,nodatacow,noatime 0 0
-      # UUID=$ROOT_UUID /var/lib btrfs subvol=@var_lib,nodatacow,noatime 0 0
-      # UUID=$ROOT_UUID /var/log btrfs subvol=@log,nodatacow,noatime 0 0
-      # UUID=$ROOT_UUID /srv btrfs subvol=@srv,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      # UUID=$ROOT_UUID /swap btrfs subvol=@swap,nodatacow,noatime 0 0
-      # UUID=$ROOT_UUID /.snapshots btrfs subvol=@snapshots,ssd,noatime 0 0
+      UUID=$ROOT_UUID / btrfs subvol=@,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /home btrfs subvol=@home,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /data btrfs subvol=@data,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /var btrfs subvol=@var,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /var/lib btrfs subvol=@var_lib,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /var/log btrfs subvol=@log,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /srv btrfs subvol=@srv,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /swap btrfs subvol=@swap,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /.snapshots btrfs subvol=@snapshots,ssd,noatime 0 0
       ```
   - **Edit ESP (/boot) Entry**:
     - Add `umask=0077` for security:
       ```bash
-      # UUID=$ARCH_ESP_UUID /boot vfat umask=0077 0 2
+      UUID=$ARCH_ESP_UUID /boot vfat umask=0077 0 2
       ```
   - **Edit Windows ESP Entry**:
     - Use `noauto` and `x-systemd.automount` for manual mounting:
       ```bash
-      # UUID=$WINDOWS_ESP_UUID /windows-efi vfat noauto,x-systemd.automount,umask=0077 0 2
+      UUID=$WINDOWS_ESP_UUID /windows-efi vfat noauto,x-systemd.automount,umask=0077 0 2
       ```
   - **Add tmpfs Entries**:
     - Use `tmpfs` for temporary directories to reduce disk writes:
