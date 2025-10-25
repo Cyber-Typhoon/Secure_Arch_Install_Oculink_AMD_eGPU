@@ -1122,9 +1122,20 @@
     rocm-opencl \
     rocm-hip \
     libva-vdpau-driver
+  ```
+- Configure early KMS
+  ```bash
   echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
   mkinitcpio -P
+  ```
+- Set AMD power management options
+  ```bash
   echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
+  ```
+- Sign kernel modules for Secure Boot
+  ```bash
+  sbctl sign --all
+  find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
   ```
 - Install and configure `supergfxctl` for GPU switching:
   ```bash
@@ -1139,6 +1150,29 @@
   "hotplug_type": "Std"
   EOF
   systemctl enable --now supergfxd
+  sbctl sign -s /usr/bin/supergfxctl
+  sbctl sign -s /usr/lib/supergfxctl/supergfxd
+  ```
+- Install supergfxctl-gex for GUI switching
+  ```bash
+  pacman -S --needed gnome-shell-extension
+  gnome-extensions enable supergfxctl-gex@asus-linux.org
+  ```
+- Install switcheroo-control for GPU integration
+  ```bash
+  pacman -S --needed switcheroo-control
+  systemctl enable --now switcheroo-control
+  ```
+- Install bolt for OCuLink/Thunderbolt management
+  ```bash
+  pacman -S --needed bolt
+  systemctl enable --now bolt
+  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
+  boltctl list | grep -i oculink && boltctl authorize <uuid>
+  ```
+- Enable PCIe hotplug
+  ```bash
+  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
   ```
 - Create a udev rule for eGPU hotplug support:
   ```bash
@@ -1146,6 +1180,84 @@
   SUBSYSTEM=="pci", ACTION=="add", ATTRS{vendor}=="0x1002", RUN+="/usr/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
   EOF
   udevadm control --reload-rules && udevadm trigger
+  ```
+- Configure TLP to avoid GPU power management conflicts
+  ```bash
+  cat << 'EOF' >> /etc/tlp.conf
+  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915"
+  CPU_ENERGY_PERF_POLICY_ON_AC=performance
+  CPU_MAX_PERF_ON_AC=100
+  CPU_MIN_PERF_ON_AC=50
+  CPU_SCALING_GOVERNOR_ON_AC=performance
+  EOF
+  systemctl restart tlp
+  tlp-stat -p
+  ```
+- Configure systemd-logind for reliable GPU switching
+  ```bash
+  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
+  systemctl restart systemd-logind
+  ```
+- Optional: Install all-ways-egpu if eGPU isn’t primary
+  ```bash
+  if ! DRI_PRIME=1 glxinfo | grep -i radeon; then
+    cd ~; curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip; unzip all-ways-egpu.zip; cd all-ways-egpu-main; chmod +x install.sh; sudo ./install.sh; cd ../; rm -rf all-ways-egpu.zip all-ways-egpu-main
+    sbctl sign -s /usr/bin/all-ways-egpu
+    all-ways-egpu setup
+    all-ways-egpu set-boot-vga egpu
+    all-ways-egpu set-compositor-primary egpu
+    systemctl restart gdm
+  fi
+  ```
+- Optional: VFIO for eGPU passthrough
+  ```bash
+  pacman -S --needed qemu libvirt virt-manager
+  systemctl enable --now libvirtd
+  echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
+  lspci -nn | grep -i amd
+  echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
+  mkinitcpio -P
+  sbctl sign -s /usr/bin/qemu-system-x86_64
+  sbctl sign -s /usr/lib/libvirt/libvirtd
+  ```
+- Enable VRR for 4K OLED
+  ```bash
+  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
+  xrandr --output <output-name> --mode 3840x2160 --rate 120
+  wlr-randr --output <output-name>
+  ```
+- Pacman hook for binary verification
+  ```bash
+  cat << 'EOF' > /etc/pacman.d/hooks/90-pacman-verify.hook
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = *
+  [Action]
+  Description = Verifying package file integrity
+  When = PostTransaction
+  Exec = /usr/bin/pacman -Qkk
+  EOF
+  chmod 644 /etc/pacman.d/hooks/90-pacman-verify.hook
+  ```
+- Verify eGPU setup
+  ```bash
+  # Verify eGPU detection
+  lspci | grep -i amd
+  dmesg | grep -i amdgpu
+  # Verify GPU switching
+  supergfxctl -g
+  supergfxctl -m Hybrid
+  glxinfo | grep -i renderer
+  DRI_PRIME=1 glxinfo | grep -i radeon
+  DRI_PRIME=0 glxinfo | grep -i arc
+  # Verify PCIe bandwidth
+  lspci -vv | grep -i "LnkSta.*Speed.*Width"
+  # Verify OCuLink firmware
+  fwupdmgr get-devices | grep -i "oculink\|redriver"
+  # Verify VRR
+  wlr-randr --output <output-name>
   ```
 - **eGPU Troubleshooting Matrix**:
   | Issue | Possible Cause | Solution |
