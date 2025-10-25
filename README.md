@@ -903,11 +903,13 @@
   journalctl -b -p 3 | grep -i secureboot
   sbctl verify /usr/bin/astal /usr/bin/ags
   ```
-## Step 11: Configure Power Management, Security, and Privacy
+## Step 11: Configure Power Management, Security, Network and Privacy
 
-- Configure power management for efficiency:
+- Disable power-profiles-daemon to prevent conflicts with TLP and Configure power management for efficiency:
   ```bash
   systemctl mask power-profiles-daemon
+  systemctl disable power-profiles-daemon
+  # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
   echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
   ```
 - Configure Wayland environment variables:
@@ -917,38 +919,187 @@
   GDK_BACKEND=wayland
   CLUTTER_BACKEND=wayland
   QT_QPA_PLATFORM=wayland
+  SDL_VIDEODRIVER=wayland
+  EOF
+  #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
+  LIBVA_DRIVER_NAME=radeonsi
+  LIBVA_DRIVER_NAME=iHD
+  ```
+- Configure MAC randomization:
+  ```bash
+  mkdir -p /etc/NetworkManager/conf.d
+  cat << 'EOF' > /etc/NetworkManager/conf.d/00-macrandomize.conf
+  [device]
+  wifi.scan-rand-mac-address=yes
+  [connection]
+  wifi.cloned-mac-address=random
+  EOF
+  systemctl restart NetworkManager
+  nmcli connection down <connection_name> && nmcli connection up <connection_name>
+  ```
+- Configure UFW firewall:
+  ```bash
+  ufw allow ssh
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw enable
+  ```
+- Configure GNOME privacy:
+  ```bash
+  gsettings set org.gnome.desktop.privacy send-software-usage-info false
+  gsettings set org.gnome.desktop.privacy report-technical-problems false
+  ```
+- Configure IP spoofing protection:
+  ```bash
+  cat << 'EOF' > /etc/host.conf
+  order bind,hosts
+  nospoof on
   EOF
   ```
+- Configure security limits:
+  ```bash
+  cat << 'EOF' >> /etc/security/limits.conf
+  hard nproc 8192
+  EOF
+  ```
+- Configure auditd:
+  ```bash
+  cat << 'EOF' > /etc/audit/rules.d/audit.rules
+  -w /etc/passwd -p wa -k passwd_changes
+  -w /etc/shadow -p wa -k shadow_changes
+  -a always,exit -F arch=b64 -S execve -k exec
+  EOF
+  systemctl restart auditd
+  ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
+  nmcli connection modify <connection_name> ipv4.dns "127.0.0.1" ipv4.ignore-auto-dns yes # Replace <connection_name> with actual network connection (e.g., nmcli connection show to find it)
+  nmcli connection modify <connection_name> ipv6.dns "::1" ipv6.ignore-auto-dns yes
   cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml
-  server_names = ['cloudflare', 'quad9-dnscrypt-filter-pri']
-  listen_addresses = ['127.0.0.1:53']
-  max_clients = 250
+  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock']
+  listen_addresses = ['127.0.0.1:53', '[::1]:53']
+  max_clients = 512
   ipv4_servers = true
-  ipv6_servers = false
+  ipv6_servers = true
   dnscrypt_servers = true
   doh_servers = true
   require_dnssec = true
   require_nolog = true
   require_nofilter = false
   force_tcp = false
-  timeout = 5000
+  timeout = 3000
   cert_refresh_delay = 240
   EOF
   systemctl restart dnscrypt-proxy
+  # Test DNS resolution:
+  drill -D archlinux.org
+  ```
+- Configure usbguard with GSConnect exception:
+  ```bash
+  usbguard generate-policy > /etc/usbguard/rules.conf
+  # Test usbguard rules before enabling:
+  usbguard list-devices | grep -i "GSConnect\|KDEConnect" # Identify GSConnect device ID
+  usbguard allow-device <device-id> # For GSConnect and other known devices
+  # If passed the USB test enable it:
+  systemctl enable --now usbguard
+  ```
+- Configure Lynis audit and create timer:
+  ```bash
+  # Timer
+  cat << 'EOF' > /etc/systemd/system/lynis-audit.timer
+  [Unit]
+  Description=Run Lynis audit weekly
+  [Timer]
+  OnCalendar=weekly
+  Persistent=true
+  [Install]
+  WantedBy=timers.target
+  EOF
+  # Service
+  cat << 'EOF' > /etc/systemd/system/lynis-audit.service
+  [Unit]
+  Description=Run Lynis audit
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/bin/lynis audit system
+  EOF
+  systemctl enable --now lynis-audit.timer
+  systemctl enable lynis-audit.service
+  ```
+- Configure AIDE:
+  ```bash
+  aide --init
+  mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  systemctl enable --now aide-check.timer
+  ```
+- Configure sysctl hardening:
+  ```bash
+  cat << 'EOF' > /etc/sysctl.d/99-hardening.conf
+  net.ipv4.conf.default.rp_filter=1
+  net.ipv4.conf.all.rp_filter=1
+  net.ipv4.tcp_syncookies=1
+  net.ipv4.ip_forward=0
+  net.ipv4.conf.all.accept_redirects=0
+  net.ipv6.conf.all.accept_redirects=0
+  net.ipv4.conf.default.accept_redirects=0
+  net.ipv6.conf.default.accept_redirects=0
+  net.ipv4.conf.all.send_redirects=0
+  net.ipv4.conf.default.send_redirects=0
+  net.ipv4.conf.all.accept_source_route=0
+  net.ipv6.conf.all.accept_source_route=0
+  net.ipv4.conf.default.accept_source_route=0
+  net.ipv6.conf.default.accept_source_route=0
+  net.ipv4.conf.all.log_martians=1
+  net.ipv4.icmp_ignore_bogus_error_responses=1
+  net.ipv4.icmp_echo_ignore_broadcasts=1
+  kernel.randomize_va_space=2
+  kernel.dmesg_restrict=1
+  kernel.kptr_restrict=2
+  net.core.bpf_jit_harden=2
+  EOF
+  sysctl -p /etc/sysctl.d/99-hardening.conf
+  ```
+- Audit SUID binaries:
+  ```bash
+  find / -perm -4000 -type f -exec ls -l {} ; > /data/suid_audit.txt
+  cat /data/suid_audit.txt # Remove SUID from non-essential binaries
+  chmod u-s /usr/bin/ping
+  setcap cap_net_raw+ep /usr/bin/ping
+  ```
+- Configure zram:
+  ```bash
+  cat << 'EOF' > /etc/systemd/zram-generator.conf 
+  [zram0]
+  zram-size = 50%
+  compression-algorithm = zstd
+  EOF
+  systemctl enable --now systemd-zram-setup@zram0.service
+  ```
+- Configure fwupd for Firmware Updates (Chroot-Safe):
+  ```bash
+  # Install and enable
+  pacman -S fwupd udisks2
+  systemctl enable --now udisks2.service
+
+  # Secure Boot: Allow capsule updates
+  echo '[uefi_capsule]\nDisableShimForSecureBoot=true' >> /etc/fwupd/fwupd.conf
+
+  # Sign fwupd EFI binary
+  sbctl sign -s /efi/EFI/arch/fwupdx64.efi
+
+  # Verify setup (NO update checks)
+  fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" && echo "fwupd: UEFI device detected"
+  echo "fwupd configured. Updates will be checked in Step 18 (after first boot)."
+  ```
+- Configure opensnitch:
+  ```bash
+  systemctl enable --now opensnitch
+  opensnitch-ui
   ```
 - Configure AppArmor for mandatory access control:
   ```bash
   systemctl enable apparmor
   aa-enforce /etc/apparmor.d/*
-  ```
-- Configure UFW firewall:
-  ```bash
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw allow ssh
-  ufw enable
   ```
 ## Step 12: Configure eGPU (AMD)
 
