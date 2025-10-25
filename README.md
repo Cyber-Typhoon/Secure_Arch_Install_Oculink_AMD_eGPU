@@ -359,52 +359,30 @@
 - Install the base system and necessary packages:
   ```bash
   pacstrap /mnt \
-    base \
-    base-devel \
-    linux \
-    linux-firmware \
-    mkinitcpio \
-    intel-ucode \
-    zsh \
-    btrfs-progs \
-    sudo \
-    cryptsetup \
-    dosfstools \
-    efibootmgr \
-    networkmanager \
-    mesa \
-    libva-mesa-driver \
-    pipewire \
-    wireplumber \
-    sof-firmware \
-    vulkan-intel \
-    lib32-vulkan-intel \
-    pipewire-pulse \
-    pipewire-alsa \
-    pipewire-jack \
-    archlinux-keyring \
-    arch-install-scripts \
-    intel-media-driver \
-    sbctl \
-    git \
-    vulkan-radeon \
-    lib32-vulkan-radeon \
-    reflector \
-    udisks2 \
-    fwupd \
-    openssh \
-    rsync \
-    pacman-contrib \
-    polkit \
-    flatpak \
-    gdm \
-    acpi \
-    acpid \
-    thermald \
-    intel-gpu-tools \
-    nvme-cli \
-    wireless-regdb \
-    ethtool
+  # Core
+  base base-devel linux linux-firmware mkinitcpio archlinux-keyring \
+  \
+  # Boot / Encryption
+  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools \
+  \
+  # Hardware / Firmware
+  sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
+  \
+  # Graphics
+  mesa libva-mesa-driver vulkan-intel lib32-vulkan-intel \
+  vulkan-radeon lib32-vulkan-radeon intel-gpu-tools \
+  \
+  # Audio
+  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack \
+  \
+  # System
+  sudo polkit udisks2 thermald acpi acpid ethtool \
+  \
+  # Network / Install
+  networkmanager openssh rsync reflector arch-install-scripts \
+  \
+  # User / DE
+  zsh git flatpak gdm pacman-contrib
   ```
 - Chroot into the installed system:
   ```bash
@@ -809,7 +787,8 @@
     astal-git \
     ags-git \
     gdm-settings \
-    thinklmi-git
+    thinklmi-git \
+    systeroid-git
 
   # Verify binaries exist before signing
     [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
@@ -847,89 +826,37 @@
   ```
 - Install Pacman applications:
   ```bash
+  # System packages (CLI + system-level)
   pacman -S --needed \
-    aide \
-    apparmor \
-    atuin \
-    auditd \
-    baobab \
-    bandwhich \
-    bitwarden \
-    blender \
-    bluez \
-    bluez-utils \
-    bottom \
-    brave-browser \
-    chkrootkit \
-    clinfo \
-    cpupower \
-    delta \
-    dnscrypt-proxy \
-    dog \
-    dua \
-    eza \
-    fd \
-    ffmpeg \
-    flatpak \
-    fprintd \
-    fzf \
-    gcc \
-    gdb \
-    gdm-settings \
-    gimp \
-    git \
-    gitui \
-    glow \
-    gnome-bluetooth \
-    gnome-software-plugin-flatpak \
-    gnome-system-monitor \
-    gnome-tweaks \
-    gping \
-    gstreamer \
-    gst-libav \
-    gst-plugins-bad \
-    gst-plugins-good \
-    gst-plugins-ugly \
-    hardened-malloc \
-    helix \
-    httpie \
-    inkscape \
-    jaq \
-    krita \
-    libva-utils \
-    libva-vdpau-driver \
-    lynis \
-    mangohud \
-    mullvad-browser \
-    obs-studio \
-    opensnitch \
-    pacman-contrib \
-    pacman-notifier \
-    procs \
-    python-pygobject \
-    rage \
-    ripgrep \
-    rkhunter \
-    rustup \
-    sshguard \
-    systeroid-git \
-    tealdeer \
-    thinklmi \
-    tlp \
-    tokei \
-    tor-browser \
-    ufw \
-    upower \
-    usbguard \
-    vala \
-    vulkan-tools \
-    wireguard-tools \
-    xdg-ninja \
-    yazi \
-    zellij \
-    zoxide \
-    zram-generator \
-    zsh
+  # Security & Hardening
+  aide apparmor auditd chkrootkit lynis rkhunter sshguard ufw usbguard \
+  \
+  # System Monitoring
+  baobab cpupower gnome-system-monitor tlp upower zram-generator \
+  \
+  # Hardware
+  bluez bluez-utils fprintd thermald \
+  \
+  # Networking & Privacy
+  dnscrypt-proxy opensnitch wireguard-tools \
+  \
+  # CLI Tools
+  atuin bottom delta dog dua eza fd fzf gcc gdb git gitui glow gping \
+  helix httpie jaq procs python-pygobject rage ripgrep rustup tealdeer \
+  tokei xdg-ninja yazi zellij zoxide \
+  \
+  # Multimedia (system)
+  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud \
+  \
+  # Browsers & OBS (native)
+  brave-browser mullvad-browser tor-browser obs-studio \
+  \
+  # Utilities
+  bandwhich hardened-malloc pacman-contrib pacman-notifier \
+  \
+  # GNOME
+  gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks
   ```
 - Enable essential services:
   ```bash
@@ -946,7 +873,19 @@
   EOF
   systemctl restart gdm # or reboot
   ```
-- Configure Flatseal for Flatpak apps:
+- Install Bazzar and the Flatpak applications via GUI
+  ```bash
+  # Install Bazaar (Flatpak-focused app store)
+  flatpak install -y flathub io.github.kolunmi.Bazaar
+
+  # Launch once to initialize
+  flatpak run io.github.kolunmi.Bazaar
+
+  # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
+  echo "Open Bazaar and install: GIMP, Inkscape, Krita, Blender"
+  Search/install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender).
+  ```
+- Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
   # Allow Flatpaks to read/write their own config/data only
   flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
