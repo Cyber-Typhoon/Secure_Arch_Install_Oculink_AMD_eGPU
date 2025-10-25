@@ -471,16 +471,24 @@
 - Test TPM unlocking and back up PCR values:
   ```bash
   systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+  # If test fails: tpm2_pcrread sha256:0,4,7  and compare with expected values
   systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt
   tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt
+  # Verify PCR 4 is measured by systemd-boot (non-zero)
+  tpm2_pcrread sha256:4 | grep -v "0x0000000000000000000000000000000000000000000000000000000000000000"
+  # Confirm TPM keyslot exists
+  cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
   echo "WARNING: Store /mnt/usb/tpm-pcr-initial.txt in Bitwarden."
   echo "WARNING: Store /mnt/usb/tpm-pcr-backup.txt in Bitwarden."
   echo "WARNING: PCR values are critical for TPM unlocking; back them up securely."
   ```
+  WARNING: Store both /mnt/usb/tpm-pcr-initial.txt and /mnt/usb/tpm-pcr-backup.txt in Bitwarden. Firmware or Secure Boot changes will alter PCRs and break auto-unlock.
 - Configure `mkinitcpio` for TPM and encryption support:
   ```bash
+  # HOOKS order is critical: plymouth BEFORE sd-encrypt
   sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf
-  echo 'BINARIES=(/usr/bin/btrfs)' >> /etc/mkinitcpio.conf
+  # Ensure btrfs binary is available in initramfs (replace any existing line)
+  sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
   mkinitcpio -P
   ```
 - Enable Plymouth for a graphical boot splash:
