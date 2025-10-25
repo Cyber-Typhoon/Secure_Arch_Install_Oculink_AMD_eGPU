@@ -762,104 +762,180 @@
 
 ## Step 10: Install and Configure DE and Applications
 
-- Update the system to ensure the latest packages:
+- Install the **GNOME desktop environment**:
   ```bash
-  pacman -Syu
+  pacman -Sy --needed gnome
   ```
-- Install the **GNOME desktop environment** and additional applications:
+- Install **Paru and configure it**:
   ```bash
-  pacman -S --needed gnome
-  paru -S --needed \
+  SUDO_USER=$(logname)   # or replace with your username
+  
+  # Clone & build in a clean temp dir
+  TMP_PARU=$(mktemp -d)
+  sudo -u "$SUDO_USER" git clone https://aur.archlinux.org/paru.git "$TMP_PARU"
+  (cd "$TMP_PARU" && sudo -u "$SUDO_USER" makepkg -si)
+  rm -rf "$TMP_PARU"
+
+  # Configure to show PKGBUILD diffs (edit the Paru config file):
+  sudo -u $SUDO_USER mkdir -p /home/$SUDO_USER/.config/paru
+  cat << 'EOF' | sudo -u $SUDO_USER tee /home/$SUDO_USER/.config/paru/paru.conf
+  [options]
+  PgpFetch
+  BottomUp
+  RemoveMake
+  SudoLoop
+  CombinedUpgrade = false
+
+  [bin]
+  DiffMenu = true
+  UseAsk = true
+  EOF
+  chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.config/paru
+  
+  # Verify if paru shows the PKGBUILD diffs
+  sudo -u $SUDO_USER paru -Pg | grep -E 'diffmenu|combinedupgrade' # Should show: combinedupgrade: Off diffmenu: Edit answerdiff: Edit
+
+  # Set build directory
+  echo 'BUILDDIR = /home/$SUDO_USER/.cache/paru-build' >> /etc/makepkg.conf
+  sudo -u $SUDO_USER mkdir -p /home/$SUDO_USER/.cache/paru-build
+  chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.cache/paru-build
+  ```
+- Install the applications and configure Bubblejail:
+  ```bash
+  # AUR applications:
+  sudo -u $SUDO_USER paru -S --needed \
     bubblejail \
     alacritty-graphics \
     astal-git \
     ags-git \
-    thinklmi
+    gdm-settings \
+    thinklmi-git
+
+  # Verify binaries exist before signing
+    [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
+  
+  # Sign astal/ags for Secure Boot once
+    sbctl sign -s /usr/bin/astal /usr/bin/ags
+  
+  # Append to existing 91-sbctl-sign.hook
+  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = astal-git
+  Target = ags-git
+
+  [Action]
+  Description = Sign astal/ags with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags
+  EOF
+
+  # Test the hook after installation:
+  sbctl verify /usr/bin/astal  #Should show "signed"
+
+  # Configure Bubblejail
+    bubblejail create --profile generic-gui-app alacritty
+    bubblejail config alacritty --add-service wayland --add-service dri
+    bubblejail run Alacritty -- env | grep -E 'WAYLAND|XDG_SESSION_TYPE'
+  
+    bubblejail create --profile generic-gui-app astal
+    bubblejail config astal --add-service wayland --add-service dri
+    bubblejail run astal -- ags -c /home/$SUDO_USER/.config/ags/config.js
+  ```
+- Install Pacman applications:
+  ```bash
   pacman -S --needed \
-    gnome-tweaks \
-    gnome-software-plugin-flatpak \
+    aide \
+    apparmor \
+    atuin \
+    auditd \
+    baobab \
+    bandwhich \
+    bitwarden \
+    blender \
     bluez \
     bluez-utils \
-    ufw \
-    apparmor \
-    tlp \
-    cpupower \
-    upower \
-    systemd-timesyncd \
-    zsh \
-    sshguard \
-    rkhunter \
-    chkrootkit \
-    lynis \
-    usbguard \
-    aide \
-    pacman-notifier \
-    mullvad-browser \
+    bottom \
     brave-browser \
-    tor-browser \
-    bitwarden \
-    helix \
-    zellij \
-    yazi \
-    blender \
-    krita \
-    gimp \
+    chkrootkit \
+    clinfo \
+    cpupower \
+    delta \
+    dnscrypt-proxy \
+    dog \
+    dua \
+    eza \
+    fd \
+    ffmpeg \
+    flatpak \
+    fprintd \
+    fzf \
     gcc \
     gdb \
-    rustup \
-    python-pygobject \
+    gdm-settings \
+    gimp \
     git \
-    vala \
-    gjs \
-    xdg-ninja \
-    libva-vdpau-driver \
-    zram-generator \
-    ripgrep \
-    fd \
-    eza \
-    gstreamer \
-    gst-plugins-good \
-    gst-plugins-bad \
-    gst-plugins-ugly \
-    ffmpeg \
-    gst-libav \
-    fprintd \
-    dnscrypt-proxy \
-    systeroid-git \
-    rage \
-    zoxide \
-    jaq \
-    atuin \
     gitui \
     glow \
-    delta \
-    tokei \
-    dua \
-    tealdeer \
-    fzf \
-    procs \
-    gping \
-    dog \
-    httpie \
-    bottom \
-    bandwhich \
     gnome-bluetooth \
-    opensnitch \
-    baobab \
+    gnome-software-plugin-flatpak \
     gnome-system-monitor \
+    gnome-tweaks \
+    gping \
+    gstreamer \
+    gst-libav \
+    gst-plugins-bad \
+    gst-plugins-good \
+    gst-plugins-ugly \
     hardened-malloc \
-    wireguard-tools \
-    vulkan-tools \
+    helix \
+    httpie \
+    inkscape \
+    jaq \
+    krita \
     libva-utils \
-    clinfo \
+    libva-vdpau-driver \
+    lynis \
     mangohud \
+    mullvad-browser \
     obs-studio \
-    inkscape
+    opensnitch \
+    pacman-contrib \
+    pacman-notifier \
+    procs \
+    python-pygobject \
+    rage \
+    ripgrep \
+    rkhunter \
+    rustup \
+    sshguard \
+    systeroid-git \
+    tealdeer \
+    thinklmi \
+    tlp \
+    tokei \
+    tor-browser \
+    ufw \
+    upower \
+    usbguard \
+    vala \
+    vulkan-tools \
+    wireguard-tools \
+    xdg-ninja \
+    yazi \
+    zellij \
+    zoxide \
+    zram-generator \
+    zsh
   ```
 - Enable essential services:
   ```bash
   systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit
   systemctl --failed  # Check for failed services
+  journalctl -p 3 -xb
   ```
 - Configure GDM for Wayland:
   ```bash
@@ -868,8 +944,26 @@
   WaylandEnable=true
   DefaultSession=gnome-wayland.desktop
   EOF
+  systemctl restart gdm # or reboot
   ```
-
+- Configure Flatseal for Flatpak apps:
+  ```bash
+  # Allow Flatpaks to read/write their own config/data only
+  flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
+  # Allow GPU access for Steam:
+  flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
+  ```
+- Final full system update + UKI rebuild
+  ```bash
+  pacman -Syu                 # now safe – hooks are active
+  mkinitcpio -P               # regenerate UKI (covers new kernel)
+  sbctl verify                # sanity-check all signed files
+  ```
+- Check Secure Boot Violations:
+  ```bash
+  journalctl -b -p 3 | grep -i secureboot
+  sbctl verify /usr/bin/astal /usr/bin/ags
+  ```
 ## Step 11: Configure Power Management, Security, and Privacy
 
 - Configure power management for efficiency:
@@ -917,7 +1011,6 @@
   ufw allow ssh
   ufw enable
   ```
-
 ## Step 12: Configure eGPU (AMD)
 
 - Install AMD drivers and microcode:
