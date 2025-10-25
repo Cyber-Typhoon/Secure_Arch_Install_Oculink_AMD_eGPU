@@ -549,8 +549,6 @@
   Target = linux
   Target = fwupd
   Target = plymouth
-  Target = astal-git
-  Target = ags-git
   [Action]
   Description = Signing EFI binaries with sbctl
   When = PostTransaction
