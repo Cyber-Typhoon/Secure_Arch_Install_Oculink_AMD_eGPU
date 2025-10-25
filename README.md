@@ -778,7 +778,7 @@
   sudo -u $SUDO_USER mkdir -p /home/$SUDO_USER/.cache/paru-build
   chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.cache/paru-build
   ```
-- Install the applications and configure Bubblejail:
+- Install the AUR applications and configure Bubblejail:
   ```bash
   # AUR applications:
   sudo -u $SUDO_USER paru -S --needed \
