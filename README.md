@@ -525,7 +525,7 @@
   arch-chroot /mnt
   sbctl create-keys
   sbctl enroll-keys --tpm-eventlog
-  mkinitcpio -P
+  mkinitcpio -P # Regenerate UKI before signing
   sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
   sbctl sign -s /boot/EFI/Linux/arch.efi
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
@@ -549,6 +549,8 @@
   Target = linux
   Target = fwupd
   Target = plymouth
+  Target = astal-git
+  Target = ags-git
   [Action]
   Description = Signing EFI binaries with sbctl
   When = PostTransaction
@@ -562,20 +564,44 @@
     /usr/lib/gdm/gdm
   EOF
   ```
+- Verify MOK enrollment before reboot:
+  ```bash
+  mokutil --list-enrolled
+  ```
 - Reboot to enroll keys and enable Secure Boot in UEFI:
   ```bash
   exit
   umount -R /mnt
   reboot
   ```
-  - In UEFI, enable **Secure Boot** and select the enrolled keys.
+  - In UEFI, enable **Secure Boot** and enroll the sbctl key when prompted.
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
   arch-chroot /mnt
+  # Wipe old TPM policy and reenroll with Secure Boot PCRs
   systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
   systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+  # Final TPM unlock test
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+  # Confirm Secure Boot is active
   sbctl status
+  sbctl verify /boot/EFI/Linux/arch.efi | grep -q "signed" && echo "UKI signed"
   ```
+- Verify Secure Boot is fully enabled:
+```bash
+  # Check SetupMode: 0 = Secure Boot active, 1 = Setup Mode
+  efivar -p -n 8be4df61-93ca-11d2-aa0d-00e098032b8c-SetupMode
+
+  # Check SecureBoot state: 1 = enabled
+  efivar -p -n 8be4df61-93ca-11d2-aa0d-00e098032b8c-SecureBoot
+
+  # Expected output:
+  SetupMode: 0
+  SecureBoot: 1
+
+  # If SetupMode=1:
+  → Reboot into UEFI, complete MOK enrollment, save keys, then reboot again.
+```
 - Back up PCR values post-Secure Boot:
   ```bash
   tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-post-secureboot.txt
