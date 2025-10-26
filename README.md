@@ -1117,16 +1117,19 @@
 
 - Install AMD drivers and microcode:
   ```bash
-  pacman -S --noconfirm \
-    amd-ucode \
-    rocm-opencl \
-    rocm-hip \
-    libva-vdpau-driver
+  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip libva-vdpau-driver
   ```
 - Configure early KMS
   ```bash
   echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
   mkinitcpio -P
+  # if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter. Example: options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1. Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
+  lspci -vv | grep -i "LnkSta.*Speed.*Width"  # Should show "Speed 16GT/s, Width x4"
+  if ! lspci -vv | grep -i "LnkSta" | grep -q "Speed 16GT/s, Width x4"; then
+    echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
+    echo "NOTE: If issues persist, add to /boot/loader/entries/arch.conf: 'amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1'"
+    mkinitcpio -P
+  fi
   ```
 - Set AMD power management options
   ```bash
@@ -1139,7 +1142,7 @@
   ```
 - Install and configure `supergfxctl` for GPU switching:
   ```bash
-  paru -S supergfxctl-git
+  paru -S supergfxctl
   cat << 'EOF' > /etc/supergfxd.conf
   "mode": "Hybrid",
   "vfio_enable": true,
@@ -1147,16 +1150,17 @@
   "always_reboot": false,
   "no_logind": true,
   "logout_timeout_s": 180,
-  "hotplug_type": "Std"
+  "hotplug_type": "Std" # Use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
   EOF
   systemctl enable --now supergfxd
   sbctl sign -s /usr/bin/supergfxctl
   sbctl sign -s /usr/lib/supergfxctl/supergfxd
   ```
-- Install supergfxctl-gex for GUI switching
+- Install supergfxctl-gex for GUI switching (do NOT run as root or sudo)
   ```bash
   pacman -S --needed gnome-shell-extension
   gnome-extensions enable supergfxctl-gex@asus-linux.org
+  echo "NOTE: supergfxctl-gex provides a GUI for GPU switching in GNOME."
   ```
 - Install switcheroo-control for GPU integration
   ```bash
@@ -1168,30 +1172,33 @@
   pacman -S --needed bolt
   systemctl enable --now bolt
   echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
-  boltctl list | grep -i oculink && boltctl authorize <uuid>
+  boltctl list | grep -i oculink && boltctl authorize <uuid> # Replace with OCuLink device UUID
   ```
 - Enable PCIe hotplug
   ```bash
   echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
   ```
 - Create a udev rule for eGPU hotplug support:
+  # Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
+  # Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
   ```bash
   cat << 'EOF' > /etc/udev/rules.d/99-oculink-hotplug.rules
   SUBSYSTEM=="pci", ACTION=="add", ATTRS{vendor}=="0x1002", RUN+="/usr/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
   EOF
   udevadm control --reload-rules && udevadm trigger
   ```
-- Configure TLP to avoid GPU power management conflicts
+- Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
   ```bash
   cat << 'EOF' >> /etc/tlp.conf
-  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915"
+  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915" # This exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
   CPU_ENERGY_PERF_POLICY_ON_AC=performance
   CPU_MAX_PERF_ON_AC=100
   CPU_MIN_PERF_ON_AC=50
   CPU_SCALING_GOVERNOR_ON_AC=performance
   EOF
   systemctl restart tlp
-  tlp-stat -p
+  tlp-stat -p # Check TDP >60W on AC
+  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
   ```
 - Configure systemd-logind for reliable GPU switching
   ```bash
@@ -1200,31 +1207,62 @@
   ```
 - Optional: Install all-ways-egpu if eGPU isn’t primary
   ```bash
+  # If supergfxctl do not handle the hotplug try to install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland -- this is a plan b, should not be used at first. First test the setup without, in other words skip to the switcheroo-control
   if ! DRI_PRIME=1 glxinfo | grep -i radeon; then
     cd ~; curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip; unzip all-ways-egpu.zip; cd all-ways-egpu-main; chmod +x install.sh; sudo ./install.sh; cd ../; rm -rf all-ways-egpu.zip all-ways-egpu-main
-    sbctl sign -s /usr/bin/all-ways-egpu
+    sbctl sign -s /usr/bin/all-ways-egpu # Ensure binary is signed for Secure Boot
     all-ways-egpu setup
     all-ways-egpu set-boot-vga egpu
     all-ways-egpu set-compositor-primary egpu
     systemctl restart gdm
   fi
+  #Note: If Plymouth splash screen fails (e.g., blank screen), remove 'splash' from kernel parameters in /boot/loader/entries/arch.conf and regenerate UKI with `mkinitcpio -P` 
   ```
-- Optional: VFIO for eGPU passthrough
+- VFIO for eGPU passthrough
   ```bash
   pacman -S --needed qemu libvirt virt-manager
   systemctl enable --now libvirtd
   echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
   lspci -nn | grep -i amd
+  fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
+  echo "Run 'lspci -nn | grep -i amd' to find PCIe IDs (e.g., 1002:73df for RX 6700 XT). Replace '1002:xxxx' in /etc/modprobe.d/vfio.conf with the correct IDs."
   echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
   mkinitcpio -P
+
+  # Chek if vfio and qemu needs to be signed
+  sbctl verify /usr/bin/qemu-system-x86_64
+  sbctl verify /usr/lib/libvirt/libvirtd
+
+  # If unsigned, sign and add to the pacman hook
   sbctl sign -s /usr/bin/qemu-system-x86_64
   sbctl sign -s /usr/lib/libvirt/libvirtd
+  echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = supergfxctl" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "/usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd" | sed -i '/Exec =/ s|$| /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
   ```
 - Enable VRR for 4K OLED
   ```bash
   gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
-  xrandr --output <output-name> --mode 3840x2160 --rate 120
-  wlr-randr --output <output-name>
+
+  # Verify VRR is active:
+  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
+  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
+
+  # Verify VRR support on the eGPU:
+  DRI_PRIME=1 vdpauinfo | grep -i radeonsi #Confirms AMD driver
+
+  # If VRR fails, check dmesg for amdgpu errors:
+  dmesg | grep -i amdgpu
+
+  # Ensure 4K OLED is set to its maximum refresh rate and VRR range:
+  xrandr --output <output-name> --mode 3840x2160 --rate 120 #replace output name with HDMI-1 or DP-1 (check via 'xrandr')
+  # In Wayland, confirm VRR:
+  wlr-randr --output <output-name> #check refresh rate range
+
+  # Check AppArmor denials
+  journalctl -u apparmor | grep -i "supergfxctl\|qemu\|libvirtd"
+  # echo "NOTE: If AppArmor denials are found, generate profiles with 'aa-genprof supergfxctl' or 'aa-genprof qemu-system-x86_64' and customize rules for /dev/dri/*, /dev/vfio/*, and /sys/bus/pci/* access."
   ```
 - Pacman hook for binary verification
   ```bash
@@ -1246,18 +1284,45 @@
   # Verify eGPU detection
   lspci | grep -i amd
   dmesg | grep -i amdgpu
+
   # Verify GPU switching
-  supergfxctl -g
-  supergfxctl -m Hybrid
-  glxinfo | grep -i renderer
-  DRI_PRIME=1 glxinfo | grep -i radeon
-  DRI_PRIME=0 glxinfo | grep -i arc
-  # Verify PCIe bandwidth
-  lspci -vv | grep -i "LnkSta.*Speed.*Width"
+  supergfxctl -s # Show supported modes
+  supergfxctl -g # Get current mode
+  supergfxctl -S # Check current power status
+  supergfxctl -m Hybrid # Set to Hybrid mode
+  glxinfo | grep -i renderer # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary) 
+  DRI_PRIME=1 glxinfo | grep -i radeon # Should show AMD
+  DRI_PRIME=0 glxinfo | grep -i arc # Should show Intel
+  DRI_PRIME=1 vdpauinfo | grep -i radeonsi
+  supergfxctl -m VFIO # Test VFIO mode for VM
+
+  # Verify PCIe bandwidth. Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4):
+  lspci -vv | grep -i "LnkSta.*Speed.*Width" # Should show "Speed 16GT/s, Width x4" for OCuLink4
+  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
+  lspci -vv | grep -i "LnkSta" | grep -i "card1"
+  # If the link is suboptimal (e.g., x1 or Gen 3), suggest adding kernel parameters to force PCIe performance: pcie_ports=native pciehp.pciehp_force=1
+
   # Verify OCuLink firmware
   fwupdmgr get-devices | grep -i "oculink\|redriver"
+
   # Verify VRR
   wlr-randr --output <output-name>
+
+  # Verify eGPU functionality
+  lspci | grep -i vga
+  lspci | grep -i "serial\|usb\|thunderbolt"
+  lspci -vv | grep -i "LnkSta"
+  lspci -k | grep -i vfio # Verify VFIO binding
+  dmesg | grep -i "oculink\|pcieport\|amdgpu\|jhl\|redriver"
+
+  # Check for PCIe errors
+  dmesg | grep -i "pcieport\|error\|link"
+  cat /sys/class/drm/card*/device/uevent | grep DRIVER  # Should show i915 and amdgpu
+
+  # Check OCuLink dock firmware
+  fwupdmgr get-devices | grep -i "oculink\|redriver"
+  fwupdmgr update
+  sbctl sign -s /efi/EFI/arch/fwupdx64.efi  # Re-sign fwupd EFI binary if updated
   ```
 - **eGPU Troubleshooting Matrix**:
   | Issue | Possible Cause | Solution |
