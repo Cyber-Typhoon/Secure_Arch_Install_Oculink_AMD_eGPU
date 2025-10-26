@@ -1179,9 +1179,9 @@
   echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
   ```
 - Create a udev rule for eGPU hotplug support:
+  ```bash
   # Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
   # Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
-  ```bash
   cat << 'EOF' > /etc/udev/rules.d/99-oculink-hotplug.rules
   SUBSYSTEM=="pci", ACTION=="add", ATTRS{vendor}=="0x1002", RUN+="/usr/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
   EOF
