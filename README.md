@@ -1337,36 +1337,84 @@
     dmesg | grep -i amdgpu  # Check driver loading
     glxinfo | grep -i renderer  # Verify GPU rendering
     ```
-
 ## Step 13: Configure Snapper and Backups
-
-- Install Snapper for BTRFS snapshots:
+- Install Snapper, snap-pac, and grub-btrfs
   ```bash
-  pacman -S --noconfirm \
-    snapper \
-    snap-pac
+  pacman -S --noconfirm snapper snap-pac grub-btrfs
   ```
-- Create Snapper configurations for root and home:
+- Create global filter
   ```bash
-  snapper -c root --create-config / --type btrfs
-  snapper -c home --create-config /home --type btrfs
+  mkdir -p /etc/snapper/filters
+  echo -e "/home/.cache\n/tmp\n/run\n/.snapshots" | sudo tee /etc/snapper/filters/global-filter.txt
+  ```
+- Create Snapper configurations for root, home and data:
+  ```bash
+  snapper --config root create-config /
+  snapper --config home create-config /home
+  snapper --config data create-config /data
   ```
 - Configure Snapper for automatic snapshots:
   ```bash
+  #root
   cat << 'EOF' > /etc/snapper/configs/root
   TIMELINE_CREATE="yes"
   TIMELINE_CLEANUP="yes"
   TIMELINE_MIN_AGE="1800"
-  TIMELINE_HOURLY="5"
-  TIMELINE_DAILY="7"
-  TIMELINE_WEEKLY="0"
-  TIMELINE_MONTHLY="0"
-  TIMELINE_YEARLY="0"
+  TIMELINE_LIMIT_HOURLY="0"
+  TIMELINE_LIMIT_DAILY="7"
+  TIMELINE_LIMIT_WEEKLY="4"
+  TIMELINE_LIMIT_MONTHLY="6"
+  TIMELINE_LIMIT_YEARLY="0"
   NUMBER_CLEANUP="yes"
   NUMBER_LIMIT="50"
   NUMBER_LIMIT_IMPORTANT="10"
+  SUBVOLUME="/"
+  ALLOW_GROUPS=""
+  SYNC_ACL="no"
+  FILTER="/etc/snapper/filters/global-filter.txt"
   EOF
-  cp /etc/snapper/configs/root /etc/snapper/configs/home
+
+  #home
+  cat << 'EOF' > /etc/snapper/configs/home
+  TIMELINE_CREATE="yes"
+  TIMELINE_CLEANUP="yes"
+  TIMELINE_MIN_AGE="1800"
+  TIMELINE_LIMIT_HOURLY="0"
+  TIMELINE_LIMIT_DAILY="7"
+  TIMELINE_LIMIT_WEEKLY="4"
+  TIMELINE_LIMIT_MONTHLY="6"
+  TIMELINE_LIMIT_YEARLY="0"
+  NUMBER_CLEANUP="yes"
+  NUMBER_LIMIT="50"
+  NUMBER_LIMIT_IMPORTANT="10"
+  SUBVOLUME="/home"
+  ALLOW_GROUPS=""
+  SYNC_ACL="no"
+  FILTER="/etc/snapper/filters/global-filter.txt"
+  EOF
+
+  #data
+  cat << 'EOF' > /etc/snapper/configs/data
+  TIMELINE_CREATE="yes"
+  TIMELINE_CLEANUP="yes"
+  TIMELINE_MIN_AGE="1800"
+  TIMELINE_LIMIT_HOURLY="0"
+  TIMELINE_LIMIT_DAILY="7"
+  TIMELINE_LIMIT_WEEKLY="4"
+  TIMELINE_LIMIT_MONTHLY="6"
+  TIMELINE_LIMIT_YEARLY="0"
+  NUMBER_CLEANUP="yes"
+  NUMBER_LIMIT="50"
+  NUMBER_LIMIT_IMPORTANT="10"
+  SUBVOLUME="/data"
+  ALLOW_GROUPS=""
+  SYNC_ACL="no"
+  FILTER="/etc/snapper/filters/global-filter.txt"
+  EOF
+  ```
+- Config permissions:
+  ```bash
+  chmod 640 /etc/snapper/configs/*
   ```
 - Enable Snapper timeline and cleanup:
   ```bash
@@ -1376,7 +1424,7 @@
 - Create Pacman hooks to snapshot before and after package transactions:
   ```bash
   mkdir -p /etc/pacman.d/hooks
-  cat << 'EOF' > /etc/pacman.d/hooks/50-bootbackup.hook
+  cat << 'EOF' > /etc/pacman.d/hooks/50-snapper-pre-update.hook
   [Trigger]
   Operation = Upgrade
   Operation = Install
@@ -1385,11 +1433,14 @@
   Target = *
   [Action]
   Description = Creating snapshot before pacman transaction
-  Depends = snapper
+  DependsOn = snapper
   When = PreTransaction
-  Exec = /usr/bin/snapper --config root --description "pacman" --type pre
+  Exec = /usr/bin/snapper --config root create --description "Pre-pacman" --type pre
+  Exec = /usr/bin/snapper --config home create --description "Pre-pacman update" --type pre
+  Exec = /usr/bin/snapper --config data create --description "Pre-pacman update" --type pre
   EOF
-  cat << 'EOF' > /etc/pacman.d/hooks/50-bootbackup-post.hook
+  
+  cat << 'EOF' > /etc/pacman.d/hooks/51-snapper-post-update.hook
   [Trigger]
   Operation = Upgrade
   Operation = Install
@@ -1398,12 +1449,41 @@
   Target = *
   [Action]
   Description = Creating snapshot after pacman transaction
-  Depends = snapper
+  DependsOn = snapper
   When = PostTransaction
-  Exec = /usr/bin/snapper --config root --description "pacman" --type post
+  Exec = /usr/bin/snapper --config root create --description "Post-pacman update" --type post
+  Exec = /usr/bin/snapper --config home create --description "Post-pacman update" --type post
+   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
-
+  - Set permissions for hooks:
+  ```bash
+  chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
+  chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
+  ```
+  - Enable grub-btrfs for bootable snapshots
+  ```bash
+  systemctl enable --now grub-btrfsd
+  grub-mkconfig -o /boot/grub/grub.cfg
+  ```
+  - Verify configuration:
+  ```bash 
+  snapper --config root get-config
+  snapper --config home get-config
+  snapper --config data get-config
+  ```
+  - Test snapshot creation:
+  ```bash
+  snapper --config root create --description "Initial test snapshot"
+  snapper --config home create --description "Initial test snapshot"
+  snapper --config data create --description "Initial test snapshot"
+  snapper list
+  ```
+  - Check for AppArmor denials (if enabled in Step 11)
+  ```bash
+  echo "NOTE: If AppArmor is enabled, check for denials: journalctl -u apparmor | grep -i 'snapper\|grub-btrfsd'. Generate profiles with 'aa-genprof snapper' if needed."
+  journalctl -u apparmor | grep -i "snapper\|grub-btrfsd"
+  ```
 ## Step 14: Configure Dotfiles
 
 - Install `chezmoi` for dotfile management:
