@@ -858,6 +858,9 @@
   ```
 - Enable AppArmor integration for Firejail
   ```bash
+  # Check if Apparmor service is active:
+  systemctl is-active apparmor || { echo "Error: AppArmor service not active"; exit 1; }
+  # Activate the integration if Apparmor is active
   sed -i 's/# apparmor/apparmor/' /etc/firejail/firejail.config
   ```
 - Verify AppArmor is enabled
@@ -870,8 +873,8 @@
   ```
 - Append Firejail to existing 91-sbctl-sign.hook
   ```bash
+  if ! grep -q "Target = firejail" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
   cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-
   [Trigger]
   Operation = Install
   Operation = Upgrade
@@ -886,6 +889,8 @@
   ```
 - Create aliases for easy sandboxing (add to user’s shell configuration):
   ```bash
+  # Create a backuo of current .zshrc
+  cp /home/$SUDO_USER/.zshrc /home/$SUDO_USER/.zshrc.bak
   cat << 'EOF' >> /home/$SUDO_USER/.zshrc
   alias brave="firejail --apparmor brave-browser"
   alias mullvad="firejail --apparmor mullvad-browser"
@@ -902,13 +907,29 @@
   alias httpie="firejail --apparmor httpie"
   EOF
   chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.zshrc
+  source /home/$SUDO_USER/.zshrc
+  for cmd in brave mullvad tor obs alacritty astal ags helix zellij yazi gitui glow httpie; do
+    type $cmd || echo "Error: Alias $cmd not functional"
+  done
   ```
 - Configure Firejail profiles for key applications
   ```bash
+  #
+  for profile in obs-studio alacritty astal ags helix zellij yazi gitui glow httpie; do
+    [ -f /etc/firejail/$profile.profile ] || cp /etc/firejail/generic.profile /etc/firejail/$profile.profile
+  done
+  
   # Browsers
   firejail --noprofile --dry-run brave-browser  # Verify profile exists
   firejail --noprofile --dry-run mullvad-browser
   firejail --noprofile --dry-run tor-browser
+
+  for profile in brave-browser mullvad-browser tor-browser; do
+  if [ -f /etc/firejail/$profile.profile ]; then
+    echo "whitelist /dev/dri/" >> /etc/firejail/$profile.profile
+    echo "protocol wayland" >> /etc/firejail/$profile.profile
+  fi
+  done
 
   # OBS Studio (allow GPU for eGPU)
   cp /etc/firejail/obs.profile /etc/firejail/obs-studio.profile
@@ -941,6 +962,10 @@
   cp /etc/firejail/generic.profile /etc/firejail/glow.profile
   cp /etc/firejail/generic.profile /etc/firejail/httpie.profile
 
+  #  Stricter httpie profile
+  echo "netfilter" >> /etc/firejail/httpie.profile
+  echo "whitelist ${HOME}/.cache/httpie" >> /etc/firejail/httpie.profile 
+
   # Test Firejail with key applications
   firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
   firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
@@ -960,6 +985,9 @@
   firejail --apparmor alacritty -- sh -c "sleep 2" || echo "Warning: Alacritty Wayland test failed"
   firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js -- sh -c "sleep 2" || echo "Warning: Astal Wayland test failed"
 
+  # Enhanced Wayland tests
+  firejail --apparmor alacritty -- sh -c "WAYLAND_DISPLAY=wayland-0 xdg-open /dev/null" || echo "Warning: Alacritty Wayland protocol test failed"
+
   # Check for AppArmor denials
   journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
   ```
@@ -967,6 +995,7 @@
   ```bash
   chmod 644 /etc/firejail/*.profile
   chown root:root /etc/firejail/*.profile
+  ls -l /etc/firejail/*.profile | grep -q "rw-r--r--.*root:root" || echo "Warning: Firejail profile permissions incorrect"
   ```
 - Configure GDM for Wayland:
   ```bash
@@ -1647,6 +1676,10 @@
   ```
 - Add Firejail configuration files
   ```bash
+  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile alacritty.profile astal.profile ags.profile helix.profile zellij.profile yazi.profile gitui.profile glow.profile httpie.profile; do
+    [ -f /etc/firejail/$profile ] || { echo "Error: /etc/firejail/$profile not found"; exit 1; }
+    sudo chezmoi add /etc/firejail/$profile
+  done
   sudo chezmoi add /etc/firejail/firejail.config
   sudo chezmoi add /etc/firejail/brave-browser.profile
   sudo chezmoi add /etc/firejail/mullvad-browser.profile
@@ -1693,6 +1726,8 @@
   ```bash
   chezmoi apply
   sudo chmod 640 /etc/snapper/configs/*
+  sudo chezmoi chown root:root /etc/firejail/*
+  sudo chezmoi chmod 644 /etc/firejail/*
   ```
 - Test and validate
   ```bash
@@ -1709,8 +1744,11 @@
   # Test to ensure Firejail profiles are functional post-restore
   echo "Testing Firejail profiles after chezmoi restore"
   for profile in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie; do
-  [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
+    [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
+    firejail --apparmor $app --version || echo "Warning: Restored $app profile test failed"
   done
+  firejail --apparmor alacritty -- sh -c "WAYLAND_DISPLAY=wayland-0 xdg-open /dev/null" || echo "Warning: Restored Alacritty Wayland test failed"
+  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js -- sh -c "sleep 2" || echo "Warning: Restored Astal Wayland test failed"  
   ```
 - Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
   ```bash
@@ -1850,6 +1888,7 @@
   firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
   firejail --list || echo "No Firejail sandboxes running"
   journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
+  firejail --list || echo "No Firejail sandboxes running (expected if tests passed)"
   ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
   ```bash
@@ -1959,6 +1998,7 @@
   [ -d /mnt/usb/sbctl-keys ] || { echo "Error: /mnt/usb/sbctl-keys not found"; exit 1; }
   sha256sum /mnt/usb/recovery.md > /mnt/usb/recovery.md.sha256
   cat /mnt/usb/recovery.md
+  firejail --noprofile --profile=/etc/firejail/<application>.profile --dry-run || echo "Error: Invalid profile syntax for <application>"
   sudo umount /mnt/usb
   echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
   echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
@@ -2046,6 +2086,8 @@
   ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio,alacritty,astal,ags,helix,zellij,yazi,gitui,glow,httpie}.profile || echo "Warning: Firejail profiles missing"
   firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
   journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
+  # Check Firejail version
+  firejail --version | grep -q "0.9.72" || echo "Warning: Firejail version may be outdated; consider updating"
   ```
 ## Step 19: User Customizations
 
