@@ -369,7 +369,7 @@
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
   \
   # Graphics
-  mesa libva-mesa-driver vulkan-intel lib32-vulkan-intel \
+  mesa libva-mesa-driver mesa-demos vulkan-intel lib32-vulkan-intel \
   vulkan-radeon lib32-vulkan-radeon intel-gpu-tools \
   \
   # Audio
@@ -1319,7 +1319,7 @@
   dmesg | grep -i "pcieport\|error\|link"
   cat /sys/class/drm/card*/device/uevent | grep DRIVER  # Should show i915 and amdgpu
 
-  # Check OCuLink dock firmware
+  # (Optional) Check OCuLink dock firmware - Firmware Update may be better performed in Step 15 or later
   fwupdmgr get-devices | grep -i "oculink\|redriver"
   fwupdmgr update
   sbctl sign -s /efi/EFI/arch/fwupdx64.efi  # Re-sign fwupd EFI binary if updated
@@ -1596,35 +1596,114 @@
 
 - Reboot to test the full system:
   ```bash
+  echo "Verifying bootloader configuration before reboot"
+  bootctl status | grep -i "systemd-boot" || echo "Error: systemd-boot not installed"
+  ls /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf || echo "Error: Boot entries missing"
+  sbctl verify /boot/loader/loader.efi || { echo "Signing bootloader"; sbctl sign -s /boot/loader/loader.efi; }
+  echo "Rebooting to test systemd-boot. Press F1 to access the boot menu and confirm Arch and Windows entries."
   reboot
   ```
 - Verify TPM unlocking:
-  - Boot and confirm the LUKS partition unlocks automatically via TPM.
+  ```bash
+  # Boot and confirm the LUKS partition unlocks automatically via TPM.
+  echo "After reboot, checking TPM unlock logs"
+  journalctl -b | grep -i "systemd-cryptsetup.*tpm2" || echo "Warning: TPM unlock not confirmed"
+  tpm2_pcrread sha256:0,1,7 > /tmp/tpm-pcr-current.txt
+  diff /tmp/tpm-pcr-current.txt /root/tpm-pcr-post-secureboot.txt || echo "Warning: TPM PCR values differ"
+  ```  
 - Check Secure Boot status:
   ```bash
   sbctl status
+  mokutil --sb-state
+  sbctl verify /boot/vmlinuz-linux /boot/initramfs-linux.img /usr/bin/paru /usr/bin/chezmoi || { echo "Signing missing binaries"; sbctl sign -s /boot/vmlinuz-linux /boot/initramfs-linux.img /usr/bin/paru /usr/bin/chezmoi; }
   ```
 - Verify eGPU detection:
   ```bash
   lspci | grep -i amd
+  dmesg | grep -i amdgpu
+  ls /sys/class/drm/card*
+  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" || echo "Warning: GLX test failed, trying Vulkan"
+  DRI_PRIME=1 vulkaninfo --summary | grep deviceName
+  systemctl status supergfxd
+  supergfxctl -s
+  sbctl verify /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko || { echo "Signing amdgpu module"; sbctl sign -s /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko; }
+  ```
+- Test hibernation
+  ```bash
+  echo "Verifying swapfile configuration"
+  swapon --show
+  btrfs inspect-internal map-swapfile /mnt/swap/swapfile
+  cat /proc/cmdline | grep -i "resume=/dev/mapper/cryptroot.*resume_offset"
+  filefrag -v /mnt/swap/swapfile | grep "extents found: 1" || echo "Warning: Swapfile is fragmented" # Ensure no fragmentation
+  systemctl hibernate
+  echo "After resuming, checking hibernation logs"
+  dmesg | grep -i "hibernate|swap"
   ```
 - Test Wayland session:
   ```bash
   echo $XDG_SESSION_TYPE  # Should output "wayland"
+  grep WaylandEnable /etc/gdm/custom.conf
+
+  # Verify Mutter is running as the Wayland compositor
+  ps aux | grep -i mutter | grep -v grep || echo "Error: Mutter not running"
+
+  # Check if GNOME is using Wayland for rendering
+  gsettings get org.gnome.mutter experimental-features  # Should include Wayland-related features
+
+  # Test Wayland rendering with a simple GNOME application
+  GDK_BACKEND=wayland gnome-calculator &  # Launch a Wayland-native app
+  sleep 2
+  killall gnome-calculator
   ```
 - Verify Snapper snapshots:
   ```bash
-  snapper list
+  for config in root home data; do
+    mount | grep -E "subvol=/@$config" || echo "Warning: Subvolume @$config not mounted"
+    snapper --config "$config" create --description "Test snapshot"
+    snapper --config "$config" list
+  done
+  ```
+- Test Timers
+  ```bash
+  systemctl list-timers --all | grep -E "paru-update|snapper-timeline|fstrim|lynis-audit"
+  journalctl -u paru-update.timer
+  journalctl -u snapper-timeline.timer
+  journalctl -u fstrim.timer
+  journalctl -u lynis-audit.timer
+  systemctl start paru-update.service snapper-timeline.service fstrim.service lynis-audit.service
   ```
 - Test network connectivity:
   ```bash
   ping -c 3 archlinux.org
+  nslookup archlinux.org
+  systemctl status dnscrypt-proxy
   ```
 - Check for failed services:
   ```bash
   systemctl --failed
+  systemctl --failed | awk '/failed/ {print $2}' | xargs -I {} journalctl -u {} -n 50  ```
+- Verify Security
+  ```bash
+  auditctl -l
+  aa-status | grep -E "chezmoi|paru|dnscrypt-proxy"
+  ausearch -m avc -ts recent
+  echo "Note: AppArmor profiles are in complain mode. Switch to enforce in Step 18."
   ```
-
+- Test AUR builds with /tmp (no noexec)
+  ```bash
+  mount | grep /tmp | grep -v noexec || echo "Error: /tmp mounted with noexec"
+  paru -S --builddir ~/.cache/paru_build --noconfirm hello-world-bin
+  sbctl verify ~/.cache/paru_build/*/hello-world-bin || { echo "Signing AUR binary"; sbctl sign -s ~/.cache/paru_build/*/hello-world-bin; }
+  ```
+- (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
+  ```bash
+  echo "fwupd tests moved to Step 18 for BIOS/firmware updates."
+  ```
+- (Optional) Test Windows boot.
+  ```bash
+  echo "Reboot and select Windows from the boot menu (F12 or Enter). Verify Windows boots correctly."
+  sbctl verify /boot/EFI/Microsoft/Boot/bootmgfw.efi || { echo "Signing Windows bootloader"; sbctl sign -s /boot/EFI/Microsoft/Boot/bootmgfw.efi; }
+  ```
 ## Step 16: Create Recovery Documentation
 
 - Create a recovery document for troubleshooting:
