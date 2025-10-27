@@ -1484,7 +1484,7 @@
   echo "NOTE: If AppArmor is enabled, check for denials: journalctl -u apparmor | grep -i 'snapper\|grub-btrfsd'. Generate profiles with 'aa-genprof snapper' if needed."
   journalctl -u apparmor | grep -i "snapper\|grub-btrfsd"
   ```
-## Step 14: Configure Dotfiles and Backups
+## Step 14: Configure Dotfiles
 
 - Install `chezmoi` for dotfile management:
   ```bash
