@@ -778,11 +778,10 @@
   sudo -u $SUDO_USER mkdir -p /home/$SUDO_USER/.cache/paru-build
   chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.cache/paru-build
   ```
-- Install the AUR applications and configure Bubblejail:
+- Install the AUR applications:
   ```bash
   # AUR applications:
   sudo -u $SUDO_USER paru -S --needed \
-    bubblejail \
     alacritty-graphics \
     astal-git \
     ags-git \
@@ -796,7 +795,7 @@
   # Sign astal/ags for Secure Boot once
     sbctl sign -s /usr/bin/astal /usr/bin/ags
   
-  # Append to existing 91-sbctl-sign.hook
+  # Append Astal/AGS to existing 91-sbctl-sign.hook
   cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
 
   [Trigger]
@@ -814,22 +813,13 @@
 
   # Test the hook after installation:
   sbctl verify /usr/bin/astal  #Should show "signed"
-
-  # Configure Bubblejail
-    bubblejail create --profile generic-gui-app alacritty
-    bubblejail config alacritty --add-service wayland --add-service dri
-    bubblejail run Alacritty -- env | grep -E 'WAYLAND|XDG_SESSION_TYPE'
-  
-    bubblejail create --profile generic-gui-app astal
-    bubblejail config astal --add-service wayland --add-service dri
-    bubblejail run astal -- ags -c /home/$SUDO_USER/.config/ags/config.js
   ```
 - Install Pacman applications:
   ```bash
   # System packages (CLI + system-level)
   pacman -S --needed \
   # Security & Hardening
-  aide apparmor auditd chkrootkit lynis rkhunter sshguard ufw usbguard \
+  aide apparmor auditd chkrootkit lynis rkhunter sshguard ufw usbguard firejail\
   \
   # System Monitoring
   baobab cpupower gnome-system-monitor tlp upower zram-generator \
@@ -863,6 +853,90 @@
   systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit
   systemctl --failed  # Check for failed services
   journalctl -p 3 -xb
+  ```
+- Enable AppArmor integration for Firejail
+  ```bash
+  sed -i 's/# apparmor/apparmor/' /etc/firejail/firejail.config
+  ```
+- Verify AppArmor is enabled
+  ```bash
+  grep apparmor /etc/firejail/firejail.config | grep -v '^#' || echo "Warning: Firejail AppArmor not enabled"
+  ```
+- Sign Firejail binary for Secure Boot
+  ```bash
+  sbctl verify /usr/bin/firejail || { echo "Signing Firejail binary"; sbctl sign -s /usr/bin/firejail; }
+  ```
+- Append Firejail to existing 91-sbctl-sign.hook
+  ```bash
+  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = firejail
+
+  [Action]
+  Description = Signing Firejail binary with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/firejail
+  EOF
+  ```
+- Configure Firejail profiles for key applications
+  ```bash
+  # Browsers
+  firejail --noprofile --dry-run brave-browser  # Verify profile exists
+  firejail --noprofile --dry-run mullvad-browser
+  firejail --noprofile --dry-run tor-browser
+
+  # OBS Studio (allow GPU for eGPU)
+  cp /etc/firejail/obs.profile /etc/firejail/obs-studio.profile
+  echo "whitelist /dev/dri/" >> /etc/firejail/obs-studio.profile
+  echo "protocol wayland" >> /etc/firejail/obs-studio.profile
+
+  # Alacritty (allow Wayland and GPU)
+  cp /etc/firejail/generic.profile /etc/firejail/alacritty.profile
+  echo "whitelist /dev/dri/" >> /etc/firejail/alacritty.profile
+  echo "protocol wayland" >> /etc/firejail/alacritty.profile
+
+  # Astal (AUR, allow Wayland and GPU)
+  cp /etc/firejail/generic.profile /etc/firejail/astal.profile
+  echo "whitelist /dev/dri/" >> /etc/firejail/astal.profile
+  echo "protocol wayland" >> /etc/firejail/astal.profile
+  echo "whitelist /home/$SUDO_USER/.config/astal" >> /etc/firejail/astal.profile
+  echo "whitelist /home/$SUDO_USER/.config/ags" >> /etc/firejail/astal.profile
+
+  # AGS (AUR, allow Wayland and GPU)
+  cp /etc/firejail/generic.profile /etc/firejail/ags.profile
+  echo "whitelist /dev/dri/" >> /etc/firejail/ags.profile
+  echo "protocol wayland" >> /etc/firejail/ags.profile
+  echo "whitelist /home/$SUDO_USER/.config/ags" >> /etc/firejail/ags.profile
+
+  # CLI Tools (use generic profile, optional stricter profiles)
+  cp /etc/firejail/generic.profile /etc/firejail/helix.profile
+  cp /etc/firejail/generic.profile /etc/firejail/zellij.profile
+  cp /etc/firejail/generic.profile /etc/firejail/yazi.profile
+  cp /etc/firejail/generic.profile /etc/firejail/gitui.profile
+  cp /etc/firejail/generic.profile /etc/firejail/glow.profile
+  cp /etc/firejail/generic.profile /etc/firejail/httpie.profile
+
+  # Test Firejail with key applications
+  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
+  firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
+  firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
+  firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
+  firejail --apparmor alacritty --version || echo "Warning: Alacritty sandbox test failed"
+  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js || echo "Warning: Astal sandbox test failed"
+  firejail --apparmor ags --version || echo "Warning: AGS sandbox test failed"
+  firejail --apparmor helix --version || echo "Warning: Helix sandbox test failed"
+  firejail --apparmor zellij --version || echo "Warning: Zellij sandbox test failed"
+  firejail --apparmor yazi --version || echo "Warning: Yazi sandbox test failed"
+  firejail --apparmor gitui --version || echo "Warning: Gitui sandbox test failed"
+  firejail --apparmor glow --version || echo "Warning: Glow sandbox test failed"
+  firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
+
+  # Check for AppArmor denials
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
   ```
 - Configure GDM for Wayland:
   ```bash
@@ -1530,6 +1604,23 @@
   sudo chezmoi add /etc/systemd/system/astal-widgets.service
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
   ```
+- Add Firejail configuration files
+  ```bash
+  sudo chezmoi add /etc/firejail/firejail.config
+  sudo chezmoi add /etc/firejail/brave-browser.profile
+  sudo chezmoi add /etc/firejail/mullvad-browser.profile
+  sudo chezmoi add /etc/firejail/tor-browser.profile
+  sudo chezmoi add /etc/firejail/obs-studio.profile
+  sudo chezmoi add /etc/firejail/alacritty.profile
+  sudo chezmoi add /etc/firejail/astal.profile
+  sudo chezmoi add /etc/firejail/ags.profile
+  sudo chezmoi add /etc/firejail/helix.profile
+  sudo chezmoi add /etc/firejail/zellij.profile
+  sudo chezmoi add /etc/firejail/yazi.profile
+  sudo chezmoi add /etc/firejail/gitui.profile
+  sudo chezmoi add /etc/firejail/glow.profile
+  sudo chezmoi add /etc/firejail/httpie.profile
+  ```
 - Export package lists for reproducibility
   ```bash
   pacman -Qqe > ~/explicitly-installed-packages.txt
@@ -1694,6 +1785,25 @@
   paru -S --builddir ~/.cache/paru_build --noconfirm hello-world-bin
   sbctl verify ~/.cache/paru_build/*/hello-world-bin || { echo "Signing AUR binary"; sbctl sign -s ~/.cache/paru_build/*/hello-world-bin; }
   ```
+- Test Firejail sandboxing
+  ```bash
+  echo "Verifying Firejail sandboxing"
+  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
+  firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
+  firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
+  firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
+  firejail --apparmor alacritty --version || echo "Warning: Alacritty sandbox test failed"
+  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js || echo "Warning: Astal sandbox test failed"
+  firejail --apparmor ags --version || echo "Warning: AGS sandbox test failed"
+  firejail --apparmor helix --version || echo "Warning: Helix sandbox test failed"
+  firejail --apparmor zellij --version || echo "Warning: Zellij sandbox test failed"
+  firejail --apparmor yazi --version || echo "Warning: Yazi sandbox test failed"
+  firejail --apparmor gitui --version || echo "Warning: Gitui sandbox test failed"
+  firejail --apparmor glow --version || echo "Warning: Glow sandbox test failed"
+  firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
+  firejail --list || echo "No Firejail sandboxes running"
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
+  ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
   ```bash
   echo "fwupd tests moved to Step 18 for BIOS/firmware updates."
@@ -1784,6 +1894,16 @@
    snapper --config data list
    snapper --config data rollback <snapshot-number>
    reboot
+
+  g. **Firejail Troubleshooting**:
+   - Check AppArmor logs for denials:
+   journalctl -u apparmor | grep -i firejail
+   - Debug Firejail profile:
+   firejail --debug <application> (e.g., `firejail --debug brave-browser`)
+   - Rebuild profile:
+   Edit `/etc/firejail/<application>.profile` (e.g., add `whitelist /dev/dri/` for eGPU)
+   - Re-sign Firejail binary:
+   sbctl sign -s /usr/bin/firejail
   EOF
   ```
   - Verify and unmount USB
@@ -1873,7 +1993,13 @@
     0 4 * * * /usr/bin/rkhunter --check --cronjob > /var/log/rkhunter.cronjob.log 2>&1
     0 5 * * * /usr/sbin/chkrootkit > /var/log/chkrootkit.log 2>&1
     ```
-
+- **g) Verify Firejail profiles**:
+  ```bash
+  echo "Checking Firejail profiles"
+  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio,alacritty,astal,ags,helix,zellij,yazi,gitui,glow,httpie}.profile || echo "Warning: Firejail profiles missing"
+  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
+  ```
 ## Step 19: User Customizations
 
 - Install a custom theme for GNOME:
@@ -1893,4 +2019,82 @@
   ```bash
   gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
   ```
+## Step 20: Configure Application Sandboxing with Firejail - Needs to be formmated later
 
+- Firejail isolates applications using namespaces, seccomp, and AppArmor, enhancing security for applications with network, GPU, or file access. This step configures sandboxing for browsers, multimedia, terminals, and CLI tools, ensuring compatibility with Wayland and the AMD eGPU.
+
+- Verify Firejail installation and AppArmor integration:
+  ```bash
+  pacman -Qs firejail || pacman -S --noconfirm firejail
+  grep apparmor /etc/firejail/firejail.config | grep -v '^#' || { echo "Enabling AppArmor"; sed -i 's/# apparmor/apparmor/' /etc/firejail/firejail.config; }
+  ```
+- Create or verify Firejail profiles for key applications:
+  ```bash  
+  # Browsers (use existing profiles)
+  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser}.profile || echo "Warning: Browser profiles missing"
+
+  # OBS Studio (custom profile for eGPU and Wayland)
+  [ -f /etc/firejail/obs-studio.profile ] || { cp /etc/firejail/obs.profile /etc/firejail/obs-studio.profile; echo "whitelist /dev/dri/" >> /etc/firejail/obs-studio.profile; echo "protocol wayland" >> /etc/firejail/obs-studio.profile; }
+
+  # Alacritty (custom profile for Wayland and eGPU)
+  [ -f /etc/firejail/alacritty.profile ] || { cp /etc/firejail/generic.profile /etc/firejail/alacritty.profile; echo "whitelist /dev/dri/" >> /etc/firejail/alacritty.profile; echo "protocol wayland" >> /etc/firejail/alacritty.profile; }
+
+  # Astal (custom profile for AUR app, Wayland, and eGPU)
+  [ -f /etc/firejail/astal.profile ] || { cp /etc/firejail/generic.profile /etc/firejail/astal.profile; echo "whitelist /dev/dri/" >> /etc/firejail/astal.profile; echo "protocol wayland" >> /etc/firejail/astal.profile; echo "whitelist /home/$SUDO_USER/.config/astal" >> /etc/firejail/astal.profile; echo "whitelist /home/$SUDO_USER/.config/ags" >> /etc/firejail/astal.profile; }
+
+  # AGS (custom profile for AUR app, Wayland, and eGPU)
+  [ -f /etc/firejail/ags.profile ] || { cp /etc/firejail/generic.profile /etc/firejail/ags.profile; echo "whitelist /dev/dri/" >> /etc/firejail/ags.profile; echo "protocol wayland" >> /etc/firejail/ags.profile; echo "whitelist /home/$SUDO_USER/.config/ags" >> /etc/firejail/ags.profile; }
+
+  # CLI Tools (use generic profile, optional stricter profiles)
+  [ -f /etc/firejail/helix.profile ] || cp /etc/firejail/generic.profile /etc/firejail/helix.profile
+  [ -f /etc/firejail/zellij.profile ] || cp /etc/firejail/generic.profile /etc/firejail/zellij.profile
+  [ -f /etc/firejail/yazi.profile ] || cp /etc/firejail/generic.profile /etc/firejail/yazi.profile
+  [ -f /etc/firejail/gitui.profile ] || cp /etc/firejail/generic.profile /etc/firejail/gitui.profile
+  [ -f /etc/firejail/glow.profile ] || cp /etc/firejail/generic.profile /etc/firejail/glow.profile
+  [ -f /etc/firejail/httpie.profile ] || cp /etc/firejail/generic.profile /etc/firejail/httpie.profile
+  ```
+- Test sandboxed applications:
+  ```bash
+  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
+  firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
+  firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
+  firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
+  firejail --apparmor alacritty --version || echo "Warning: Alacritty sandbox test failed"
+  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js || echo "Warning: Astal sandbox test failed"
+  firejail --apparmor ags --version || echo "Warning: AGS sandbox test failed"
+  firejail --apparmor helix --version || echo "Warning: Helix sandbox test failed"
+  firejail --apparmor zellij --version || echo "Warning: Zellij sandbox test failed"
+  firejail --apparmor yazi --version || echo "Warning: Yazi sandbox test failed"
+  firejail --apparmor gitui --version || echo "Warning: Gitui sandbox test failed"
+  firejail --apparmor glow --version || echo "Warning: Glow sandbox test failed"
+  firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
+  ```
+- Create aliases for easy sandboxing (add to user’s shell configuration):
+  ```bash
+  SUDO_USER=$(logname)
+  cat << 'EOF' >> /home/$SUDO_USER/.zshrc
+  alias brave="firejail --apparmor brave-browser"
+  alias mullvad="firejail --apparmor mullvad-browser"
+  alias tor="firejail --apparmor tor-browser"
+  alias obs="firejail --apparmor obs-studio"
+  alias alacritty="firejail --apparmor alacritty"
+  alias astal="firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js"
+  alias ags="firejail --apparmor ags"
+  alias helix="firejail --apparmor helix"
+  alias zellij="firejail --apparmor zellij"
+  alias yazi="firejail --apparmor yazi"
+  alias gitui="firejail --apparmor gitui"
+  alias glow="firejail --apparmor glow"
+  alias httpie="firejail --apparmor httpie"
+  EOF
+  chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.zshrc
+  ```
+- Check for AppArmor denials and tune profiles if needed:
+  ```bash
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
+  [ -n "$(journalctl -u apparmor | grep -i DENIED)" ] && aa-genprof firejail
+  ```
+- Verify Secure Boot compatibility:
+  ```bash
+  sbctl verify /usr/bin/firejail || { echo "Re-signing Firejail"; sbctl sign -s /usr/bin/firejail; }
+  ``` 
