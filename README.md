@@ -1484,7 +1484,7 @@
   echo "NOTE: If AppArmor is enabled, check for denials: journalctl -u apparmor | grep -i 'snapper\|grub-btrfsd'. Generate profiles with 'aa-genprof snapper' if needed."
   journalctl -u apparmor | grep -i "snapper\|grub-btrfsd"
   ```
-## Step 14: Configure Dotfiles
+## Step 14: Configure Dotfiles and Backups
 
 - Install `chezmoi` for dotfile management:
   ```bash
@@ -1498,7 +1498,100 @@
   ```bash
   chezmoi status
   ```
+- Backup existing configurations
+  ```bash
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup
+  ```
+- Add user-specific dotfiles
+  ```bash
+  chezmoi add ~/.zshrc ~/.config/zsh
+  dconf dump /org/gnome/ > ~/.config/gnome-settings.dconf
+  dconf dump /org/gnome/shell/extensions/ > ~/.config/gnome-shell-extensions.dconf
+  flatpak override --user --export > ~/.config/flatpak-overrides
+  chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
+  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
+  chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
+  ```
+- Add system-wide configurations
+  ```bash
+  sudo chezmoi add /etc/pacman.conf /etc/paru.conf /etc/pacman.d/hooks
+  sudo chezmoi add /etc/audit/rules.d/audit.rules /etc/security/limits.conf /etc/sysctl.d/99-hardening.conf
+  sudo chezmoi add /etc/NetworkManager/conf.d/00-macrandomize.conf /etc/dnscrypt-proxy/dnscrypt-proxy.toml /etc/usbguard/rules.conf
+  sudo chezmoi add /etc/snapper/configs /etc/snapper/filters/global-filter.txt
+  sudo chezmoi add /etc/modprobe.d/i915.conf /etc/modprobe.d/amdgpu.conf /etc/supergfxd.conf
+  sudo chezmoi add /etc/udev/rules.d/99-oculink.rules /etc/modules-load.d/pciehp.conf /etc/modules-load.d/vfio.conf
+  sudo chezmoi add /etc/mkinitcpio.conf /etc/mkinitcpio.d/linux.preset
+  sudo chezmoi add /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf
+  sudo chezmoi add /etc/fstab /etc/environment /etc/gdm/custom.conf /etc/systemd/zram-generator.conf /etc/systemd/logind.conf /etc/host.conf
+  sudo chezmoi add /etc/systemd/system/lynis-audit.timer /etc/systemd/system/lynis-audit.service
+  sudo chezmoi add /etc/systemd/system/btrfs-balance.timer /etc/systemd/system/btrfs-balance.service
+  sudo chezmoi add /etc/systemd/system/arch-news.timer /etc/systemd/system/arch-news.service
+  sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
+  sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
+  sudo chezmoi add /etc/systemd/system/astal-widgets.service
+  sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
+  ```
+- Export package lists for reproducibility
+  ```bash
+  pacman -Qqe > ~/explicitly-installed-packages.txt
+  pacman -Qqm > ~/aur-packages.txt
+  flatpak list --app > ~/flatpak-packages.txt
+  chezmoi add ~/explicitly-installed-packages.txt ~/aur-packages.txt ~/flatpak-packages.txt
+  ```
+- Backup Secure Boot and TPM data to USB (replace /dev/sdX1 with your USB partition, confirm via lsblk)
+  ```bash
+  lsblk
+  sudo mkfs.fat -F32 -n BACKUP_USB /dev/sdX1
+  sudo mkdir -p /mnt/usb
+  sudo mount /dev/sdX1 /mnt/usb
+  sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
+  sudo cp /mnt/usb/tpm-pcr-initial.txt /mnt/usb/tpm-pcr-post-secureboot.txt /mnt/usb/
+  sudo umount /mnt/usb
+  echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
+  ```
+- Version control with chezmoi
+  ```bash
+  chezmoi cd
+  git init
+  git remote add origin # Skip if not using a remote repository
+  git add .
+  git commit -m "Add user and system configurations for Lenovo ThinkBook Arch setup"
+  git push origin main # Skip if not using a remote repository
+  ```
+- Apply configurations and set permissions
+  ```bash
+  chezmoi apply
+  sudo chmod 640 /etc/snapper/configs/*
+  ```
+- Test and validate
+  ```bash
+  chezmoi diff # Should show no differences if applied successfully
+  dconf load /org/gnome/ < ~/.config/gnome-settings.dconf
+  dconf load /org/gnome/shell/extensions/ < ~/.config/gnome-shell-extensions.dconf
+  zsh -i # Ensure no errors in ~/.zshrc
+  systemctl list-timers --all # Verify lynis-audit.timer, btrfs-balance.timer, etc.
+  systemctl status maintain.service
+  cat ~/explicitly-installed-packages.txt # Check for expected packages
+  cat ~/aur-packages.txt # Check for AUR packages
+  cat ~/flatpak-packages.txt # Check for Flatpak apps
+  ```
+- Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
+  ```bash
+  a. Boot from Arch Linux Rescue USB.
+  b. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+  c. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt
+  d. Chroot: arch-chroot /mnt
+  e. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery.
+  ```
+- Troubleshooting
+  ```bash
+  If chezmoi apply fails: chezmoi doctor; journalctl -xe
+  If a file is missing: verify path, create if needed (e.g., touch /etc/modprobe.d/amdgpu.conf)
+  If git push fails: check remote setup (git remote -v)
 
+  # Check AppArmor logs
+  journalctl -u apparmor | grep -i chezmoi || echo "No AppArmor denials for chezmoi"
+  ```
 ## Step 15: Test the Setup
 
 - Reboot to test the full system:
@@ -1668,8 +1761,4 @@
   ```bash
   gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
   ```
-
-## Footer
-
-© 2025 GitHub, Inc.
 
