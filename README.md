@@ -743,7 +743,8 @@
 - Install the **GNOME desktop environment**:
   ```bash
   # Ensure SUDO_USER is defined. This step uses $SUDO_USER extensively (e.g., in Paru configuration, Firejail profiles for Astal/AGS, and aliases).
-  SUDO_USER=${SUDO_USER:-$(logname || echo "<username>")}  # replace "<username>" with your username created in Step 6
+  SUDO_USER=${SUDO_USER:-$(logname || getent passwd 1000 | cut -d: -f1)}
+  id "$SUDO_USER" >/dev/null 2>&1 || { echo "Error: User $SUDO_USER does not exist"; exit 1; }
   # Install Gnome
   pacman -Sy --needed gnome
   ```
@@ -885,7 +886,6 @@
   ```
 - Create aliases for easy sandboxing (add to user’s shell configuration):
   ```bash
-  SUDO_USER=$(logname)
   cat << 'EOF' >> /home/$SUDO_USER/.zshrc
   alias brave="firejail --apparmor brave-browser"
   alias mullvad="firejail --apparmor mullvad-browser"
@@ -1599,7 +1599,8 @@
 - Install `chezmoi` for dotfile management:
   ```bash
   # Ensure SUDO_USER is defined
-  SUDO_USER=${SUDO_USER:-$(logname || echo "<username>")}  # Replace <username> with actual username from Step 6
+  SUDO_USER=${SUDO_USER:-$(logname || getent passwd 1000 | cut -d: -f1)}
+  id "$SUDO_USER" >/dev/null 2>&1 || { echo "Error: User $SUDO_USER does not exist"; exit 1; }
   # Install chezmoi
   pacman -S --noconfirm chezmoi
   ```
@@ -1705,6 +1706,11 @@
   cat ~/aur-packages.txt # Check for AUR packages
   cat ~/flatpak-packages.txt # Check for Flatpak apps
   ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio,alacritty,astal,ags,helix,zellij,yazi,gitui,glow,httpie}.profile || echo "Error: Firejail profiles not restored by chezmoi"
+  # Test to ensure Firejail profiles are functional post-restore
+  echo "Testing Firejail profiles after chezmoi restore"
+  for profile in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie; do
+  [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
+  done
   ```
 - Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
   ```bash
@@ -2049,6 +2055,8 @@
   ```
 - Configure GNOME CSS for a dark theme:
   ```bash
+  SUDO_USER=${SUDO_USER:-$(logname || getent passwd 1000 | cut -d: -f1)}
+  id "$SUDO_USER" >/dev/null 2>&1 || { echo "Error: User $SUDO_USER does not exist"; exit 1; }
   mkdir -p ~/.config/gtk-3.0
   cat << 'EOF' > ~/.config/gtk-3.0/gtk.css
   window {
