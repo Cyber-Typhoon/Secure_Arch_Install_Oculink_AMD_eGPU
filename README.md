@@ -798,6 +798,7 @@
     sbctl sign -s /usr/bin/astal /usr/bin/ags
   
   # Append Astal/AGS to existing 91-sbctl-sign.hook
+  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
   cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
 
   [Trigger]
@@ -812,7 +813,8 @@
   When = PostTransaction
   Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags
   EOF
-
+  fi
+  
   # Test the hook after installation:
   sbctl verify /usr/bin/astal  #Should show "signed"
   ```
