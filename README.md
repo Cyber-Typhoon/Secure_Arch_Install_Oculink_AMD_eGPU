@@ -1319,10 +1319,9 @@
   dmesg | grep -i "pcieport\|error\|link"
   cat /sys/class/drm/card*/device/uevent | grep DRIVER  # Should show i915 and amdgpu
 
-  # (Optional) Check OCuLink dock firmware - Firmware Update may be better performed in Step 15 or later
+  # (Optional) Check OCuLink dock firmware - Firmware Update may be better performed in Step 18
   fwupdmgr get-devices | grep -i "oculink\|redriver"
-  fwupdmgr update
-  sbctl sign -s /efi/EFI/arch/fwupdx64.efi  # Re-sign fwupd EFI binary if updated
+  fwupdmgr update - echo "fwupd upgrade moved to Step 18 for BIOS/firmware updates."
   ```
 - **eGPU Troubleshooting Matrix**:
   | Issue | Possible Cause | Solution |
@@ -1706,58 +1705,112 @@
   ```
 ## Step 16: Create Recovery Documentation
 
+- Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
+  ```bash
+  echo "Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, and MOK password in Bitwarden."
+  read -p "Confirm that UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, and MOK password are stored in Bitwarden (y/n): " confirm
+  [ "$confirm" = "y" ] || { echo "Error: Please store credentials in Bitwarden before proceeding."; exit 1; }
+  ```
+- Prepare and verify USB
+  ```bash
+  echo "Available devices:"
+  lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT
+  read -p "Enter USB partition (e.g., sdb1): " usb_dev
+  [ -b "/dev/$usb_dev" ] || { echo "Error: /dev/$usb_dev not found"; exit 1; }
+  echo "WARNING: Formatting /dev/$usb_dev will erase all data."
+  read -p "Continue? (y/n): " confirm
+  [ "$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+  sudo mkfs.fat -F32 -n RECOVERY_USB /dev/$usb_dev || echo "Warning: USB formatting failed"
+  sudo mkdir -p /mnt/usb
+  sudo mount /dev/$usb_dev /mnt/usb
+  ```
+- Verify existing backups
+  ```bash
+  [ -f /mnt/usb/luks-keyfile ] || { echo "Error: /mnt/usb/luks-keyfile not found"; exit 1; }
+  [ -f /mnt/usb/luks-header-backup ] || { echo "Error: /mnt/usb/luks-header-backup not found"; exit 1; }
+  ```
+- Backup LUKS header and Secure Boot keys
+  ```bash
+  [ -f /mnt/usb/luks-header-backup ] && { echo "Warning: /mnt/usb/luks-header-backup exists. Overwrite? (y/n): "; read confirm; [ "$confirm" = "y" ] || exit 1; }
+  cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+  sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
+  cp -r /etc/sbctl /mnt/usb/sbctl-keys
+  sudo chmod -R 600 /mnt/usb/sbctl-keys
+  ```
 - Create a recovery document for troubleshooting:
   ```bash
-  mkdir -p /mnt/usb
-  mount /dev/sdX1 /mnt/usb  # Replace sdX1 with USB partition
+  [ -f /mnt/usb/luks-keyfile ] && [ -f /mnt/usb/luks-header-backup ] || { echo "Error: Required files missing"; exit 1; }
   cat << 'EOF' > /mnt/usb/recovery.md
   # Arch Linux Recovery Instructions
 
-  1. **Boot from Rescue USB**:
-     - Insert the GRUB USB created in Step 9.
-     - Select "Arch Linux Rescue" from the GRUB menu.
-     - Enter the LUKS passphrase or use the keyfile: /mnt/usb/luks-keyfile
+  a. **Boot from Rescue USB**:
+   - Insert the GRUB USB created in Step 9 or an Arch Linux ISO USB.
+   - For GRUB USB: Select "Arch Linux Rescue" from the GRUB menu.
+   - For Arch ISO: Boot into the Arch environment.
+   - Enter the LUKS passphrase or use the keyfile: /mnt/usb/luks-keyfile
 
-  2. **Mount Filesystems**:
-     ```bash
-     cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
-     mount -o subvol=@ /dev/mapper/cryptroot /mnt
-     mount /dev/nvme1n1p1 /mnt/boot
-     ```
+  b. **Mount Filesystems**:
+   cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
+   mount -o subvol=@ /dev/mapper/cryptroot /mnt
+   mount -o subvol=@home /dev/mapper/cryptroot /mnt/home
+   mount -o subvol=@data /dev/mapper/cryptroot /mnt/data
+   mount /dev/nvme1n1p1 /mnt/boot
 
-  3. **Chroot and Repair**:
-     ```bash
-     arch-chroot /mnt
-     mkinitcpio -P
-     sbctl sign -s /boot/EFI/Linux/arch.efi
-     ```
+  c. **Chroot and Repair**:
+   arch-chroot /mnt
+   mkinitcpio -P
+   sbctl sign -s /boot/EFI/Linux/arch.efi
+   journalctl -u apparmor | grep -i DENIED
+   sbctl status
 
-  4. **Restore LUKS Header**:
-     ```bash
-     cryptsetup luksHeaderRestore /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
-     sha256sum -c /mnt/usb/luks-header-backup.sha256
-     ```
+  d. **Restore LUKS Header**:
+   cryptsetup luksHeaderRestore /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+   sha256sum -c /mnt/usb/luks-header-backup.sha256
 
-  5. **TPM Recovery**:
-     - If TPM unlocking fails, use the LUKS passphrase or keyfile.
-     - Re-enroll TPM:
-       ```bash
-       systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
-       ```
+  e. **TPM Recovery**:
+   - If TPM unlocking fails, use the LUKS passphrase or keyfile.
+   - Re-enroll TPM:
+     systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
-  6. **Rollback Snapshot**:
-     ```bash
-     snapper --config root list
-     snapper --config root rollback <snapshot-number>
-     reboot
-     ```
-
+  f. **Rollback Snapshot**:
+   - List snapshots:
+   snapper --config root list
+   - Identify the desired snapshot number from the output (e.g., 42).
+   - Roll back:
+   snapper --config root rollback 42
+   - Repeat for home and data subvolumes:
+   snapper --config home list
+   snapper --config home rollback <snapshot-number>
+   snapper --config data list
+   snapper --config data rollback <snapshot-number>
+   reboot
   EOF
-  umount /mnt/usb
-  echo "WARNING: Store /mnt/usb/recovery.md in Bitwarden or an encrypted cloud."
+  ```
+  - Verify and unmount USB
+  ```bash
+  [ -f /mnt/usb/recovery.md ] || { echo "Error: Failed to create /mnt/usb/recovery.md"; exit 1; }
+  [ -d /mnt/usb/sbctl-keys ] || { echo "Error: /mnt/usb/sbctl-keys not found"; exit 1; }
+  sha256sum /mnt/usb/recovery.md > /mnt/usb/recovery.md.sha256
+  cat /mnt/usb/recovery.md
+  sudo umount /mnt/usb
+  echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
   echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
   ```
-
+  - Check USB contents
+  ```bash
+  lsblk | grep $usb_dev
+  sudo mount /dev/$usb_dev /mnt/usb
+  ls /mnt/usb/recovery.md /mnt/usb/recovery.md.sha256 /mnt/usb/luks-keyfile /mnt/usb/luks-header-backup /mnt/usb/sbctl-keys
+  sha256sum -c /mnt/usb/recovery.md.sha256
+  sha256sum -c /mnt/usb/luks-header-backup.sha256
+  sudo umount /mnt/usb
+  ```
+  - Verify Bitwarden storage (manual)
+  ```bash
+   echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud. Keep the recovery USB secure."
+  read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
+  [ "$confirm" = "y" ] || { echo "Error: Please store all data in Bitwarden."; exit 1; }
+  ```
 ## Step 17: Backup Strategy
 
 - Configure `restic` for backups:
