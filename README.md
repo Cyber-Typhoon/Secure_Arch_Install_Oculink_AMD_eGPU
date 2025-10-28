@@ -2022,29 +2022,200 @@
   ```
 ## Step 17: Backup Strategy
 
-- Configure `restic` for backups:
+- Local Snapshots:
   ```bash
-  pacman -S --noconfirm restic
-  restic init --repo /path/to/backup/repo
+  # Managed by Snapper for @, @home, @data, excluding /var, /var/lib, /log, /tmp, /run.
+  ```
+- Install `restic` for backups:
+  ```bash
+  sudo pacman -S --noconfirm restic
+  ```
+- Verify & sign binary for Secure Boot
+  ```bash
+  sbctl verify /usr/bin/restic || sbctl sign -s /usr/bin/restic
+  ```
+- Pacman hook (auto-sign on updates)
+  ```bash
+  if ! grep -q "Target = restic" /etc/pacman.d/hooks/91-sbctl-sign.hook 2>/dev/null; then
+    sudo tee -a /etc/pacman.d/hooks/91-sbctl-sign.hook >/dev/null <<'EOF'
+
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = restic
+  [Action]
+  Description = Sign restic binary with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/restic
+  EOF
+  fi
+  ```
+- Excludes File:
+  ```bash
+  sudo mkdir -p /etc/restic
+  sudo tee /etc/restic/excludes.txt >/dev/null <<'EOF'
+  /tmp/*
+  /var/cache/*
+  /var/tmp/*
+  /proc/*
+  /sys/*
+  /dev/*
+  /run/*
+  /mnt/*
+  /media/*
+  /lost+found/*
+  /.swap/*
+  /home/*/.cache
+  /home/*/.local/share/Trash
+  /home/*/.thumbnails
+  /.snapshots
+  */.snapshots
+  /etc/pacman.d/mirrorlist*
+  /etc/machine-id
+  EOF
   ```
 - Create a backup script:
   ```bash
-  cat << 'EOF' > /usr/local/bin/backup.sh
-  #!/bin/bash
-  restic -r /path/to/backup/repo backup /home /data /srv --exclude-caches
-  restic -r /path/to/backup/repo snapshots
-  EOF
-  chmod +x /usr/local/bin/backup.sh
-  ```
-- Schedule daily backups:
-  ```cron
-  0 2 * * * /usr/local/bin/backup.sh
-  ```
-- Verify backup status:
-  ```bash
-  restic -r /path/to/backup/repo check
-  ```
+  sudo tee /usr/local/bin/restic-backup.sh >/dev/null <<'EOF'
+  #!/usr/bin/env bash
+  set -euo pipefail
 
+  # ----- CONFIGURATION (EDIT ONCE) -----
+  REPO="/mnt/backup/restic-repo"          # <-- CHANGE TO YOUR MOUNTPOINT / SFTP URL
+  HOSTNAME="$(hostname)"
+  TAG="thinkbook"
+  # -------------------------------------
+
+  export RESTIC_CACHE_DIR="/var/cache/restic"
+  export RESTIC_COMPRESSION="auto"
+
+  # Ensure bitwarden session is active
+  if ! bw status | grep -q '"status":"unlocked"'; then
+    echo "Bitwarden CLI not unlocked – trying to unlock..."
+    bw unlock --raw > /dev/null || { echo "Failed to unlock Bitwarden"; exit 1; }
+  fi
+
+  # Prevent concurrent runs
+  exec 200>/var/lock/restic-backup.lock
+  flock -n 200 || { echo "Another restic backup is already running"; exit 1; }
+
+  # Unlock any stale locks
+  restic unlock
+
+  # Backup
+  restic backup \
+    --verbose \
+    --one-file-system \
+    --tag="$TAG" \
+    --hostname="$HOSTNAME" \
+    --exclude-caches \
+    --exclude-if-present .nobackup \
+    --exclude-file=/etc/restic/excludes.txt \
+    /home /data /srv /etc
+
+  # Prune
+  restic forget \
+    --keep-last 10 \
+    --keep-daily 7 \
+    --keep-weekly 4 \
+    --keep-monthly 6 \
+    --keep-yearly 3 \
+    --prune
+
+  # Quick integrity check (5 GiB subset)
+  restic check --read-data-subset=5G
+  EOF
+  sudo chmod +x /usr/local/bin/restic-backup.sh 
+- Systemd Service & Timer:
+  ```bash
+  sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
+  [Unit]
+  Description=Restic incremental backup
+  After=network-online.target
+  Wants=network-online.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/local/bin/restic-backup.sh
+  Nice=19
+  IOSchedulingClass=best-effort
+  ProtectSystem=strict
+  ProtectHome=false
+  PrivateTmp=true
+  EOF
+
+  sudo tee /etc/systemd/system/restic-backup.timer >/dev/null <<'EOF'
+  [Unit]
+  Description=Daily restic backup
+  Requires=restic-backup.service
+
+  [Timer]
+  OnCalendar=*-*-* 02:30:00
+  RandomizedDelaySec=5m
+  Persistent=true
+  Unit=restic-backup.service
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+
+  sudo systemctl enable --now restic-backup.timer
+  ```
+- Weekly full repo check
+  ```bash
+  sudo tee /etc/systemd/system/restic-check.service >/dev/null <<'EOF'
+  [Unit]
+  Description=Restic repository integrity check
+  After=network-online.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/bin/restic check
+  Nice=19
+  EOF
+
+  sudo tee /etc/systemd/system/restic-check.timer >/dev/null <<'EOF'
+  [Unit]
+  Description=Weekly restic repo check
+
+  [Timer]
+  OnCalendar=Sun *-*-* 03:00:00
+  Persistent=true
+  Unit=restic-check.service
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+
+  sudo systemctl enable --now restic-check.timer
+  ```
+- First-run initialization (interactive)
+  ```bash
+  echo "=== RESTIC REPOSITORY INITIALIZATION ==="
+  read -p "Enter full repository path (local dir or sftp:user@host:/path): " REPO
+  sudo sed -i "s|^REPO=.*|REPO=\"$REPO\"|" /usr/local/bin/restic-backup.s
+  
+  # Init repo (ask for secondary key file for offline recovery)
+  restic init --repo "$REPO"
+  echo "Save the repository password in Bitwarden (item: restic-repo)."
+  read -p "Create a secondary key file for offline recovery? (y/N): " sec
+  if [[ $sec =~ ^[Yy]$ ]]; then
+    SECONDARY_KEY="/root/restic-secondary-key.txt"
+    restic key add --new-password-file "$SECONDARY_KEY"
+    echo "Store $SECONDARY_KEY securely (offline USB, encrypted vault)."
+  fi
+- Test + Wiki Tips
+  ```bash
+  echo "Running a quick test backup..."
+  /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
+
+  # Optional: Append-Only Remote (Wiki: For ransomware protection)
+  # Use rclone (pacman -S rclone) on remote server with --append-only
+  # Init: restic -o rclone.program='ssh user@host' -r rclone: init
+  # Backup: Add -o rclone.program='ssh user@host' to commands
+  # Wiki Note: Use --keep-within for prune in append-only (avoids exploits)
+  ```
 ## Step 18: Post-Installation Maintenance and Verification
 
 - **a) Update System Regularly**:
@@ -2111,4 +2282,36 @@
 - Apply the theme:
   ```bash
   gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
+  ```
+- Backup Monitor in Astal
+  ```bash
+  // ~/.config/ags/widgets/backup-status.ts
+  import { Widget, Service, Utils } from 'astal/gtk3';
+  import Systemd from 'gi://AstalSystemd';
+
+  const systemd = Systemd.get_default();
+
+  export default () => Widget.Box({
+    className: "backup-status",
+    spacing: 8,
+    children: [
+        Widget.Icon({
+            icon: "backup-symbolic",
+        }),
+        Widget.Label({
+            label: systemd.unit("restic-backup.service")
+                .bind("ActiveState")
+                .as(state => {
+                    if (state === "active") return "✓ Running";
+                    if (state === "inactive") return "✓ Idle";
+                    if (state === "failed") return "✗ Failed";
+                    return "? Unknown";
+                }),
+        }),
+        Widget.Button({
+            label: "Run",
+            onClicked: () => Utils.execAsync("systemctl start restic-backup.service"),
+        }),
+    ],
+  });
   ```
