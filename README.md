@@ -690,7 +690,6 @@
   title Arch Linux
   efi /EFI/Linux/arch.efi
   EOF
-  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch.conf
   ```
 - Create a fallback UKI:
   ```bash
@@ -703,7 +702,6 @@
   title Arch Linux (Fallback)
   efi /EFI/Linux/arch-fallback.efi
   EOF
-  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch-fallback.conf
   ```
 - Set Boot Order (Arch first)
   ```bash
@@ -1503,7 +1501,11 @@
   supergfxctl -g # Get current mode
   supergfxctl -S # Check current power status
   supergfxctl -m Hybrid # Set to Hybrid mode
-  glxinfo | grep -i renderer # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary) 
+  glxinfo | grep -i renderer # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary)
+
+  **Note:** Switch modes before testing:
+  # Hybrid: `supergfxctl -m Hybrid` → `DRI_PRIME=1 glxinfo | grep renderer`
+  # VFIO: `supergfxctl -m VFIO` → `lspci -k | grep vfio`
   DRI_PRIME=1 glxinfo | grep -i radeon # Should show AMD
   DRI_PRIME=0 glxinfo | grep -i arc # Should show Intel
   DRI_PRIME=1 vdpauinfo | grep -i radeonsi
@@ -1550,9 +1552,9 @@
     glxinfo | grep -i renderer  # Verify GPU rendering
     ```
 ## Step 13: Configure Snapper and Backups
-- Install Snapper, snap-pac, and grub-btrfs
+- Install Snapper and snap-pac
   ```bash
-  pacman -S --noconfirm snapper snap-pac grub-btrfs
+  pacman -S --noconfirm snapper snap-pac
   ```
 - Create global filter
   ```bash
@@ -1673,11 +1675,6 @@
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
   ```
-  - Enable grub-btrfs for bootable snapshots
-  ```bash
-  systemctl enable --now grub-btrfsd
-  grub-mkconfig -o /boot/grub/grub.cfg
-  ```
   - Verify configuration:
   ```bash 
   snapper --config root get-config
@@ -1693,8 +1690,8 @@
   ```
   - Check for AppArmor denials (if enabled in Step 11)
   ```bash
-  echo "NOTE: If AppArmor is enabled, check for denials: journalctl -u apparmor | grep -i 'snapper\|grub-btrfsd'. Generate profiles with 'aa-genprof snapper' if needed."
-  journalctl -u apparmor | grep -i "snapper\|grub-btrfsd"
+  echo "NOTE: If AppArmor is enabled, check for denials: journalctl -u apparmor | grep -i 'snapper'. Generate profiles with 'aa-genprof snapper' if needed."
+  journalctl -u apparmor | grep -i "snapper"
   ```
 ## Step 14: Configure Dotfiles
 
@@ -1861,9 +1858,9 @@
   ```  
 - Check Secure Boot status:
   ```bash
+  sbctl verify /boot/EFI/Linux/arch.efi
   sbctl status
   mokutil --sb-state
-  sbctl verify /boot/vmlinuz-linux /boot/initramfs-linux.img /usr/bin/paru /usr/bin/chezmoi || { echo "Signing missing binaries"; sbctl sign -s /boot/vmlinuz-linux /boot/initramfs-linux.img /usr/bin/paru /usr/bin/chezmoi; }
   ```
 - Verify eGPU detection:
   ```bash
@@ -1881,7 +1878,6 @@
   echo "Verifying swapfile configuration"
   swapon --show
   btrfs inspect-internal map-swapfile /mnt/swap/swapfile
-  cat /proc/cmdline | grep -i "resume=/dev/mapper/cryptroot.*resume_offset"
   filefrag -v /mnt/swap/swapfile | grep "extents found: 1" || echo "Warning: Swapfile is fragmented" # Ensure no fragmentation
   systemctl hibernate
   echo "After resuming, checking hibernation logs"
@@ -2337,7 +2333,7 @@
   journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor" || echo "No AppArmor denials"
   firejail --version
   ```
-- **g) Switch AppArmor to Enforced**:
+- **(DEPREECATED - USING Step "J" instead) g) Switch AppArmor to Enforced**: 
   ```bash
   # Review denials from Step 15
   journalctl -u apparmor | grep DENIED > /root/apparmor-final.log
