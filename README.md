@@ -978,10 +978,41 @@
   echo "whitelist /dev/dri/" >> /etc/firejail/obs-studio.profile
   echo "protocol wayland" >> /etc/firejail/obs-studio.profile
 
-  # Alacritty (allow Wayland and GPU)
-  cp /etc/firejail/generic.profile /etc/firejail/alacritty.profile
-  echo "whitelist /dev/dri/" >> /etc/firejail/alacritty.profile
-  echo "protocol wayland" >> /etc/firejail/alacritty.profile
+  # Create minimal netfilter for Alacritty (allows DNS + localhost if needed)
+  sudo tee /etc/firejail/alacritty.net > /dev/null <<'EOF'
+  # Allow DNS (UDP 53) and localhost
+  *filter
+  :INPUT ACCEPT
+  :FORWARD ACCEPT
+  :OUTPUT ACCEPT
+  -A OUTPUT -o lo -j ACCEPT
+  -A OUTPUT -p udp --dport 53 -j ACCEPT
+  -A OUTPUT -p udp --sport 53 -j ACCEPT
+  COMMIT
+  EOF
+
+  # Firejail profile for alacritty-graphics (AUR, /usr/bin/alacritty)
+  sudo tee /etc/firejail/alacritty.local > /dev/null <<'EOF'
+  # === alacritty-graphics (AUR) - Firejail override ===
+  # Binary is in /usr/bin/alacritty → no need for ~/.local/bin
+  include /etc/firejail/alacritty.profile
+
+  # GPU access (required for OpenGL acceleration)
+  whitelist /dev/dri/
+
+  # Config and runtime files
+  whitelist ${HOME}/.config/alacritty
+  whitelist ${HOME}/.cache/alacritty
+
+  # Graphics protocols (Sixel, iTerm2) need X11 or Wayland socket
+  protocol unix,inet,netlink
+  protocol wayland,x11
+
+  # Allow graphics protocol (if using Sixel, iTerm2 img, etc.)
+  netfilter /etc/firejail/alacritty.net
+
+  # Keep seccomp, namespaces, etc. from base profile
+  EOF
 
   # Astal (AUR, allow Wayland and GPU)
   cp /etc/firejail/generic.profile /etc/firejail/astal.profile
