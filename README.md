@@ -2306,7 +2306,7 @@
   journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor" || echo "No AppArmor denials"
   firejail --version
   ```
-- **g) Switch AppArmor to Enforced
+- **g) Switch AppArmor to Enforced**:
   ```bash
   # Review denials from Step 15
   journalctl -u apparmor | grep DENIED > /root/apparmor-final.log
@@ -2320,19 +2320,19 @@
   # Verify
   aa-status | grep -E "(enforce|complain)"
   ```
-- **h) Firmware Updates
+- **h) Firmware Updates**:
   ```bash
   fwupdmgr refresh --force
   fwupdmgr get-updates
   fwupdmgr update
   ```
-- **i) Security Audit
+- **i) Security Audit**:
   ```bash
   lynis audit system > /root/lynis-report-$(date +%F).txt
   rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
   ```
-- **j) Adopt AppArmor.d for Full-System Policy and Automation
+- **j) Adopt AppArmor.d for Full-System Policy and Automation**:
   ```bash
   # Install the AUR package with paru
   paru -S apparmor.d-git
@@ -2377,7 +2377,7 @@
   sleep 10
   reboot
   ```
-- **k) Create sandboxed (FireJail) desktop launchers (menu only)
+- **k) Create sandboxed (FireJail) desktop launchers (menu only)**:
   ```bash
   for app in brave-browser mullvad-browser tor-browser obs-studio alacritty; do
   desktop-file-install --dir="$HOME/.local/share/applications" \
@@ -2391,7 +2391,7 @@
   # Update menu
   update-desktop-database ~/.local/share/applications
   ```
-- **l) Final Reboot & Lock
+- **l) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
