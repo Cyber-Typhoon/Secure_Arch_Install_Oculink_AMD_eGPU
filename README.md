@@ -425,7 +425,47 @@
   passwd <username>  # Set user password
   sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers  # Enable wheel group sudo
   ```
+- Enable polkit caching (run0 15-min password reuse)
+  ```bash
+  sudo tee /etc/polkit-1/rules.d/49-run0-cache.rules > /dev/null <<'EOF'
+  polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+   });
+   EOF
+  ```
+- Shell Configuration — Add to ~/.zshrc or ~/.bashrc
+  ```bash
+  cat << 'EOF' >> /home/$USER/.zshrc
 
+  # Interactive: Prefer run0 (secure, no SUID, polkit)
+  if [[ -t 1 ]]; then
+    alias sudo='run0'
+  fi
+
+  # AUR & scripts: Force real sudo
+  alias paru='sudo paru'
+  alias yay='sudo paru'
+
+  # Safe update alias
+  alias update='pacman -Syu --noconfirm && (paru -Syu --noconfirm || (echo "paru failed — run paru -Syu manually" && false))'
+  echo "Run 'update' weekly. Use 'paru -Syu' for full control."
+  EOF
+  ```
+- Validate run0
+  ```
+  $ run0 whoami
+  # → polkit prompt (first time)
+  root
+
+  $ run0 id
+  # → **no prompt** (cached)
+
+  $ reboot
+  # → cache cleared on next login
+  ```
 ## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
 ## Step 7: Set Up TPM and LUKS2
@@ -2205,62 +2245,162 @@
     restic key add --new-password-file "$SECONDARY_KEY"
     echo "Store $SECONDARY_KEY securely (offline USB, encrypted vault)."
   fi
-- Test + Wiki Tips
+- Test + Notes
   ```bash
   echo "Running a quick test backup..."
   /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
 
-  # Optional: Append-Only Remote (Wiki: For ransomware protection)
-  # Use rclone (pacman -S rclone) on remote server with --append-only
-  # Init: restic -o rclone.program='ssh user@host' -r rclone: init
-  # Backup: Add -o rclone.program='ssh user@host' to commands
-  # Wiki Note: Use --keep-within for prune in append-only (avoids exploits)
+  # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
+  # Check status any time:  restic snapshots --repo <path>
+  # Restore example:
+  # restic restore --target /tmp/restore latest --path /home/user/Documents
+  # Weekly integrity: systemctl status restic-check.timer
   ```
 ## Step 18: Post-Installation Maintenance and Verification
 
 - **a) Update System Regularly**:
   - Keep the system up-to-date:
     ```bash
-    pacman -Syu
-    paru -Syu
-    flatpak update
+    pacman -Syu --noconfirm || echo "pacman failed"
+    paru -Syu --noconfirm || echo "paru failed"
+    flatpak update -y || echo "flatpak failed"
     ```
 - **b) Monitor Logs**:
   - Check for errors in system logs:
     ```bash
     journalctl -p 3 -xb
+    journalctl -b -p err --since "1 hour ago"
     ```
 - **c) Check Snapshots**:
   - Verify Snapper snapshots:
     ```bash
     snapper list
+    snapper status 0..1
     ```
 - **d) Verify Secure Boot**:
   - Confirm Secure Boot is active:
     ```bash
     sbctl status
+    sbctl verify
+    mokutil --sb-state
     ```
 - **e) Test eGPU**:
   - Verify eGPU detection and rendering:
     ```bash
     lspci | grep -i amd
-    glxinfo | grep -i renderer
+    DRI_PRIME=1 glxinfo | grep renderer
+    supergfxctl -g
+    DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
     ```
-- **f) Security Audits**:
-  - Schedule regular security scans:
-    ```cron
-    0 3 * * * /usr/bin/rkhunter --update --quiet && /usr/bin/rkhunter --propupd --quiet
-    0 4 * * * /usr/bin/rkhunter --check --cronjob > /var/log/rkhunter.cronjob.log 2>&1
-    0 5 * * * /usr/sbin/chkrootkit > /var/log/chkrootkit.log 2>&1
-    ```
-- **g) Verify Firejail profiles**:
+- **f) Verify Firejail profiles**:
   ```bash
-  echo "Checking Firejail profiles"
-  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio,alacritty,astal,ags,helix,zellij,yazi,gitui,glow,httpie}.profile || echo "Warning: Firejail profiles missing"
-  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
-  # Check Firejail version
-  firejail --version | grep -q "0.9.72" || echo "Warning: Firejail version may be outdated; consider updating"
+  echo "Checking Firejail profiles..."
+  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie; do
+    [ -f "/etc/firejail/$app.profile" ] && echo "✓ $app.profile" || echo "✗ $app.profile missing"
+  done
+
+  for browser in brave-browser mullvad-browser tor-browser; do
+    firejail --apparmor "$browser" --version >/dev/null 2>&1 && echo "✓ $browser sandbox OK" || echo "✗ $browser sandbox failed"
+  done
+
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor" || echo "No AppArmor denials"
+  firejail --version
+  ```
+- **g) Switch AppArmor to Enforced
+  ```bash
+  # Review denials from Step 15
+  journalctl -u apparmor | grep DENIED > /root/apparmor-final.log
+  echo "Review /root/apparmor-final.log and run 'aa-logprof' if needed."
+  read -p "Ready to enforce AppArmor profiles? (y/N): " confirm
+  [[ $confirm =~ ^[Yy]$ ]] || exit 1
+
+  # Enforce all profiles
+  aa-enforce /etc/apparmor.d/*
+
+  # Verify
+  aa-status | grep -E "(enforce|complain)"
+  ```
+- **h) Firmware Updates
+  ```bash
+  fwupdmgr refresh --force
+  fwupdmgr get-updates
+  fwupdmgr update
+  ```
+- **i) Security Audit
+  ```bash
+  lynis audit system > /root/lynis-report-$(date +%F).txt
+  rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
+  aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
+  ```
+- **j) Adopt AppArmor.d for Full-System Policy and Automation
+  ```bash
+  # Install the AUR package with paru
+  paru -S apparmor.d-git
+
+  # Enable early policy caching (required for boot-time FSP)
+  sudo mkdir -p /etc/apparmor.d/cache
+  sudo sed -i '/^#.*cache-loc/s/^#//' /etc/apparmor/parser.conf
+  sudo sed -i 's|.*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
+
+  # Load the full-system policy in complain mode first
+  sudo systemctl enable --now apparmor
+  sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
+  sudo aa-complain /etc/apparmor.d/*   # fallback for any stray profiles
+  sudo systemctl restart apparmor
+
+  # Enable the upstream-sync timer (weekly profile updates)
+  sudo systemctl enable --now apparmor.d-update.timer
+
+  # Tune from logs (run after normal usage)
+  echo "Use the system for a while, then run:"
+  echo "  sudo aa-logprof   # interactive"
+  echo "  sudo aa-genprof <binary>   # for new apps"
+
+  # Switch to enforced mode once satisfied
+  read -p "Ready to enforce AppArmor.d FSP? (y/N): " confirm_fsp
+  [[ $confirm_fsp =~ ^[Yy]$ ]] || exit 1
+  sudo just fsp-enforce
+  sudo systemctl restart apparmor
+  aa-status | grep -E "(enforce|complain)"
+
+  # (Optional) Add user-specific tunables
+  sudo mkdir -p /etc/apparmor.d/tunables/local
+  echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf
+  sudo apparmor_parser -r /etc/apparmor.d/tunables/*
+
+  # Verify Firejail integration (unchanged from Step 10)
+  firejail --apparmor --list
+  journalctl -u apparmor | grep -i firejail || echo "No Firejail denials"
+
+  # Reboot to apply cache & early load
+  echo "Rebooting in 10 seconds to apply AppArmor.d cache..."
+  sleep 10
+  reboot
+  ```
+- **k) Create sandboxed (FireJail) desktop launchers (menu only)
+  ```bash
+  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty; do
+  desktop-file-install --dir="$HOME/.local/share/applications" \
+    --set-key=Name --set-value="$app (Sandboxed)" \
+    --set-key=Exec --set-value="firejail --apparmor $app %U" \
+    --set-key=Icon --set-value="$app" \
+    --set-key=NoDisplay --set-value="false" \
+    /usr/share/applications/$app.desktop
+  done
+
+  # Update menu
+  update-desktop-database ~/.local/share/applications
+  ```
+- **l) Final Reboot & Lock
+  ```bash
+  mkinitcpio -P
+  
+  # Sign only unsigned EFI binaries
+  sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
+
+  sbctl verify
+  echo "System locked and ready. Final reboot recommended."
+  reboot
   ```
 ## Step 19: User Customizations
 
