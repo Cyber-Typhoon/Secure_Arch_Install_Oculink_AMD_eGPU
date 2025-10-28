@@ -822,6 +822,7 @@
   ```bash
   # AUR applications:
   sudo -u $SUDO_USER paru -S --needed \
+    apparmor.d-git \
     alacritty-graphics \
     astal-git \
     ags-git \
@@ -1977,6 +1978,24 @@
   journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
   firejail --list || echo "No Firejail sandboxes running (expected if tests passed)"
   ```
+- AppArmor Tuning Milestone (Run After Normal Use)
+  ```bash
+  echo "=== APARMOR TUNING ==="
+  echo "Use system normally (eGPU, browsers, OBS, AGS) for 1–2 hours."
+  echo "Then run:"
+
+  sudo ausearch -m avc -ts boot | audit2allow
+  sudo aa-logprof
+
+  # For AGS/Astal:
+  sudo aa-genprof astal
+  # → In another terminal: astal -- ags -c ~/.config/ags/config.js
+  # → Exercise UI, then Ctrl+C and finish aa-genprof
+
+  echo "Repeat for: ags, supergfxctl, boltctl, qemu-system-x86_64"
+
+  echo "After tuning: reboot and verify no denials in journalctl -u apparmor"
+  ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
   ```bash
   echo "fwupd tests moved to Step 18 for BIOS/firmware updates."
@@ -2365,9 +2384,6 @@
   ```
 - **i) Adopt AppArmor.d for Full-System Policy and Automation**:
   ```bash
-  # Install the AUR package with paru
-  paru -S apparmor.d-git
-
   # Enable early policy caching (required for boot-time FSP)
   sudo mkdir -p /etc/apparmor.d/cache
   sudo sed -i '/^#.*cache-loc/s/^#//' /etc/apparmor/parser.conf
