@@ -1926,12 +1926,30 @@
   ```bash
   systemctl --failed
   systemctl --failed | awk '/failed/ {print $2}' | xargs -I {} journalctl -u {} -n 50  ```
-- Verify Security
+- Verify AppArmor.d full-system policy (FSP) is active
   ```bash
-  auditctl -l
-  aa-status | grep -E "chezmoi|paru|dnscrypt-proxy"
-  ausearch -m avc -ts recent
-  echo "Note: AppArmor profiles are in complain mode. Switch to enforce in Step 18."
+  echo "=== AppArmor.d FSP Status ==="
+  aa-status | head -20
+
+  # Check if FSP is loaded from /usr/share/apparmor.d
+  if [ -d /usr/share/apparmor.d ] && command -v just >/dev/null; then
+    echo "✓ apparmor.d FSP detected"
+    just fsp-status || echo "Warning: FSP not fully loaded"
+  else
+    echo "✗ apparmor.d not installed or 'just' command missing"
+  fi
+
+  # Show loaded profiles count
+  aa-status | grep -E "(profiles are loaded|enforce|complain)" || echo "No profiles loaded"
+
+  # Log recent denials (FSP logs to same audit)
+  ausearch -m avc -ts recent | tail -10 || echo "No recent AVC denials"
+
+  # Confirm cache is enabled
+  grep -q "cache-loc = /etc/apparmor.d/cache" /etc/apparmor/parser.conf && \
+    echo "✓ AppArmor cache enabled" || echo "✗ Cache not configured"
+
+  echo "Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce'."
   ```
 - Test AUR builds with /tmp (no noexec)
   ```bash
@@ -2333,33 +2351,19 @@
   journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor" || echo "No AppArmor denials"
   firejail --version
   ```
-- **(DEPREECATED - USING Step "J" instead) g) Switch AppArmor to Enforced**: 
-  ```bash
-  # Review denials from Step 15
-  journalctl -u apparmor | grep DENIED > /root/apparmor-final.log
-  echo "Review /root/apparmor-final.log and run 'aa-logprof' if needed."
-  read -p "Ready to enforce AppArmor profiles? (y/N): " confirm
-  [[ $confirm =~ ^[Yy]$ ]] || exit 1
-
-  # Enforce all profiles
-  aa-enforce /etc/apparmor.d/*
-
-  # Verify
-  aa-status | grep -E "(enforce|complain)"
-  ```
-- **h) Firmware Updates**:
+- **g) Firmware Updates**:
   ```bash
   fwupdmgr refresh --force
   fwupdmgr get-updates
   fwupdmgr update
   ```
-- **i) Security Audit**:
+- **h) Security Audit**:
   ```bash
   lynis audit system > /root/lynis-report-$(date +%F).txt
   rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
   ```
-- **j) Adopt AppArmor.d for Full-System Policy and Automation**:
+- **i) Adopt AppArmor.d for Full-System Policy and Automation**:
   ```bash
   # Install the AUR package with paru
   paru -S apparmor.d-git
@@ -2388,7 +2392,21 @@
   [[ $confirm_fsp =~ ^[Yy]$ ]] || exit 1
   sudo just fsp-enforce
   sudo systemctl restart apparmor
+  sudo apparmor_parser -r /usr/share/apparmor.d/*
   aa-status | grep -E "(enforce|complain)"
+
+  # Confirm no stray vanilla profiles interfere
+  if [ -f /etc/appamor.d/disable ] || ls /etc/apparmor.d/*.conf >/dev/null 2>&1; then
+    echo "Warning: Legacy profiles in /etc/apparmor.d/ — consider removing or disabling."
+  fi
+  # echo "AppArmor.d FSP is now ENFORCED.
+
+  # Warm cache on boot (critical for UKI + Secure Boot)
+  sudo mkdir -p /etc/systemd/system/apparmor.service.d
+  sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf > /dev/null <<'EOF'
+  [Service]
+  ExecStartPre=/usr/bin/apparmor_parser -r /usr/share/apparmor.d/*
+  EOF
 
   # (Optional) Add user-specific tunables
   sudo mkdir -p /etc/apparmor.d/tunables/local
@@ -2404,7 +2422,7 @@
   sleep 10
   reboot
   ```
-- **k) Create sandboxed (FireJail) desktop launchers (menu only)**:
+- **j) Create sandboxed (FireJail) desktop launchers (menu only)**:
   ```bash
   for app in brave-browser mullvad-browser tor-browser obs-studio alacritty; do
   desktop-file-install --dir="$HOME/.local/share/applications" \
@@ -2418,7 +2436,7 @@
   # Update menu
   update-desktop-database ~/.local/share/applications
   ```
-- **l) Final Reboot & Lock**:
+- **k) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
