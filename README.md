@@ -475,25 +475,20 @@
     alias curl='http --continue'  # curl-like behavior
     alias btop='btm'
     alias iftop='bandwhich'
-  # zoxide: use 'z' and 'zi' (no autojump alias needed)
-    if command -v zoxide >/dev/null 2>&1; then
-      eval "$(zoxide init zsh)"
-    fi
-  fi
 
   # Interactive: Prefer run0 (secure, no SUID, polkit)
   if [[ -t 1 ]]; then
     alias sudo='run0'
   fi
 
-  # AUR & scripts: Force real sudo
-  if command -v paru >/dev/null 2>&1; then
-    alias paru='sudo paru'
-    alias yay='sudo paru'
+  # zoxide: use 'z' and 'zi' (no autojump alias needed)
+    if command -v zoxide >/dev/null 2>&1; then
+      eval "$(zoxide init zsh)"
+    fi
   fi
 
   # Safe update alias
-  alias update='pacman -Syu --noconfirm && (paru -Syu --noconfirm || (echo "paru failed — run paru -Syu manually" && false))'
+  alias update='paru -Syu --noconfirm'
   echo "Run 'update' weekly. Use 'paru -Syu' for full control."
   EOF
 
