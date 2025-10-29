@@ -959,67 +959,42 @@
   Exec = /usr/bin/sbctl sign -s /usr/bin/firejail
   EOF
   ```
-- Create aliases for easy sandboxing (add to user’s shell configuration):
+- Create .local Overrides for High-Risk Apps
   ```bash
-  # Create a backup of current .zshrc
-  cp /home/$SUDO_USER/.zshrc /home/$SUDO_USER/.zshrc.bak
-  cat << 'EOF' >> /home/$SUDO_USER/.zshrc
-  alias brave="firejail --apparmor brave-browser"
-  alias mullvad="firejail --apparmor mullvad-browser"
-  alias tor="firejail --apparmor tor-browser"
-  alias obs="firejail --apparmor obs-studio"
+  # DO NOT edit default profiles. Use .local to *add* GPU/Wayland access.
+  # --- Browsers ---
+  for app in brave-browser mullvad-browser tor-browser; do
+  sudo tee /etc/firejail/$app.local > /dev/null << 'EOF'
+  # Local override: Add eGPU + Wayland + Audio
+  protocol wayland
+  whitelist /dev/dri
+  whitelist /dev/snd
+  whitelist ${HOME}/.config/pulse
+  whitelist ${HOME}/.config/pipewire
   EOF
-  chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.zshrc
-  source /home/$SUDO_USER/.zshrc
-  for cmd in brave mullvad tor obs; do
-    type $cmd || echo "Error: Alias $cmd not functional"
   done
+
+  # --- OBS Studio ---
+  sudo tee /etc/firejail/obs-studio.local > /dev/null << 'EOF'
+  # Local override: eGPU + Wayland + Audio + Capture
+  protocol wayland
+  whitelist /dev/dri
+  whitelist /dev/snd
+  whitelist /dev/video*
+  whitelist ${HOME}/.config/obs-studio
+  whitelist ${HOME}/Videos
+  include /etc/firejail/disable-common.inc
+  EOF
   ```
-- Configure Firejail profiles for key applications
+- Add Aliases to ~/.zshrc
   ```bash
-  #
-  for profile in obs-studio; do
-    [ -f /etc/firejail/$profile.profile ] || cp /etc/firejail/generic.profile /etc/firejail/$profile.profile
-  done
-  
-  # Browsers
-  firejail --noprofile --dry-run brave-browser  # Verify profile exists
-  firejail --noprofile --dry-run mullvad-browser
-  firejail --noprofile --dry-run tor-browser
-
-  for profile in brave-browser mullvad-browser tor-browser; do
-  if [ -f /etc/firejail/$profile.profile ]; then
-    echo "whitelist /dev/dri/" >> /etc/firejail/$profile.profile
-    echo "protocol wayland" >> /etc/firejail/$profile.profile
-  fi
-  done
-
-  # OBS Studio (allow GPU for eGPU)
-  cp /etc/firejail/obs.profile /etc/firejail/obs-studio.profile
-  echo "whitelist /dev/dri/" >> /etc/firejail/obs-studio.profile
-  echo "protocol wayland" >> /etc/firejail/obs-studio.profile
-
-  # Create minimal netfilter for Alacritty (allows DNS + localhost if needed)
-  sudo tee /etc/firejail/alacritty.net > /dev/null <<'EOF'
-  # Allow DNS (UDP 53) and localhost
-  *filter
-  :INPUT ACCEPT
-  :FORWARD ACCEPT
-  :OUTPUT ACCEPT
-  -A OUTPUT -o lo -j ACCEPT
-  -A OUTPUT -p udp --dport 53 -j ACCEPT
-  -A OUTPUT -p udp --sport 53 -j ACCEPT
-  COMMIT
+  cat >> /home/$SUDO_USER/.zshrc << 'EOF'
+  # HIGH-RISK: Always sandboxed with AppArmor:
+  alias brave="firejail --apparmor --private-tmp brave-browser"
+  alias mullvad="firejail --apparmor --private-tmp mullvad-browser"
+  alias tor="firejail --apparmor --private-tmp tor-browser"
+  alias obs="firejail --apparmor --private-tmp obs-studio"
   EOF
-
-  # Test Firejail with key applications
-  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
-  firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
-  firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
-  firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
-
-  # Check for AppArmor denials
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs" || echo "No AppArmor denials for Firejail"
   ```
 - Explicitly set permissions for custom Firejail profiles
   ```bash
@@ -1259,22 +1234,41 @@
   systemctl enable --now opensnitch
   opensnitch-ui
   ```
-- Configure AppArmor for mandatory access control:
+- Enable FSP in COMPLAIN mode
   ```bash
-  # Enable AppArmor service
-  systemctl enable apparmor
-  # Start in complain mode to avoid disrupting eGPU or other services
-  aa-complain /etc/apparmor.d/*
-  # Log potential denials for later tuning
-  echo "AppArmor enabled in complain mode. Check /var/log/audit/audit.log or journalctl -u apparmor after Step 15 for denials and tune profiles as needed."
+  # This activates the *complete* AppArmor.d policy (1000+ profiles)
+  # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
+  
+  # Enable service
+  sudo systemctl enable --now apparmor
+  
+  # Load Full System Policy in COMPLAIN mode
+  sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
 
-  # Later, after Step 15. Check for AppArmor denials:
-  journalctl -u apparmor | grep -i DENIED
-  aa-logprof
+  # Fallback: Ensure legacy profiles (if any) are in complain
+  sudo aa-complain /etc/apparmor.d/* 2>/dev/null || true # fallback for any stray profiles
 
-  # After tuning, switch to enforce mode:
-  aa-enforce /etc/apparmor.d/*
-  apparmor_status
+  # Warm cache for boot-time performance (critical for UKI + Secure Boot)
+  sudo apparmor_parser -r /usr/share/apparmor.d/*
+
+  # Restart to apply everything
+  sudo systemctl restart apparmor
+
+  echo "AppArmor FSP is now in COMPLAIN mode."
+  echo "Use system normally for 1–2 days, then check denials:"
+  echo "  journalctl -u apparmor | grep DENIED"
+  echo "  sudo aa-logprof"
+  echo "NEXT STEPS (after eGPU setup + normal use):"
+  echo "  1. Use system normally for 1–2 days"
+  echo "  2. Check denials:"
+  echo "       journalctl -u apparmor | grep -i DENIED"
+  echo "       ausearch -m avc -ts recent | tail -20"
+  echo "  3. Tune interactively:"
+  echo "       sudo aa-logprof"
+  echo "       sudo aa-genprof <binary>  # e.g., astal, supergfxctl, obs-studio"
+  echo "  4. After tuning → ENFORCE:"
+  echo "       sudo just fsp-enforce"
+  echo "       sudo systemctl restart apparmor"
   ```
 ## Step 12: Configure eGPU (AMD)
 
@@ -2327,12 +2321,6 @@
   sudo sed -i '/^#.*cache-loc/s/^#//' /etc/apparmor/parser.conf
   sudo sed -i 's|.*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
 
-  # Load the full-system policy in complain mode first
-  sudo systemctl enable --now apparmor
-  sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
-  sudo aa-complain /etc/apparmor.d/*   # fallback for any stray profiles
-  sudo systemctl restart apparmor
-
   # Enable the upstream-sync timer (weekly profile updates)
   sudo systemctl enable --now apparmor.d-update.timer
 
@@ -2345,9 +2333,9 @@
   read -p "Ready to enforce AppArmor.d FSP? (y/N): " confirm_fsp
   [[ $confirm_fsp =~ ^[Yy]$ ]] || exit 1
   sudo just fsp-enforce
-  sudo systemctl restart apparmor
   sudo apparmor_parser -r /usr/share/apparmor.d/*
-  aa-status | grep -E "(enforce|complain)"
+  sudo systemctl restart apparmor
+  aa-status | grep -E "(profiles are in enforce mode|complain)"
   echo "AppArmor FSP is now ENFORCED."
 
   # Confirm no stray vanilla profiles interfere
