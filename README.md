@@ -445,6 +445,22 @@
     source <(fzf --zsh)
   fi
 
+  # AUR wrapper: force paru, block yay:
+  if command -v paru >/dev/null 2>&1; then
+    alias yay='paru'
+  else
+    alias yay='echo -e "\nERROR: paru not installed. Run: sudo pacman -S --needed paru\n"; false'
+  fi
+
+  # Block 'yay' via pacman
+  pacman() {
+    if [[ " $* " == *" yay "* ]] || [[ " $* " == *" yay-bin "* ]]; then
+      echo -e "\nERROR: Do not install 'yay'. This system uses 'paru' only.\n"
+      return 1
+    fi
+    command pacman "$@"
+  }
+  
   # Modern CLI tool alias:
   if [[ $- == *i* ]]; then
     alias sysctl='systeroid'
