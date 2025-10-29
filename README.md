@@ -284,6 +284,8 @@
   - Generate the initial fstab:
     ```bash
     genfstab -U /mnt | tee /mnt/etc/fstab
+    # Remove auto-generated swap and tmpfs lines to avoid duplicates
+    sed -i '/swapfile\|\/tmp\|\/var\/tmp/d' /mnt/etc/fstab
     ```
   - Manually edit `/mnt/etc/fstab` to verify subvolume options and add security settings.
   - **BTRFS Subvolume and Mount Options**:
