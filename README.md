@@ -449,7 +449,8 @@
   ```
 - Enable polkit caching (run0 15-min password reuse)
   ```bash
-  sudo tee /etc/polkit-1/rules.d/49-run0-cache.rules > /dev/null <<'EOF'
+  mkdir -p /etc/polkit-1/rules.d
+  tee /etc/polkit-1/rules.d/49-run0-cache.rules > /dev/null <<'EOF'
   polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.systemd1.manage-units" &&
         subject.isInGroup("wheel")) {
