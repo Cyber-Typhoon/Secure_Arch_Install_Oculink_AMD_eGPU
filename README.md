@@ -422,6 +422,7 @@
   ```bash
   passwd  # Set root password
   useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh <username>
+  chsh -s /usr/bin/zsh <username>
   passwd <username>  # Set user password
   sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers  # Enable wheel group sudo
   ```
@@ -439,6 +440,30 @@
 - Shell Configuration — Add to ~/.zshrc or ~/.bashrc
   ```bash
   cat << 'EOF' >> /home/$USER/.zshrc
+  # Load fzf if available
+  if command -v fzf >/dev/null 2>&1; then
+    source <(fzf --zsh)
+  fi
+
+  # Modern CLI tool alias:
+  if [[ $- == *i* ]]; then
+    alias sysctl='systeroid'
+    alias grep='rg'
+    alias find='fd'
+    alias ls='eza  --icons --git'
+    alias cat='bat --paging=never'
+    alias du='dua'
+    alias man='tldr'
+    alias ps='procs'
+    alias dig='dog'
+    alias curl='http --continue'  # curl-like behavior
+    alias btop='btm'
+    alias iftop='bandwhich'
+  # zoxide: use 'z' and 'zi' (no autojump alias needed)
+    if command -v zoxide >/dev/null 2>&1; then
+      eval "$(zoxide init zsh)"
+    fi
+  fi
 
   # Interactive: Prefer run0 (secure, no SUID, polkit)
   if [[ -t 1 ]]; then
@@ -446,13 +471,19 @@
   fi
 
   # AUR & scripts: Force real sudo
-  alias paru='sudo paru'
-  alias yay='sudo paru'
+  if command -v paru >/dev/null 2>&1; then
+    alias paru='sudo paru'
+    alias yay='sudo paru'
+  fi
 
   # Safe update alias
   alias update='pacman -Syu --noconfirm && (paru -Syu --noconfirm || (echo "paru failed — run paru -Syu manually" && false))'
   echo "Run 'update' weekly. Use 'paru -Syu' for full control."
   EOF
+
+  # Set ownership
+  chown $USER:$USER /home/$USER/.zshrc
+  chmod 644 /home/$USER/.zshrc
   ```
 - Validate run0
   ```
@@ -865,7 +896,7 @@
   aide apparmor auditd chkrootkit lynis rkhunter sshguard ufw usbguard firejail\
   \
   # System Monitoring
-  baobab cpupower gnome-system-monitor tlp upower zram-generator \
+  baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
   \
   # Hardware
   bluez bluez-utils fprintd thermald \
@@ -874,9 +905,9 @@
   dnscrypt-proxy opensnitch wireguard-tools \
   \
   # CLI Tools
-  atuin bottom delta dog dua eza fd fzf gcc gdb git gitui glow gping \
-  helix httpie jaq procs python-pygobject rage ripgrep rustup tealdeer \
-  tokei xdg-ninja yazi zellij zoxide \
+  atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
+  helix httpie hyfetch jaq procs python-pygobject rage ripgrep rustup starship tealdeer \
+  tokei xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
@@ -893,7 +924,7 @@
   ```
 - Enable essential services:
   ```bash
-  systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit
+  systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
   systemctl --failed  # Check for failed services
   journalctl -p 3 -xb
   ```
@@ -930,7 +961,7 @@
   ```
 - Create aliases for easy sandboxing (add to user’s shell configuration):
   ```bash
-  # Create a backuo of current .zshrc
+  # Create a backup of current .zshrc
   cp /home/$SUDO_USER/.zshrc /home/$SUDO_USER/.zshrc.bak
   cat << 'EOF' >> /home/$SUDO_USER/.zshrc
   alias brave="firejail --apparmor brave-browser"
@@ -946,17 +977,19 @@
   alias gitui="firejail --apparmor gitui"
   alias glow="firejail --apparmor glow"
   alias httpie="firejail --apparmor httpie"
+  alias systeroid="firejail --apparmor systeroid"
+  alias bat="firejail --apparmor bat"
   EOF
   chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.zshrc
   source /home/$SUDO_USER/.zshrc
-  for cmd in brave mullvad tor obs alacritty astal ags helix zellij yazi gitui glow httpie; do
+  for cmd in brave mullvad tor obs alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
     type $cmd || echo "Error: Alias $cmd not functional"
   done
   ```
 - Configure Firejail profiles for key applications
   ```bash
   #
-  for profile in obs-studio alacritty astal ags helix zellij yazi gitui glow httpie; do
+  for profile in obs-studio alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
     [ -f /etc/firejail/$profile.profile ] || cp /etc/firejail/generic.profile /etc/firejail/$profile.profile
   done
   
@@ -1033,6 +1066,8 @@
   cp /etc/firejail/generic.profile /etc/firejail/gitui.profile
   cp /etc/firejail/generic.profile /etc/firejail/glow.profile
   cp /etc/firejail/generic.profile /etc/firejail/httpie.profile
+  cp /etc/firejail/generic.profile /etc/firejail/systeroid.profile
+  cp /etc/firejail/generic.profile /etc/firejail/bat.profile
 
   #  Stricter httpie profile
   echo "netfilter" >> /etc/firejail/httpie.profile
@@ -1052,6 +1087,8 @@
   firejail --apparmor gitui --version || echo "Warning: Gitui sandbox test failed"
   firejail --apparmor glow --version || echo "Warning: Glow sandbox test failed"
   firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
+  firejail --apparmor systeroid --version || echo "Warning: systeroid sandbox test failed"
+  firejail --apparmor bat --version || echo "Warning: bat sandbox test failed"
 
   # Test graphical apps with a short-lived instance
   firejail --apparmor alacritty -- sh -c "sleep 2" || echo "Warning: Alacritty Wayland test failed"
@@ -1061,7 +1098,7 @@
   firejail --apparmor alacritty -- sh -c "WAYLAND_DISPLAY=wayland-0 xdg-open /dev/null" || echo "Warning: Alacritty Wayland protocol test failed"
 
   # Check for AppArmor denials
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie\|systeroid\|bat" || echo "No AppArmor denials for Firejail"
   ```
 - Explicitly set permissions for custom Firejail profiles
   ```bash
@@ -1088,7 +1125,7 @@
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
   echo "Open Bazaar and install: GIMP, Inkscape, Krita, Blender"
-  Search/install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender).
+  Search/install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop)
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1197,7 +1234,7 @@
   EOF
   systemctl restart dnscrypt-proxy
   # Test DNS resolution:
-  drill -D archlinux.org
+  dog archlinux.org
   ```
 - Configure usbguard with GSConnect exception:
   ```bash
@@ -1747,7 +1784,7 @@
   ```
 - Add Firejail configuration files
   ```bash
-  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile alacritty.profile astal.profile ags.profile helix.profile zellij.profile yazi.profile gitui.profile glow.profile httpie.profile; do
+  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile alacritty.profile astal.profile ags.profile helix.profile zellij.profile yazi.profile gitui.profile glow.profile httpie.profile systeroid.profile bat.profile; do
     [ -f /etc/firejail/$profile ] || { echo "Error: /etc/firejail/$profile not found"; exit 1; }
     sudo chezmoi add /etc/firejail/$profile
   done
@@ -1765,6 +1802,8 @@
   sudo chezmoi add /etc/firejail/gitui.profile
   sudo chezmoi add /etc/firejail/glow.profile
   sudo chezmoi add /etc/firejail/httpie.profile
+  sudo chezmoi add /etc/firejail/systeroid.profile
+  sudo chezmoi add /etc/firejail/bat.profile
   ```
 - Export package lists for reproducibility
   ```bash
@@ -1811,10 +1850,10 @@
   cat ~/explicitly-installed-packages.txt # Check for expected packages
   cat ~/aur-packages.txt # Check for AUR packages
   cat ~/flatpak-packages.txt # Check for Flatpak apps
-  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio,alacritty,astal,ags,helix,zellij,yazi,gitui,glow,httpie}.profile || echo "Error: Firejail profiles not restored by chezmoi"
+  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio,alacritty,astal,ags,helix,zellij,yazi,gitui,glow,httpie,systeroid,bat}.profile || echo "Error: Firejail profiles not restored by chezmoi"
   # Test to ensure Firejail profiles are functional post-restore
   echo "Testing Firejail profiles after chezmoi restore"
-  for profile in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie; do
+  for profile in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
     [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
     firejail --apparmor $app --version || echo "Warning: Restored $app profile test failed"
   done
@@ -1974,8 +2013,10 @@
   firejail --apparmor gitui --version || echo "Warning: Gitui sandbox test failed"
   firejail --apparmor glow --version || echo "Warning: Glow sandbox test failed"
   firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
+  firejail --apparmor systeroid --version || echo "Warning: Systeroid sandbox test failed"
+  firejail --apparmor bat --version || echo "Warning: Bat sandbox test failed"
   firejail --list || echo "No Firejail sandboxes running"
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie" || echo "No AppArmor denials for Firejail"
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie\|systeroid\|bat" || echo "No AppArmor denials for Firejail"
   firejail --list || echo "No Firejail sandboxes running (expected if tests passed)"
   ```
 - AppArmor Tuning Milestone (Run After Normal Use)
@@ -2359,7 +2400,7 @@
 - **f) Verify Firejail profiles**:
   ```bash
   echo "Checking Firejail profiles..."
-  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie; do
+  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
     [ -f "/etc/firejail/$app.profile" ] && echo "✓ $app.profile" || echo "✗ $app.profile missing"
   done
 
@@ -2513,6 +2554,28 @@
             label: "Run",
             onClicked: () => Utils.execAsync("systemctl start restic-backup.service"),
         }),
+    ],
+  });
+  ```
+- Logwatch
+  ```bash
+  // ~/.config/ags/widgets/logwatch.ts
+  import { Widget, Utils } from 'astal/gtk3';
+
+  export default () => Widget.Box({
+    className: "logwatch",
+    spacing: 6,
+    children: [
+      Widget.Icon({ icon: "security-high-symbolic" }),
+      Widget.Label({
+        label: Utils.execAsync(["journalctl", "-p", "err", "-n", "1", "--no-pager"])
+          .then(out => out.trim() || "No errors")
+          .catch(() => "Error"),
+      }),
+      Widget.Button({
+        label: "Open",
+        onClicked: () => Utils.execAsync("firejail --apparmor gnome-logs"),
+      }),
     ],
   });
   ```
