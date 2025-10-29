@@ -968,28 +968,17 @@
   alias mullvad="firejail --apparmor mullvad-browser"
   alias tor="firejail --apparmor tor-browser"
   alias obs="firejail --apparmor obs-studio"
-  alias alacritty="firejail --apparmor alacritty"
-  alias astal="firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js"
-  alias ags="firejail --apparmor ags"
-  alias helix="firejail --apparmor helix"
-  alias zellij="firejail --apparmor zellij"
-  alias yazi="firejail --apparmor yazi"
-  alias gitui="firejail --apparmor gitui"
-  alias glow="firejail --apparmor glow"
-  alias httpie="firejail --apparmor httpie"
-  alias systeroid="firejail --apparmor systeroid"
-  alias bat="firejail --apparmor bat"
   EOF
   chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.zshrc
   source /home/$SUDO_USER/.zshrc
-  for cmd in brave mullvad tor obs alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
+  for cmd in brave mullvad tor obs; do
     type $cmd || echo "Error: Alias $cmd not functional"
   done
   ```
 - Configure Firejail profiles for key applications
   ```bash
   #
-  for profile in obs-studio alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
+  for profile in obs-studio; do
     [ -f /etc/firejail/$profile.profile ] || cp /etc/firejail/generic.profile /etc/firejail/$profile.profile
   done
   
@@ -1023,82 +1012,14 @@
   COMMIT
   EOF
 
-  # Firejail profile for alacritty-graphics (AUR, /usr/bin/alacritty)
-  sudo tee /etc/firejail/alacritty.local > /dev/null <<'EOF'
-  # === alacritty-graphics (AUR) - Firejail override ===
-  # Binary is in /usr/bin/alacritty → no need for ~/.local/bin
-  include /etc/firejail/alacritty.profile
-
-  # GPU access (required for OpenGL acceleration)
-  whitelist /dev/dri/
-
-  # Config and runtime files
-  whitelist ${HOME}/.config/alacritty
-  whitelist ${HOME}/.cache/alacritty
-
-  # Graphics protocols (Sixel, iTerm2) need X11 or Wayland socket
-  protocol unix,inet,netlink
-  protocol wayland,x11
-
-  # Allow graphics protocol (if using Sixel, iTerm2 img, etc.)
-  netfilter /etc/firejail/alacritty.net
-
-  # Keep seccomp, namespaces, etc. from base profile
-  EOF
-
-  # Astal (AUR, allow Wayland and GPU)
-  cp /etc/firejail/generic.profile /etc/firejail/astal.profile
-  echo "whitelist /dev/dri/" >> /etc/firejail/astal.profile
-  echo "protocol wayland" >> /etc/firejail/astal.profile
-  echo "whitelist /home/$SUDO_USER/.config/astal" >> /etc/firejail/astal.profile
-  echo "whitelist /home/$SUDO_USER/.config/ags" >> /etc/firejail/astal.profile
-
-  # AGS (AUR, allow Wayland and GPU)
-  cp /etc/firejail/generic.profile /etc/firejail/ags.profile
-  echo "whitelist /dev/dri/" >> /etc/firejail/ags.profile
-  echo "protocol wayland" >> /etc/firejail/ags.profile
-  echo "whitelist /home/$SUDO_USER/.config/ags" >> /etc/firejail/ags.profile
-
-  # CLI Tools (use generic profile, optional stricter profiles)
-  cp /etc/firejail/generic.profile /etc/firejail/helix.profile
-  cp /etc/firejail/generic.profile /etc/firejail/zellij.profile
-  cp /etc/firejail/generic.profile /etc/firejail/yazi.profile
-  cp /etc/firejail/generic.profile /etc/firejail/gitui.profile
-  cp /etc/firejail/generic.profile /etc/firejail/glow.profile
-  cp /etc/firejail/generic.profile /etc/firejail/httpie.profile
-  cp /etc/firejail/generic.profile /etc/firejail/systeroid.profile
-  cp /etc/firejail/generic.profile /etc/firejail/bat.profile
-
-  #  Stricter httpie profile
-  echo "netfilter" >> /etc/firejail/httpie.profile
-  echo "whitelist ${HOME}/.cache/httpie" >> /etc/firejail/httpie.profile 
-
   # Test Firejail with key applications
   firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
   firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
   firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
   firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
-  firejail --apparmor alacritty --version || echo "Warning: Alacritty sandbox test failed"
-  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js || echo "Warning: Astal sandbox test failed"
-  firejail --apparmor ags --version || echo "Warning: AGS sandbox test failed"
-  firejail --apparmor helix --version || echo "Warning: Helix sandbox test failed"
-  firejail --apparmor zellij --version || echo "Warning: Zellij sandbox test failed"
-  firejail --apparmor yazi --version || echo "Warning: Yazi sandbox test failed"
-  firejail --apparmor gitui --version || echo "Warning: Gitui sandbox test failed"
-  firejail --apparmor glow --version || echo "Warning: Glow sandbox test failed"
-  firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
-  firejail --apparmor systeroid --version || echo "Warning: systeroid sandbox test failed"
-  firejail --apparmor bat --version || echo "Warning: bat sandbox test failed"
-
-  # Test graphical apps with a short-lived instance
-  firejail --apparmor alacritty -- sh -c "sleep 2" || echo "Warning: Alacritty Wayland test failed"
-  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js -- sh -c "sleep 2" || echo "Warning: Astal Wayland test failed"
-
-  # Enhanced Wayland tests
-  firejail --apparmor alacritty -- sh -c "WAYLAND_DISPLAY=wayland-0 xdg-open /dev/null" || echo "Warning: Alacritty Wayland protocol test failed"
 
   # Check for AppArmor denials
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie\|systeroid\|bat" || echo "No AppArmor denials for Firejail"
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs" || echo "No AppArmor denials for Firejail"
   ```
 - Explicitly set permissions for custom Firejail profiles
   ```bash
@@ -1784,7 +1705,7 @@
   ```
 - Add Firejail configuration files
   ```bash
-  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile alacritty.profile astal.profile ags.profile helix.profile zellij.profile yazi.profile gitui.profile glow.profile httpie.profile systeroid.profile bat.profile; do
+  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile; do
     [ -f /etc/firejail/$profile ] || { echo "Error: /etc/firejail/$profile not found"; exit 1; }
     sudo chezmoi add /etc/firejail/$profile
   done
@@ -1793,17 +1714,6 @@
   sudo chezmoi add /etc/firejail/mullvad-browser.profile
   sudo chezmoi add /etc/firejail/tor-browser.profile
   sudo chezmoi add /etc/firejail/obs-studio.profile
-  sudo chezmoi add /etc/firejail/alacritty.profile
-  sudo chezmoi add /etc/firejail/astal.profile
-  sudo chezmoi add /etc/firejail/ags.profile
-  sudo chezmoi add /etc/firejail/helix.profile
-  sudo chezmoi add /etc/firejail/zellij.profile
-  sudo chezmoi add /etc/firejail/yazi.profile
-  sudo chezmoi add /etc/firejail/gitui.profile
-  sudo chezmoi add /etc/firejail/glow.profile
-  sudo chezmoi add /etc/firejail/httpie.profile
-  sudo chezmoi add /etc/firejail/systeroid.profile
-  sudo chezmoi add /etc/firejail/bat.profile
   ```
 - Export package lists for reproducibility
   ```bash
@@ -1850,15 +1760,13 @@
   cat ~/explicitly-installed-packages.txt # Check for expected packages
   cat ~/aur-packages.txt # Check for AUR packages
   cat ~/flatpak-packages.txt # Check for Flatpak apps
-  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio,alacritty,astal,ags,helix,zellij,yazi,gitui,glow,httpie,systeroid,bat}.profile || echo "Error: Firejail profiles not restored by chezmoi"
+  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio}.profile || echo "Error: Firejail profiles not restored by chezmoi"
   # Test to ensure Firejail profiles are functional post-restore
   echo "Testing Firejail profiles after chezmoi restore"
-  for profile in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
+  for profile in brave-browser mullvad-browser tor-browser obs-studio; do
     [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
     firejail --apparmor $app --version || echo "Warning: Restored $app profile test failed"
   done
-  firejail --apparmor alacritty -- sh -c "WAYLAND_DISPLAY=wayland-0 xdg-open /dev/null" || echo "Warning: Restored Alacritty Wayland test failed"
-  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js -- sh -c "sleep 2" || echo "Warning: Restored Astal Wayland test failed"  
   ```
 - Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
   ```bash
@@ -2004,19 +1912,8 @@
   firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
   firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
   firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
-  firejail --apparmor alacritty --version || echo "Warning: Alacritty sandbox test failed"
-  firejail --apparmor astal -- ags -c /home/$SUDO_USER/.config/ags/config.js || echo "Warning: Astal sandbox test failed"
-  firejail --apparmor ags --version || echo "Warning: AGS sandbox test failed"
-  firejail --apparmor helix --version || echo "Warning: Helix sandbox test failed"
-  firejail --apparmor zellij --version || echo "Warning: Zellij sandbox test failed"
-  firejail --apparmor yazi --version || echo "Warning: Yazi sandbox test failed"
-  firejail --apparmor gitui --version || echo "Warning: Gitui sandbox test failed"
-  firejail --apparmor glow --version || echo "Warning: Glow sandbox test failed"
-  firejail --apparmor httpie --version || echo "Warning: Httpie sandbox test failed"
-  firejail --apparmor systeroid --version || echo "Warning: Systeroid sandbox test failed"
-  firejail --apparmor bat --version || echo "Warning: Bat sandbox test failed"
   firejail --list || echo "No Firejail sandboxes running"
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs\|alacritty\|astal\|ags\|helix\|zellij\|yazi\|gitui\|glow\|httpie\|systeroid\|bat" || echo "No AppArmor denials for Firejail"
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs" || echo "No AppArmor denials for Firejail"
   firejail --list || echo "No Firejail sandboxes running (expected if tests passed)"
   ```
 - AppArmor Tuning Milestone (Run After Normal Use)
@@ -2400,7 +2297,7 @@
 - **f) Verify Firejail profiles**:
   ```bash
   echo "Checking Firejail profiles..."
-  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty astal ags helix zellij yazi gitui glow httpie systeroid bat; do
+  for app in brave-browser mullvad-browser tor-browser obs-studio; do
     [ -f "/etc/firejail/$app.profile" ] && echo "✓ $app.profile" || echo "✗ $app.profile missing"
   done
 
@@ -2451,6 +2348,7 @@
   sudo systemctl restart apparmor
   sudo apparmor_parser -r /usr/share/apparmor.d/*
   aa-status | grep -E "(enforce|complain)"
+  echo "AppArmor FSP is now ENFORCED."
 
   # Confirm no stray vanilla profiles interfere
   if [ -f /etc/appamor.d/disable ] || ls /etc/apparmor.d/*.conf >/dev/null 2>&1; then
