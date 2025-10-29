@@ -358,6 +358,10 @@
   pacman -Sy reflector
   reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist
   ```
+- Enable parallel downloads
+  ```bash
+  sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
+  ```
 - Install the base system and necessary packages:
   ```bash
   pacstrap /mnt \
@@ -365,7 +369,7 @@
   base base-devel linux linux-firmware mkinitcpio archlinux-keyring \
   \
   # Boot / Encryption
-  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools \
+  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools systemd-boot\
   \
   # Hardware / Firmware
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
@@ -397,6 +401,8 @@
 - Force-refresh package database and keyring:
   ```bash
   pacman -Syy --noconfirm
+  pacman-key --init
+  pacman-key --populate archlinux
   ```
 - Add the `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
   ```bash
@@ -422,11 +428,24 @@
   ```
 - Create a user account with appropriate groups:
   ```bash
-  passwd  # Set root password
-  useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh <username>
-  chsh -s /usr/bin/zsh <username>
-  passwd <username>  # Set user password
-  sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers  # Enable wheel group sudo
+  read -p "Enter your username: " username
+  useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh "$username"
+  chsh -s /usr/bin/zsh "$username"
+  passwd  # root
+  passwd "$username"
+  ```
+- Enable sudo
+  ```bash
+  sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
+  ```
+- Enable NetworkManager
+  ```bash
+  systemctl enable NetworkManager
+  ```
+- TTY console
+  ```bash
+  echo "KEYMAP=us" > /etc/vconsole.conf
+  echo "FONT=ter-v16n" >> /etc/vconsole.conf
   ```
 - Enable polkit caching (run0 15-min password reuse)
   ```bash
@@ -441,7 +460,7 @@
   ```
 - Shell Configuration — Add to ~/.zshrc or ~/.bashrc
   ```bash
-  cat << 'EOF' >> /home/$USER/.zshrc
+  cat << 'EOF' >> /home/$username/.zshrc
   # Load fzf if available
   if command -v fzf >/dev/null 2>&1; then
     source <(fzf --zsh)
@@ -484,9 +503,9 @@
   fi
 
   # zoxide: use 'z' and 'zi' (no autojump alias needed)
-    if command -v zoxide >/dev/null 2>&1; then
-      eval "$(zoxide init zsh)"
-    fi
+  if command -v zoxide >/dev/null 2>&1; then
+    eval "$(zoxide init zsh)"
+  fi
   fi
 
   # Safe update alias
@@ -495,8 +514,8 @@
   EOF
 
   # Set ownership
-  chown $USER:$USER /home/$USER/.zshrc
-  chmod 644 /home/$USER/.zshrc
+  chown $username:$username /home/$username/.zshrc
+  chmod 644 /home/$username/.zshrc
   ```
 - Validate run0
   ```
@@ -937,7 +956,7 @@
   ```
 - Enable essential services:
   ```bash
-  systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
+  systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
   systemctl --failed  # Check for failed services
   journalctl -p 3 -xb
   ```
