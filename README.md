@@ -1052,16 +1052,49 @@
   ```
 - Configure Wayland environment variables:
   ```bash
-  cat << 'EOF' > /etc/environment
+  sudo tee /etc/environment > /dev/null <<'EOF'
+  # WAYLAND (FORCE HIGH-PERFORMANCE)
   MOZ_ENABLE_WAYLAND=1
   GDK_BACKEND=wayland
   CLUTTER_BACKEND=wayland
   QT_QPA_PLATFORM=wayland
   SDL_VIDEODRIVER=wayland
+  ELECTRON_OZONE_PLATFORM_HINT=auto
+  XDG_SESSION_TYPE=wayland
+
+  # PATH HARDENING (SYSTEM-WIDE ONLY)
+  # User paths ($HOME/.local/bin) added in ~/.zshrc
+  PATH=/usr/local/bin:/usr/bin:/bin
   EOF
   #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
   LIBVA_DRIVER_NAME=radeonsi
   LIBVA_DRIVER_NAME=iHD
+
+  cat > ~/.zshrc <<'EOF'
+  # XDG BASE DIRECTORIES (FHS COMPLIANT)
+  export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+  export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+  # USER PATH: ~/.local/bin (paru, scripts)
+  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
+
+  # WAYLAND GUARD (REINFORCE)
+  export XDG_SESSION_TYPE=wayland
+  EOF
+
+  # Add to ~/.profile (sourced by login shells & display managers)
+  cat > ~/.profile <<'EOF'
+  # XDG Base Dirs
+  export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+  export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+  # PATH
+  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
+  EOF
   ```
 - Configure MAC randomization:
   ```bash
@@ -1244,9 +1277,6 @@
   
   # Load Full System Policy in COMPLAIN mode
   sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
-
-  # Fallback: Ensure legacy profiles (if any) are in complain
-  sudo aa-complain /etc/apparmor.d/* 2>/dev/null || true # fallback for any stray profiles
 
   # Warm cache for boot-time performance (critical for UKI + Secure Boot)
   sudo apparmor_parser -r /usr/share/apparmor.d/*
