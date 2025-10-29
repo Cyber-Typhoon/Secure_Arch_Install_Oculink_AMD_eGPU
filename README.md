@@ -600,10 +600,17 @@
 
 - Create and enroll Secure Boot keys:
   ```bash
+  # Enter chroot
   arch-chroot /mnt
+
+  # Create and enroll sbctl keys
   sbctl create-keys
   sbctl enroll-keys --tpm-eventlog
-  mkinitcpio -P # Regenerate UKI before signing
+
+  # Regenerate UKI (required before signing)
+  mkinitcpio -P
+
+  # Sign all EFI binaries
   sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
   sbctl sign -s /boot/EFI/Linux/arch.efi
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
@@ -611,10 +618,15 @@
   ```
 - Check Plymouth and GDM compatibility with Secure Boot:
   ```bash
-  sbctl verify /usr/lib/plymouth/plymouthd
-  sbctl sign -s /usr/lib/plymouth/plymouthd
-  sbctl verify /usr/lib/gdm/gdm
-  sbctl sign -s /usr/lib/gdm/gdm
+  # Plymouth
+  if [[ -f /usr/lib/plymouth/plymouthd ]]; then
+    sbctl verify /usr/lib/plymouth/plymouthd || sbctl sign -s /usr/lib/plymouth/plymouthd
+  fi
+
+  # GDM (or other display manager)
+  if [[ -f /usr/lib/gdm/gdm ]]; then
+    sbctl verify /usr/lib/gdm/gdm || sbctl sign -s /usr/lib/gdm/gdm
+  fi
   ```
 - Create a Pacman hook to automatically sign EFI binaries after updates:
   ```bash
@@ -625,10 +637,12 @@
   Type = Package
   Target = systemd
   Target = linux
+  Target = linux-lts
   Target = fwupd
   Target = plymouth
+  
   [Action]
-  Description = Signing EFI binaries with sbctl
+  Description = Signing EFI binaries with sbctl after updates
   When = PostTransaction
   Exec = /usr/bin/sbctl sign -s \
     /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
@@ -643,6 +657,7 @@
 - Verify MOK enrollment before reboot:
   ```bash
   mokutil --list-enrolled
+  # You should see the sbctl key listed. If not, re-run sbctl enroll-keys --tpm-eventlog.
   ```
 - Reboot to enroll keys and enable Secure Boot in UEFI:
   ```bash
@@ -650,17 +665,23 @@
   umount -R /mnt
   reboot
   ```
-  ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted.
+  ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
+  # Boot back into Arch ISO
   arch-chroot /mnt
   # Wipe old TPM policy and reenroll with Secure Boot PCRs
   systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/nvme1n1p2
   # Final TPM unlock test
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  # Should return 0 and print "Unlocking with TPM2... success".
   # Confirm Secure Boot is active
   sbctl status
+  # Expected:
+  ✓ Secure Boot: Enabled
+  ✓ Setup Mode: Disabled
+  ✓ Signed: all files
   sbctl verify /boot/EFI/Linux/arch.efi | grep -q "signed" && echo "UKI signed"
   ```
 - Verify Secure Boot is fully enabled:
@@ -680,12 +701,18 @@
   ```
 - Back up PCR values post-Secure Boot:
   ```bash
+  mount /dev/sdX1 /mnt/usb  # Replace with your USB
   tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-post-secureboot.txt
-  diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt
+  diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt || echo "PCR 7 changed (expected)"
   echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
   echo "WARNING: Compare PCR values to ensure TPM policy consistency."
   ```
-
+- Final reboot into encrypted system:
+  ```bash
+  exit
+  umount -R /mnt
+  reboot
+  ```
 ## Step 9: Configure systemd-boot with UKI
 
 - Install `systemd-boot`:
@@ -1754,6 +1781,7 @@
   sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
   sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
   sudo chezmoi add /etc/systemd/system/astal-widgets.service
+  sudo chezmoi add /etc/pacman.d/hooks/91-sbctl-sign.hook
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
   ```
 - Add Firejail configuration files
