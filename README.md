@@ -536,11 +536,7 @@
 
 - Install TPM tools:
   ```bash
-  pacman -S --noconfirm \
-    tpm2-tools \
-    tpm2-tss \
-    systemd-ukify \
-    tpm2-tss-engine
+  pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
   ```
 - Verify TPM device is detected:
   ```bash
@@ -557,7 +553,7 @@
   systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt
   tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt
   # Verify PCR 4 is measured by systemd-boot (non-zero)
-  tpm2_pcrread sha256:4 | grep -v "0x0000000000000000000000000000000000000000000000000000000000000000"
+  tpm2_pcrread sha256:4 | grep -v "0x00\{64\}"
   # Confirm TPM keyslot exists
   cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
   echo "WARNING: Store /mnt/usb/tpm-pcr-initial.txt in Bitwarden."
@@ -580,9 +576,9 @@
   ```
 - Back up the LUKS header for recovery:
   ```bash
+  mkdir -p /mnt/usb
   lsblk  # Identify USB device
   mkfs.fat -F32 /dev/sdX1  # Replace sdX1 with USB partition
-  mkdir -p /mnt/usb
   mount /dev/sdX1 /mnt/usb
   cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
   sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
