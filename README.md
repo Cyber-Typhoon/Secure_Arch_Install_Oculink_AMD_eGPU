@@ -917,7 +917,7 @@
   brave-browser mullvad-browser tor-browser obs-studio \
   \
   # Utilities
-  bandwhich hardened-malloc pacman-contrib pacman-notifier \
+  bandwhich pacman-contrib pacman-notifier \
   \
   # GNOME
   gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks
