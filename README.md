@@ -128,8 +128,18 @@
   ```
 - If Wi-Fi is needed, configure it:
   ```bash
-  nmcli device wifi list
-  nmcli device wifi connect <SSID> password <password>
+  ip link
+  rfkill
+  iwctl device list
+  # If the device or its corresponding adapter is turned off, power it on:
+  iwctl device <device> set-property Powered on
+  iwctl adapter <adapter> set-property Powered on
+  # Scan for networks and list the available networks:
+  iwctl station <device> scan # command produces no output
+  iwctl station <device> get-networks
+  # Connect to the desired network:
+  iwctl station <device> connect <SSID>
+  ping archlinux.org
   ```
 - Console Font and Keyboard Setup
   ```bash
