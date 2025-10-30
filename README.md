@@ -777,6 +777,14 @@
   sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
   # Generate UKI
   mkinitcpio -P
+
+  #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
+  #To debug:
+  # Reboot into your UEFI/BIOS (F1).
+  # Temporarily disable Secure Boot (set it to "Setup Mode").
+  # Reboot. You can now press e in the systemd-boot menu to edit the kernel parameters.
+  # Try removing splash or adding amdgpu.dc=0 to test.
+  # Once fixed, re-enable Secure Boot in the UEFI/BIOS.
   ```
 - Create /etc/mkinitcpio.d/linux-lts.preset
   ```bash
