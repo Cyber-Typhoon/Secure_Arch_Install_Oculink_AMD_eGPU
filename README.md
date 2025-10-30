@@ -205,13 +205,12 @@
     ```bash
     cryptsetup luksAddKey /dev/nvme1n1p2 /mnt/crypto_keyfile --key-slot 1
     ```
-  - Back up the keyfile to a USB:
+  - Backup the keyfile to a USB:
     ```bash
     mkdir -p /mnt/usb
     lsblk  # Identify USB device (e.g., /dev/sdX1)
     mount /dev/sdX1 /mnt/usb # **Replace sdX1 with USB partition confirmed via lsblk previously executed**
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
-    shred -u /mnt/crypto_keyfile
     echo "WARNING: Store the LUKS keyfile (/mnt/usb/crypto_keyfile) securely in Bitwarden for recovery purposes."
     ```
 - **d) Create BTRFS Filesystem and Subvolumes**:
@@ -715,44 +714,45 @@
   ```
 ## Step 9: Configure systemd-boot with UKI
 
-- Install `systemd-boot`:
+- Mount ESP (EFI System Partition)
   ```bash
   mount /dev/nvme1n1p1 /boot
+  ```
+- Install `systemd-boot`:
+  ```bash
+  # Creates /boot/loader/, installs systemd-bootx64.efi.
   bootctl --esp-path=/boot install
   ```
 - Configure Unified Kernel Image (UKI):
   ```bash
   cat << 'EOF' > /etc/mkinitcpio.d/linux.preset
+  # UKI output path
+  default_uki="/boot/EFI/Linux/arch.efi"
+  # Use main mkinitcpio config
+  all_config="/etc/mkinitcpio.conf"
+  # Kernel command line (expand variables at runtime)  
   default_options="rd.luks.uuid=$LUKS_UUID \
     root=UUID=$ROOT_UUID \
     resume_offset=$SWAP_OFFSET \
     rw quiet splash \
-    intel_iommu=on \
-    amd_iommu=on \
-    iommu=pt \
+    intel_iommu=on amd_iommu=on iommu=pt \
     pci=pcie_bus_perf,realloc \
     mitigations=auto,nosmt \
-    slab_nomerge \
-    slub_debug=FZ \
-    init_on_alloc=1 \
-    init_on_free=1 \
+    slab_nomerge slub_debug=FZ \
+    init_on_alloc=1 init_on_free=1 \
     rd.emergency=poweroff \
     tpm2-measure=yes \
-    amdgpu.dc=1 \
-    amdgpu.dpm=1"
-  default_uki="/boot/EFI/Linux/arch.efi"
-  all_config="/etc/mkinitcpio.conf"
+    amdgpu.dc=1 amdgpu.dpm=1"
   EOF
-  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf
+  # Update mkinitcpio.conf HOOKS (critical order)
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
+  # Generate UKI
   mkinitcpio -P
   ```
 - Verify configuration:
   ```bash
   # Check HOOKS order
   grep HOOKS /etc/mkinitcpio.conf
-
-  # Verify resume_offset is numeric (not $SWAP_OFFSET)
-  grep resume_offset /etc/fstab /boot/loader/entries/arch.conf
 
   # List boot entries
   bootctl list
@@ -780,15 +780,23 @@
   ```
 - Create a fallback UKI:
   ```bash
-  cp /etc/mkinitcpio.conf /etc/mkinitcpio-minimal.conf
-  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio-minimal.conf
-  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-minimal.conf
-  mkinitcpio -P -c /etc/mkinitcpio-minimal.conf
+  # Minimal config (same hooks, different output)
+  cp /etc/mkinitcpio.conf /etc/mkinitcpio-fallback.conf
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio-fallback.conf
+  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-fallback.conf
+  # Generate fallback UKI
+  mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
+  # Sign it
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+  # Fallback entry
   cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
   title Arch Linux (Fallback)
   efi /EFI/Linux/arch-fallback.efi
   EOF
+  
+  # Verify resume_offset is numeric (not $SWAP_OFFSET)
+  grep resume_offset /etc/fstab
+  grep resume_offset /boot/loader/entries/arch.conf
   ```
 - Set Boot Order (Arch first)
   ```bash
@@ -799,38 +807,50 @@
 - Create a GRUB USB for recovery:
   ```bash
   lsblk  # Identify USB device (e.g., /dev/sdX1)
-  mkfs.fat -F32 -n RESCUE_USB /dev/sdX1
+  read -p "Enter USB partition (e.g. /dev/sdb1): " USB_PART
+  mkfs.fat -F32 -n RESCUE_USB /dev/sdX1 # Make sure to enter the USB ID in use replacing the placeholder "/dev/sdX1"
+
   mkdir -p /mnt/usb
   mount /dev/sdX1 /mnt/usb # Replace /dev/sdX1 with your USB partition confirmed via lsblk
 
   pacman -Sy grub
-  grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB
+  grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB --recheck
 
-  # Copy keyfile from root (not /mnt/usb!)
-  cp /mnt/usb/crypto_keyfile /mnt/usb/luks-keyfile
+  # Copy kernel + initramfs
+  cp /crypto_keyfile /mnt/usb/luks-keyfile
   chmod 600 /mnt/usb/luks-keyfile
-  
   cp /boot/vmlinuz-linux /mnt/usb/
-  cp /boot/initramfs-linux.img /mnt/usb/
+  cp /boot/initramfs-linux.img /mnt/usb/initramfs-linux.img
 
-  # Create minimal rescue initramfs
+  # Generate minimal rescue initramfs (no plymouth, resume)
   cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
-  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block sd-encrypt filesystems)/' /mnt/usb/mkinitcpio-rescue.conf
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block sd-encrypt btrfs filesystems keyboard)/' /mnt/usb/mkinitcpio-rescue.conf
   mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
   cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
 
-  # Replace $LUKS_UUID and $ROOT_UUID with actual values in the menuentry
-  cat << 'EOF' > /mnt/usb/boot/grub/grub.cfg
+  # Copy LUKS keyfile
+  cp /crypto_keyfile /mnt/usb/luks-keyfile 2>/dev/null || \
+  echo "Warning: No keyfile found. Using passphrase only."
+  chmod 600 /mnt/usb/luks-keyfile 2>/dev/null || true
+
+  # GRUB config (Replace $LUKS_UUID and $ROOT_UUID with actual values in the menuentry)
+  cat << EOF > /mnt/usb/boot/grub/grub.cfg
   set timeout=5
   menuentry "Arch Linux Rescue" {
-      linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw
-      initrd /initramfs-linux.img
+    insmod part_gpt
+    insmod fat
+    insmod luks
+    insmod luks2
+    linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw
+    initrd /initramfs-linux.img
   }
   EOF
 
+  # Sign GRUB bootloader
   sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
+  shred -u /crypto_keyfile
   umount /mnt/usb
-
+  
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
   ```
 - Pacman Hook: Auto-Regenerate UKI on Kernel Update
@@ -843,6 +863,7 @@
   Type = Package
   Target = linux
   Target = linux-firmware
+  Target = linux-lts
 
   [Action]
   Description = Regenerating UKI after kernel update
@@ -858,9 +879,19 @@
   ```bash
   systemctl enable --now systemd-homed.service
   chattr +C /home
-  homectl create username --storage=luks --fs-type=btrfs --shell=/bin/zsh --member-of=wheel --disk-size=500G
+  
+  # Example user
+  read -p "Create homed user? (y/N): " CREATE_HOMED
+  if [[ "$CREATE_HOMED" =~ ^[Yy]$ ]]; then
+    read -p "Username: " USERNAME
+    homectl create "$USERNAME" \
+      --storage=luks \
+      --fs-type=btrfs \
+      --shell=/bin/zsh \
+      --member-of=wheel \
+      --disk-size=100G
+  fi
   ```
-
 ## Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can pause at this point
 
 ## Step 10: Install and Configure DE and Applications
@@ -1783,6 +1814,10 @@
   sudo chezmoi add /etc/systemd/system/astal-widgets.service
   sudo chezmoi add /etc/pacman.d/hooks/91-sbctl-sign.hook
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
+  sudo chezmoi add /etc/mkinitcpio.d/linux.preset
+  sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
+  sudo chezmoi add /etc/pacman.d/hooks/90-mkinitcpio-uki.hook
+  sudo chezmoi add /boot/loader/entries/
   ```
 - Add Firejail configuration files
   ```bash
