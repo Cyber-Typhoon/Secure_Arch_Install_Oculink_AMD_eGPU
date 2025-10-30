@@ -706,6 +706,24 @@
   echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
   echo "WARNING: Compare PCR values to ensure TPM policy consistency."
   ```
+- Create boot entries for dual-boot:
+  ```bash
+  # Copy Windows EFI files to Arch ESP:
+  rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
+  umount /mnt/windows-efi
+  
+  # Create /boot/loader/entries/windows.conf with:
+  cat << 'EOF' > /boot/loader/entries/windows.conf
+  title Windows 11
+  efi /EFI/Microsoft/Boot/bootmgfw.efi
+  EOF
+
+  # Create Arch bootloader entry (/boot/loader/entries/arch.conf):
+  cat << 'EOF' > /boot/loader/entries/arch.conf
+  title Arch Linux
+  efi /EFI/Linux/arch.efi
+  EOF
+  ```
 - Final reboot into encrypted system:
   ```bash
   exit
@@ -725,12 +743,13 @@
   ```
 - Configure Unified Kernel Image (UKI):
   ```bash
+  # Note: Along the step 9 we have multiple ($LUKS_UUID, $ROOT_UUID, $SWAP_OFFSET) that needs to be replaced by pre computed values.
   cat << 'EOF' > /etc/mkinitcpio.d/linux.preset
   # UKI output path
   default_uki="/boot/EFI/Linux/arch.efi"
   # Use main mkinitcpio config
   all_config="/etc/mkinitcpio.conf"
-  # Kernel command line (expand variables at runtime)  
+  # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.  
   default_options="rd.luks.uuid=$LUKS_UUID \
     root=UUID=$ROOT_UUID \
     resume_offset=$SWAP_OFFSET \
@@ -759,24 +778,6 @@
 
   # Verify UKI is signed
   sbctl verify /boot/EFI/Linux/arch.efi
-  ```
-- Create boot entries for dual-boot:
-  ```bash
-  # Copy Windows EFI files to Arch ESP:
-  rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
-  umount /mnt/windows-efi
-  
-  # Create /boot/loader/entries/windows.conf with:
-  cat << 'EOF' > /boot/loader/entries/windows.conf
-  title Windows 11
-  efi /EFI/Microsoft/Boot/bootmgfw.efi
-  EOF
-
-  # Create Arch bootloader entry (/boot/loader/entries/arch.conf):
-  cat << 'EOF' > /boot/loader/entries/arch.conf
-  title Arch Linux
-  efi /EFI/Linux/arch.efi
-  EOF
   ```
 - Create a fallback UKI:
   ```bash
@@ -1110,6 +1111,48 @@
   flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
   # Allow GPU access for Steam:
   flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
+  ```
+- Setup Automated System/AUR Updates
+  ```bash
+  # Install pacman-contrib for the essential paccache timer
+  paru -S --noconfirm pacman-contrib
+
+  # Enable Pacman Cache Cleanup Timer
+  sudo systemctl enable --now paccache.timer
+
+  # Create a service and timer for automated paru (AUR/System) updates
+  cat << EOF | sudo tee /etc/systemd/system/paru-update.service
+  [Unit]
+  Description=Paru and System Update
+  Wants=network-online.target
+  After=network-online.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/bin/paru --noconfirm -Syu
+  User=%i
+  # Remember to replace your_username with the actual username you set up in Step 6.
+  User=your_username 
+  EOF
+
+  cat << EOF | sudo tee /etc/systemd/system/paru-update.timer
+  [Unit]
+  Description=Runs paru-update.service daily
+
+  [Timer]
+  # Run at 03:00 (3 AM) daily
+  OnCalendar=daily
+  # Wait up to 15 minutes to prevent all systems hitting the mirror at once
+  RandomizedDelaySec=15min
+  Persistent=true
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+
+  # Enable and start the paru timer
+  sudo systemctl enable paru-update.timer
+  sudo systemctl start paru-update.timer
   ```
 - Final full system update + UKI rebuild
   ```bash
@@ -1850,7 +1893,7 @@
   sudo mkdir -p /mnt/usb
   sudo mount /dev/sdX1 /mnt/usb
   sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
-  sudo cp /var/lib/tpm-pcr-initial.txt /var/lib/tpm-pcr-post-secureboot.txt /mnt/usb/ 2>/dev/null || true
+  sudo cp /var/lib/tpm-pcr-initial.txt /mnt/usb/ 2>/dev/null || true
   sudo umount /mnt/usb
   echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
   ```
@@ -1913,7 +1956,8 @@
   echo "Verifying bootloader configuration before reboot"
   bootctl status | grep -i "systemd-boot" || echo "Error: systemd-boot not installed"
   ls /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf || echo "Error: Boot entries missing"
-  sbctl verify /boot/loader/loader.efi || { echo "Signing bootloader"; sbctl sign -s /boot/loader/loader.efi; }
+  sbctl verify /boot/EFI/systemd/systemd-bootx64.efi || { echo "Signing bootloader"; sbctl sign -s /boot/EFI/systemd/systemd-bootx64.efi; }
+  sbctl verify /boot/EFI/BOOT/BOOTX64.EFI || { echo "Signing bootloader"; sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI; }
   echo "Rebooting to test systemd-boot. Press F1 to access the boot menu and confirm Arch and Windows entries."
   reboot
   ```
@@ -1922,8 +1966,27 @@
   # Boot and confirm the LUKS partition unlocks automatically via TPM.
   echo "After reboot, checking TPM unlock logs"
   journalctl -b | grep -i "systemd-cryptsetup.*tpm2" || echo "Warning: TPM unlock not confirmed"
-  tpm2_pcrread sha256:0,1,7 > /tmp/tpm-pcr-current.txt
-  diff /tmp/tpm-pcr-current.txt /root/tpm-pcr-post-secureboot.txt || echo "Warning: TPM PCR values differ"
+
+  # Check the PCRs you actually enrolled (0, 4, 7)
+  tpm2_pcrread sha256:0,4,7 > /tmp/tpm-pcr-current.txt
+
+  # Mount USB to read the backup file
+  echo "Please insert your backup USB drive..."
+  sleep 5 # Give yourself time to plug it in
+
+  # Find the USB, e.g., /dev/sdb1 (use lsblk to confirm)
+  lsblk 
+  read -p "Enter the USB partition (e.g., /dev/sdb1): " USB_PART
+  mkdir -p /mnt/usb
+  mount "$USB_PART" /mnt/usb
+
+  # Diff against the correct file on the USB
+  echo "Comparing current PCRs with the backup from Step 8..."
+  diff /tmp/tpm-pcr-current.txt /mnt/usb/tpm-pcr-post-secureboot.txt || echo "Warning: TPM PCR values differ (This is expected if you've updated firmware/bootloader since Step 8)"
+
+  # Clean up
+  umount /mnt/usb
+  rmdir /mnt/usb
   ```  
 - Check Secure Boot status:
   ```bash
@@ -1946,8 +2009,8 @@
   ```bash
   echo "Verifying swapfile configuration"
   swapon --show
-  btrfs inspect-internal map-swapfile /mnt/swap/swapfile
-  filefrag -v /mnt/swap/swapfile | grep "extents found: 1" || echo "Warning: Swapfile is fragmented" # Ensure no fragmentation
+  btrfs inspect-internal map-swapfile /swap/swapfile
+  filefrag -v /swap/swapfile | grep "extents found: 1" || echo "Warning: Swapfile is fragmented" # Ensure no fragmentation
   systemctl hibernate
   echo "After resuming, checking hibernation logs"
   dmesg | grep -i "hibernate|swap"
@@ -1971,18 +2034,19 @@
 - Verify Snapper snapshots:
   ```bash
   for config in root home data; do
-    mount | grep -E "subvol=/@$config" || echo "Warning: Subvolume @$config not mounted"
     snapper --config "$config" create --description "Test snapshot"
     snapper --config "$config" list
   done
   ```
 - Test Timers
   ```bash
-  systemctl list-timers --all | grep -E "paru-update|snapper-timeline|fstrim|lynis-audit"
+  systemctl list-timers --all | grep -E "paru-update|paccache|snapper-timeline|snapper-cleanup|fstrim|lynis-audit|restic-backup|restic-check"
   journalctl -u paru-update.timer
+  journalctl -u paccache.timer
   journalctl -u snapper-timeline.timer
   journalctl -u fstrim.timer
   journalctl -u lynis-audit.timer
+  journalctl -u restic-backup.timer
   systemctl start paru-update.service snapper-timeline.service fstrim.service lynis-audit.service
   ```
 - Test network connectivity:
@@ -2023,8 +2087,8 @@
 - Test AUR builds with /tmp (no noexec)
   ```bash
   mount | grep /tmp | grep -v noexec || echo "Error: /tmp mounted with noexec"
+  # The paru command succeeding is the test. No need to sign the binary.
   paru -S --builddir ~/.cache/paru_build --noconfirm hello-world-bin
-  sbctl verify ~/.cache/paru_build/*/hello-world-bin || { echo "Signing AUR binary"; sbctl sign -s ~/.cache/paru_build/*/hello-world-bin; }
   ```
 - Test Firejail sandboxing
   ```bash
@@ -2068,8 +2132,8 @@
 
 - Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
   ```bash
-  echo "Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, and MOK password in Bitwarden."
-  read -p "Confirm that UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, and MOK password are stored in Bitwarden (y/n): " confirm
+  echo "Store UEFI password, LUKS passphrase, keyfile location, and MOK password in Bitwarden."
+  read -p "Confirm that UEFI password, LUKS passphrase, keyfile location, and MOK password are stored in Bitwarden (y/n): " confirm
   [ "$confirm" = "y" ] || { echo "Error: Please store credentials in Bitwarden before proceeding."; exit 1; }
   ```
 - Prepare and verify USB
@@ -2081,6 +2145,7 @@
   echo "WARNING: Formatting /dev/$usb_dev will erase all data."
   read -p "Continue? (y/n): " confirm
   [ "$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+  # The formatting command must be run as root
   sudo mkfs.fat -F32 -n RECOVERY_USB /dev/$usb_dev || echo "Warning: USB formatting failed"
   sudo mkdir -p /mnt/usb
   sudo mount /dev/$usb_dev /mnt/usb
@@ -2525,8 +2590,6 @@
   ```
 - Configure GNOME CSS for a dark theme:
   ```bash
-  SUDO_USER=${SUDO_USER:-$(logname || getent passwd 1000 | cut -d: -f1)}
-  id "$SUDO_USER" >/dev/null 2>&1 || { echo "Error: User $SUDO_USER does not exist"; exit 1; }
   mkdir -p ~/.config/gtk-3.0
   cat << 'EOF' > ~/.config/gtk-3.0/gtk.css
   window {
