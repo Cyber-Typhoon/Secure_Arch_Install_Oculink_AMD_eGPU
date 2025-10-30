@@ -1382,6 +1382,7 @@
   echo "       sudo aa-genprof <binary>  # e.g., astal, supergfxctl, obs-studio"
   echo "  4. After tuning → ENFORCE:"
   echo "       sudo just fsp-enforce"
+  echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
   echo "       sudo systemctl restart apparmor"
   ```
 ## Step 12: Configure eGPU (AMD)
@@ -1449,7 +1450,7 @@
   ```bash
   echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
   ```
-- Create a udev rule for eGPU hotplug support:
+- (SKIP AT FIRST) Create a udev rule for eGPU hotplug support:
   ```bash
   # Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
   # Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
@@ -1476,7 +1477,7 @@
   sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
   systemctl restart systemd-logind
   ```
-- Optional: Install all-ways-egpu if eGPU isn’t primary
+- (SKIP AT FIRST) Install all-ways-egpu if eGPU isn’t primary
   ```bash
   # If supergfxctl do not handle the hotplug try to install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland -- this is a plan b, should not be used at first. First test the setup without, in other words skip to the switcheroo-control
   if ! DRI_PRIME=1 glxinfo | grep -i radeon; then
@@ -1494,6 +1495,10 @@
   pacman -S --needed qemu libvirt virt-manager
   systemctl enable --now libvirtd
   echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
+  echo "1. Run: lspci -nn | grep -i amd"
+  echo "2. Example output: 1002:73df [AMD Radeon RX 6700 XT]"
+  echo "3. Edit /etc/modprobe.d/vfio.conf and replace 1002:xxxx with real IDs"
+  echo "4. Then: mkinitcpio -P && reboot"
   lspci -nn | grep -i amd
   fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
   echo "Run 'lspci -nn | grep -i amd' to find PCIe IDs (e.g., 1002:73df for RX 6700 XT). Replace '1002:xxxx' in /etc/modprobe.d/vfio.conf with the correct IDs."
@@ -1510,7 +1515,7 @@
   echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   echo "Target = supergfxctl" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "/usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd" | sed -i '/Exec =/ s|$| /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
+  sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
   ```
 - Enable VRR for 4K OLED
   ```bash
@@ -1538,9 +1543,9 @@
   # Log denials to a file for review
   journalctl -u apparmor | grep -i DENIED > /var/log/apparmor-denials.log
 
-  # Example: Allow Brave to access /dev/dri/ if denied
-  echo "  /dev/dri/* rw," >> /etc/apparmor.d/firejail-brave-browser
-  aa-enforce /etc/apparmor.d/firejail-brave-browser
+  # DO NOT ENFORCE YET — FSP is in COMPLAIN mode
+  # Denials will be logged to /var/log/apparmor-denials.log
+  # Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
   ```
 - Pacman hook for binary verification
   ```bash
@@ -1716,7 +1721,7 @@
   Description = Creating snapshot before pacman transaction
   DependsOn = snapper
   When = PreTransaction
-  Exec = /usr/bin/snapper --config root create --description "Pre-pacman" --type pre
+  Exec = /usr/bin/snapper --config root create --description "Pre-pacman update" --type pre
   Exec = /usr/bin/snapper --config home create --description "Pre-pacman update" --type pre
   Exec = /usr/bin/snapper --config data create --description "Pre-pacman update" --type pre
   EOF
@@ -1734,7 +1739,7 @@
   When = PostTransaction
   Exec = /usr/bin/snapper --config root create --description "Post-pacman update" --type post
   Exec = /usr/bin/snapper --config home create --description "Post-pacman update" --type post
-   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
+  Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
   - Set permissions for hooks:
