@@ -2040,13 +2040,12 @@
   ```
 - Test Timers
   ```bash
-  systemctl list-timers --all | grep -E "paru-update|paccache|snapper-timeline|snapper-cleanup|fstrim|lynis-audit|restic-backup|restic-check"
+  systemctl list-timers --all | grep -E "paru-update|paccache|snapper-timeline|snapper-cleanup|fstrim|lynis-audit"
   journalctl -u paru-update.timer
   journalctl -u paccache.timer
   journalctl -u snapper-timeline.timer
   journalctl -u fstrim.timer
   journalctl -u lynis-audit.timer
-  journalctl -u restic-backup.timer
   systemctl start paru-update.service snapper-timeline.service fstrim.service lynis-audit.service
   ```
 - Test network connectivity:
