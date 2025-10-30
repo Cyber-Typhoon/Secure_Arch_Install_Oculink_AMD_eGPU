@@ -1,1670 +1,2667 @@
-# Secure Arch Installation for a Intel Lenovo Thinkbook using an AMD eGPU via Oculink
-Installation Steps for a new Lenovo Thinkbook TGX (Oculink) Security Enhanced Arch Gnome Wayland AMD eGPU
+# Secure Arch Installation for an Intel Lenovo ThinkBook using an AMD eGPU via OCuLink
 
-# Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
-This action plan outlines the steps to install and configure Arch Linux on a Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H without dGPU but with Intel iGPU (Intel Arc 140T), **using GNOME Wayland, BTRFS, LUKS2, TPM2, AppArmor, systemd-boot with UKI, Secure Boot, and an OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**. This laptop has two M.2, we will have Windows in a slot to help updating BIOS and Firmware at least in the beginning.
+## Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
 
-Observation: Not adopting linux-hardened kernel because of complexity in the setup using eGPU and performance penalty. Nevertheless, a lot of the security changes from the linux-hardened kernel are manually introduced. 
+- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0**, **Firejail** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
+- The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
+- **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup and performance penalties. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. In the future linux-hardened and hardened-malloc can be explored.
+- **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
 
-**Attention:** Before executing commands, especially those involving **dd, mkfs, cryptsetup, parted, and efibootmgr, re-read them multiple times to ensure you understand their effect** and that the target device/partition is correct. Ensure LUKS and TPM unlocking work perfectly before touching Secure Boot, and ensure Secure Boot works before diving into the eGPU.
+## Step 1: Verify Hardware
 
-# Step 1: Verify Hardware
-    Access UEFI BIOS (F1 at boot):
-        Enable TPM 2.0 (Security Chip) and Intel VT-d (IOMMU).
-        Set a strong UEFI BIOS password and store it in Bitwarden.
-        Disable Secure Boot temporarily in UEFI.
-        Visit the builds that are working: Filter by "Thinkbook" - https://egpu.io/best-external-graphics-card-builds/
+- Access the **UEFI BIOS** by pressing `F1` at boot:
+  - Enable **TPM 2.0** (Security Chip) under the Security menu.
+  - Enable **Intel VT-d** (IOMMU) for improved eGPU and virtualization support.
+  - Set a **strong UEFI BIOS password** (at least 12 characters, mixed case, numbers, and symbols).
+  - **Store the UEFI BIOS password in Bitwarden** or another secure password manager.
+  - Temporarily disable **Secure Boot** in the UEFI settings to simplify initial setup.
+- Visit the eGPU community builds for reference:
+  - Filter by "Thinkbook" at https://egpu.io/best-external-graphics-card-builds/.
+  - Confirm compatibility of the **OCuP4V2 OCuLink GPU Dock** with your AMD eGPU model.
 
-# Step 2: Install Windows on Primary NVMe M.2 (/dev/nvme0n1)
+## Step 2: Install Windows on Primary NVMe M.2 (/dev/nvme0n1)
 
-Follow some of the installations Privacy advises from the Privacy Guides Wiki Minimizing [Windows 11 Data Collection](https://discuss.privacyguides.net/t/minimizing-windows-11-data-collection/28193)
+- Follow privacy recommendations from the **Privacy Guides Wiki** for [Minimizing Windows 11 Data Collection](https://discuss.privacyguides.net/t/minimizing-windows-11-data-collection/28193).
+- Install **Windows 11 Pro** on `/dev/nvme0n1` to facilitate BIOS and firmware updates via **Lenovo Vantage**:
+  - During installation, allow Windows to create its default partitions, including a ~100-300 MB **EFI System Partition (ESP)** at `/dev/nvme0n1p1`.
+  - Choose a local account to minimize telemetry (avoid signing in with a Microsoft account).
+- Disable **Windows Fast Startup** to prevent ESP lockout during Linux setup:
+  ```powershell
+  powercfg /h off
+  ```
+- Disable **BitLocker** encryption to avoid conflicts with Linux accessing the ESP:
+  ```powershell
+  manage-bde -status
+  Disable-BitLocker -MountPoint "C:"
+  ```
+- Verify **TPM 2.0** is active:
+  - Run `tpm.msc` in Windows and confirm TPM is enabled.
+  - If TPM was previously provisioned, clear it via `tpm.msc` (Security > Clear TPM).
+- Verify **Windows boots correctly** and check **Resizable BAR sizes**:
+  - In **Device Manager**, check GPU properties for BAR settings.
+  - Alternatively, run:
+    ```powershell
+    wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType
+    ```
+  - In Linux later, check BAR sizes with:
+    ```bash
+    dmesg | grep -i "BAR.*size"
+    ```
+- Verify both NVMe drives (`/dev/nvme0n1` for Windows, `/dev/nvme1n1` for Arch) in **Windows Disk Management**.
+- Review additional privacy guides for post-installation hardening:
+  - [Group Policy Settings](https://www.privacyguides.org/en/os/windows/group-policies/)
+  - [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333)
+- Back up registry settings to preserve Windows configuration:
+  ```powershell
+  reg export "HKLM\SOFTWARE" C:\backup_registry.reg
+  ```
+- Disable diagnostic data, feedback, and telemetry services:
+  ```powershell
+  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0
+  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "LimitDiagnosticLogCollection" -Value 1
+  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowDeviceNameInTelemetry" -Value 0
+  Stop-Service -Name "DiagTrack" -Force
+  Set-Service -Name "DiagTrack" -StartupType Disabled
+  Stop-Service -Name "dmwappushservice" -Force
+  Set-Service -Name "dmwappushservice" -StartupType Disabled
+  Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("9.9.9.9","149.112.112.112")
+  ```
+- Restrict App Permissions:
+  - Open **Settings > Privacy & Security > General**:
+    - Turn off “Let apps show me personalized ads”.
+    - Turn off “Let Windows improve Start and search”.
+- Disable **Cortana** and web search in Start menu:
+  ```powershell
+  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "AllowCortana" -Value 0
+  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0
+  ```
+- Uninstall preinstalled apps (e.g., Xbox, Candy Crush):
+  ```powershell
+  Get-AppxPackage -AllUsers *XboxApp* | Remove-AppxPackage
+  Get-AppxPackage -AllUsers *CandyCrush* | Remove-AppxPackage
+  Get-AppxPackage -AllUsers *MicrosoftNews* | Remove-AppxPackage
+  Get-AppxPackage -AllUsers *Weather* | Remove-AppxPackage
+  Get-AppxPackage -AllUsers *Teams* | Remove-AppxPackage
+  ```
+- Disable unnecessary services (e.g., Xbox Live, Game Bar):
+  ```powershell
+  Stop-Service -Name "XboxGipSvc" -Force
+  Set-Service -Name "XboxGipSvc" -StartupType Disabled
+  ```
+- Apply Group Policy Settings for privacy:
+  ```powershell
+  New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Force
+  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableWindowsConsumerFeatures" -Value 1
+  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableSoftLanding" -Value 1
+  ```
+- Enable **tamper protection** and **real-time protection**:
+  - Navigate to **Settings > Windows Security > Virus & Threat Protection** and enable both.
+- Back up the **Windows EFI partition UUID** for dual-boot compatibility:
+  ```powershell
+  # Insert a USB drive (e.g., F:)
+  mountvol Z: /S
+  robocopy Z:\ F:\EFI-Backup /MIR /XJ  # Replace F: with the USB drive letter
+  Get-Partition -DiskNumber 0 -PartitionNumber 1 | Select-Object -ExpandProperty Guid | Out-File F:\windows-esp-uuid.txt
+  mountvol Z: /D
+  ```
+- **WARNING**: Store `F:\EFI-Backup` and `F:\windows-esp-uuid.txt` securely in **Bitwarden** or an encrypted cloud service.
+- **WARNING**: Ensure the USB drive is encrypted or physically secure to prevent unauthorized access to the EFI backup.
 
-    Install Windows 11 Pro for BIOS/firmware updates via Lenovo Vantage. Allow Windows to create its default partitions, including a ~100-300 MB EFI System Partition (ESP) at /dev/nvme0n1p1. 
-    Disable Windows Fast Startup to prevent ESP lockout: powercfg /h off
-    Disable BitLocker (Powershell): a) manage-bde -status b) Disable-BitLocker -MountPoint "C:"
-    Verify TPM 2.0 is active using tpm.msc. Clear TPM if previously provisioned.
-    Verify Windows boots correctly and **check Resizable BAR sizes in Device Manager** or wmic path Win32_VideoController get CurrentBitsPerPixel,VideoMemoryType or `dmesg | grep -i "BAR.*size"` (in Linux later).
-    Verify NVMe drives **Windows Disk Management**.
-    
-Review the guides for additional Privacy on the post installation [Group Police](https://www.privacyguides.org/en/os/windows/group-policies/) and [Windows Privacy Settings](https://discuss.privacyguides.net/t/windows-privacy-settings/27333) 
+## Milestone 1: After Step 2 (Windows Installation) - Can pause at this point
 
-    Before start the next steps backup registry settings (powershell):
-    -  reg export "HKLM\SOFTWARE" C:\backup_registry.reg
+## Step 3: Prepare Installation Media
 
-    Disables diagnostic data, feedback, and telemetry services (powershell):
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "LimitDiagnosticLogCollection" -Value 1
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowDeviceNameInTelemetry" -Value 0
-    -  Stop-Service -Name "DiagTrack" -Force
-    -  Set-Service -Name "DiagTrack" -StartupType Disabled
-    -  Stop-Service -Name "dmwappushservice" -Force
-    -  Set-Service -Name "dmwappushservice" -StartupType Disabled
-    -  Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("9.9.9.9","149.112.112.112")
+- Download the latest **Arch Linux ISO** from https://archlinux.org/download/.
+- Verify the ISO signature to ensure integrity:
+  - Follow instructions on the Arch Linux website for `gpg` verification.
+  - Example:
+    ```bash
+    gpg --keyserver-options auto-key-retrieve --verify archlinux-<version>-x86_64.iso.sig
+    ```
+- Create a bootable USB drive:
+  - Use **Rufus** in Windows, selecting **DD mode** for reliable writing.
+  - **Avoid Ventoy** and **Balena Etcher** due to potential trackers and reliability issues.
+- Test the USB by rebooting and selecting it in the **BIOS boot menu** (press `F12` or similar).
+- Verify network connectivity in the live environment:
+  ```bash
+  ping -c 3 archlinux.org
+  ```
+- If Wi-Fi is needed, configure it:
+  ```bash
+  nmcli device wifi list
+  nmcli device wifi connect <SSID> password <password>
+  ```
 
-    Restrict App Permissions:
-    -  Open Settings > Privacy & Security > General:
-      - Turn off “Let apps show me personalized ads”.
-      - Turn off “Let Windows improve Start and search”.
+## Step 4: Pre-Arch Installation Steps
 
-    Disables Cortana and web search in Start menu (powershell):
-    -  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "AllowCortana" -Value 0
-    -  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0
-
-    Uninstalls preinstalled apps (e.g., Xbox, Candy Crush) (powershell):
-    -  Get-AppxPackage -AllUsers *XboxApp* | Remove-AppxPackage
-    -  Get-AppxPackage -AllUsers *CandyCrush* | Remove-AppxPackage
-    -  Get-AppxPackage -AllUsers *MicrosoftNews* | Remove-AppxPackage
-    -  Get-AppxPackage -AllUsers *Weather* | Remove-AppxPackage
-    -  Get-AppxPackage -AllUsers *Teams* | Remove-AppxPackage
-
-    Disable unnecessary services (e.g., Xbox Live, Game Bar) that might run in the background (powershell):
-    -  Stop-Service -Name "XboxGipSvc" -Force
-    -  Set-Service -Name "XboxGipSvc" -StartupType Disabled
-
-    Group Policy Settings (powershell):
-    -  New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Force
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableWindowsConsumerFeatures" -Value 1
-    -  Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableSoftLanding" -Value 1
-    
-    Enable tamper protection and real-time protection via Settings > Windows Security > Virus & Threat Protection.
-
-    Back up the Windows EFI partition UUID - (powershell, store this on a USB or in Bitwarden):
-    -  Insert a USB drive (e.g., F:)
-    -  Mount the ESP: mountvol Z: /S
-    -  Back up the ESP contents: robocopy Z:\ F:\EFI-Backup /MIR /XJ #Replace F: with the USB drive letter
-    -  Record the ESP UUID: Get-Partition -DiskNumber 0 -PartitionNumber 1 | Select-Object -ExpandProperty Guid | Out-File F:\windows-esp-uuid.txt
-    -  Unmount the ESP: mountvol Z: /D
-    -  Store F:\EFI-Backup and F:\windows-esp-uuid.txt securely (e.g., Bitwarden or encrypted cloud).    
-    
-#Milestone 1: After Step 2 (Windows Installation) - Can pause at this point
-
-# Step 3: Prepare Installation Media
-    Download the latest Arch Linux ISO from archlinux.org.
-    Verify the ISO signature using gpg (see Arch Linux website for instructions) and create a bootable USB drive (Use Rufus in Windows to create a bootable USB -- DD mode in Rufus). Do not use Ventoy. Just use dd or gnome-disks or more trusted programs like Rufus. Also don’t use Balena Etcher either, that thing has trackers.
-    Test the USB by rebooting and selecting it in the BIOS boot menu.
-    Verify network connectivity
-    -  ping -c 3 archlinux.org
-
-# Step 4: Pre-Arch Installation Steps
-
-Boot Arch Live USB
-  - Pre-computation and Pre-determination of System Identifiers
-    - **LUKS for rd.luks.uuid and Partition UUID:**
-    - After encrypting your chosen partition (e.g. /dev/nvme1n1p2) with LUKS, retrieve its UUID. This UUID is distinct from the UUID of the logical volume within the LUKS container:
-      - LUKS_HEADER_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2)
-    - Record this UUID. It will be essential for the crypttab entry and for (rd.luks.uuid=...) in the kernel parameters, since we are not using the /dev/mapper name directly in the bootloader.
-      - LUKS_UUID=$(blkid -s UUID -o value /dev/nvme1n1p2)
-    - Record this UUID. It will be essential for kernel and crypttab, always good for mapping partition UUID.
-    - **Root Filesystem UUID:**
-    - Once your root filesystem (e.g., BTRFS on /dev/mapper/cryptroot) is created, obtain its UUID.
-      - ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
-      - echo $ROOT_UUID   # Should output a UUID like 48d0e960-1b5e-4f2c-8caa-... 
-    - Record this UUID. Both bootloader (root=UUID=...) and /etc/fstab file need this to identify and mount the correct root filesystem after the LUKS container is opened.
-    - **Swap File/Partition Offset (for Hibernation):**
-    - If you are using a swap file on a BTRFS subvolume and plan to use hibernation, you'll need to determine the physical offset of the swap file within the filesystem. This offset is crucial for the resume_offset kernel parameter. Ensure your swap file is created and chattr +C is applied to prevent Copy-On-Write for the swap file (this is achieved in the step 4e). Get the resume_offset:
-      - SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
-      - SWAP_OFFSET=$(cat /etc/swap_offset)
-      - echo "resume_offset=${SWAP_OFFSET}" >> /mnt/etc/default/grub # Example for grub, correctly added it in the UKI options.
-    - Record this SWAP_OFFSET value. This numerical value will be directly inserted into your systemd-boot kernel parameters and potentially your fstab if you're using resume_offset= with a swap file.
-
-a) Partition the Second NVMe M.2 (/dev/nvme1n1):
-
-    parted /dev/nvme1n1 --script mklabel gpt mkpart ESP fat32 1MiB 1GiB set 1 esp on mkpart crypt btrfs 1GiB 100% align-check optimal 1 quit
+- Boot from the **Arch Live USB**.
+- **Pre-computation and Pre-determination of System Identifiers**:
+  - **LUKS for rd.luks.uuid and Partition UUID**:
+    - After encrypting `/dev/nvme1n1p2` with LUKS, retrieve its UUID:
+      ```bash
+      LUKS_HEADER_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2)
+      echo $LUKS_HEADER_UUID  # Should output a UUID like 123e4567-e89b-12d3-a456-426614174000
+      ```
+      - **Record this UUID** for use in `/etc/crypttab` and kernel parameters (`rd.luks.uuid=...`).
+    - Get the partition UUID:
+      ```bash
+      LUKS_UUID=$(blkid -s UUID -o value /dev/nvme1n1p2)
+      echo $LUKS_UUID  # Should output a UUID like 123e4567-e89b-12d3-a456-426614174000
+      ```
+      - **Record this UUID** for kernel parameters and `/etc/crypttab` mappings.
+      - **Why two UUIDs?** The `LUKS_HEADER_UUID` is specific to the LUKS container, while `LUKS_UUID` is the partition’s UUID used by the bootloader.
+  - **Root Filesystem UUID**:
+    - After creating the BTRFS filesystem on `/dev/mapper/cryptroot`, obtain its UUID:
+      ```bash
+      ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
+      echo $ROOT_UUID  # Should output a UUID like 48d0e960-1b5e-4f2c-8caa-...
+      ```
+      - **Record this UUID** for the bootloader (`root=UUID=...`) and `/etc/fstab`.
+  - **Swap File/Partition Offset (for Hibernation)**:
+    - If using a swap file on a BTRFS subvolume for hibernation, compute the physical offset for the resume_offset kernel parameter. Ensure the swap file is created with chattr +C to disable Copy-on-Write (done in Step 4e). Get the resume_offset:
+      ```bash
+      SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
+      # Alternatively, after Step 4e: SWAP_OFFSET=$(cat /etc/swap_offset)
+      echo $SWAP_OFFSET  # Should output a numerical offset like 12345678
+      ```
+      - **Record this SWAP_OFFSET value. Insert it directly into your systemd-boot kernel parameters (e.g., in /etc/mkinitcpio.d/linux.preset) and /etc/fstab (for the swapfile entry with resume_offset=).
+      - **Note**: This offset is critical for hibernation support and must be accurate—recompute if the swap file changes.
+- **a) Partition the Second NVMe M.2 (/dev/nvme1n1)**:
+  - Create a GPT partition table with an ESP and a LUKS partition:
+    ```bash
+    parted /dev/nvme1n1 --script \
+      mklabel gpt \
+      mkpart ESP fat32 1MiB 1GiB \
+      set 1 esp on \
+      mkpart crypt btrfs 1GiB 100% \
+      align-check optimal 1 \
+      quit
+    ```
+  - Verify partitions:
+    ```bash
     lsblk -f /dev/nvme0n1 /dev/nvme1n1  # Confirm /dev/nvme0n1p1 (Windows ESP) and /dev/nvme1n1p1 (Arch ESP)
     efibootmgr  # Check if UEFI recognizes both ESPs
-
-b) Format ESP:
-
+    ```
+- **b) Format ESP**:
+  - Format the Arch ESP as FAT32:
+    ```bash
     mkfs.fat -F32 -n ARCH_ESP /dev/nvme1n1p1
-
-c) Set Up LUKS2 Encryption for the BTRFS file system:
-
-    Format the partition with LUKS2, using pbkdf2 for compatibility with systemd-cryptenroll:
+    ```
+- **c) Set Up LUKS2 Encryption for the BTRFS File System**:
+  - Format `/dev/nvme1n1p2` with LUKS2, using `pbkdf2` for compatibility with `systemd-cryptenroll`:
+    ```bash
     cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 1000000
-
-    Open the LUKS partition:
+    ```
+  - Open the LUKS partition:
+    ```bash
     cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
-
-    Create a keyfile for recovery purposes (e.g., GRUB rescue USB), not for initramfs. WHY: The modern systemd approach uses sd-encrypt and systemd-cryptenroll for TPM-based unlocking, eliminating the need for a keyfile in the initramfs. The keyfile is retained for recovery scenarios:
+    ```
+  - Create a recovery keyfile (not used in initramfs, only for GRUB rescue):
+    ```bash
     dd if=/dev/urandom of=/mnt/crypto_keyfile bs=512 count=4 iflag=fullblock
     chmod 600 /mnt/crypto_keyfile
-
-    Add the keyfile to LUKS in keyslot 1 for clarity. # WHY: Explicitly specifying keyslot 1 avoids ambiguity and ensures the passphrase (in keyslot 0) and keyfile are distinct, improving key management for recovery purposes:
+    ```
+  - Add the keyfile to LUKS in keyslot 1:
+    ```bash
     cryptsetup luksAddKey /dev/nvme1n1p2 /mnt/crypto_keyfile --key-slot 1
-
-    Back it up to USB:
+    ```
+  - Backup the keyfile to a USB:
+    ```bash
     mkdir -p /mnt/usb
-    lsblk
+    lsblk  # Identify USB device (e.g., /dev/sdX1)
     mount /dev/sdX1 /mnt/usb # **Replace sdX1 with USB partition confirmed via lsblk previously executed**
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
-    shred -u /mnt/crypto_keyfile
-    echo "WARNING: Store the LUKS keyfile securely in Bitwarden for recovery purposes."
-
-d) Create BTRFS Filesystem and Subvolumes:
-
+    echo "WARNING: Store the LUKS keyfile (/mnt/usb/crypto_keyfile) securely in Bitwarden for recovery purposes."
+    ```
+- **d) Create BTRFS Filesystem and Subvolumes**:
+  - Create the BTRFS filesystem:
+    ```bash
     mkfs.btrfs /dev/mapper/cryptroot
     mount /dev/mapper/cryptroot /mnt
-    Create subvolumes for `@`, `@snapshots`, `@home`, `@data`, `@var`, `@var_lib`, `@log`, `@swap`, `@srv`:
-        btrfs subvolume create /mnt/@
-        btrfs subvolume create /mnt/@snapshots
-        btrfs subvolume create /mnt/@home
-        btrfs subvolume create /mnt/@data
-        btrfs subvolume create /mnt/@var
-        btrfs subvolume create /mnt/@var_lib
-        btrfs subvolume create /mnt/@log
-        btrfs subvolume create /mnt/@swap
-        btrfs subvolume create /mnt/@srv
+    ```
+  - Create subvolumes for isolation and snapshotting:
+    ```bash
+    btrfs subvolume create /mnt/@
+    btrfs subvolume create /mnt/@snapshots
+    btrfs subvolume create /mnt/@home
+    btrfs subvolume create /mnt/@data
+    btrfs subvolume create /mnt/@var
+    btrfs subvolume create /mnt/@var_lib
+    btrfs subvolume create /mnt/@log
+    btrfs subvolume create /mnt/@swap
+    btrfs subvolume create /mnt/@srv
     umount /mnt
-
-    Mount subvolumes with appropriate options (e.g., compress=zstd:3, ssd, nodatacow for specific subvolumes like @var).
-        mount -o subvol=@,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt
-        mkdir -p /mnt/{boot,windows-efi,.snapshots,home,data,var,var/lib,var/log,swap,srv}
-        mount /dev/nvme1n1p1 /mnt/boot
-        mount /dev/nvme0n1p1 /mnt/windows-efi
-        mount -o subvol=@home,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/home
-        mount -o subvol=@data,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/data
-        mount -o subvol=@var,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var
-        mount -o subvol=@var_lib,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var/lib
-        mount -o subvol=@log,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var/log
-        mount -o subvol=@srv,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/srv
-        mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap # Ensure NoCoW is set!
-        mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
-
-   #Why These Subvolumes?
-   
-       `@`: Isolates the root filesystem for easy snapshotting and rollback.
-       `@home`: Separates user data, allowing independent snapshots and backups.
-       `@snapshots`: Stores Snapper snapshots for system recovery.
-       `@var`, `@var_lib`, `@log`: Disables Copy-on-Write (noatime, nodatacow) to improve performance for frequently written data.
-       `@swap`: Ensures swapfile compatibility with hibernation (noatime, nodatacow).
-       `@srv`, `@data`: Provides flexible storage for server data or user files with compression (zstd:3).
-
-e) Configure Swap File:
-
-    Create a swap file on the @swap subvolume, ensuring chattr +C is set to disable Copy-on-Write.
-        touch /mnt/swap/swapfile 
-        chattr +C /mnt/swap/swapfile
-        fallocate -l 32G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; }
-        chmod 600 /mnt/swap/swapfile
-        mkswap /mnt/swap/swapfile || { echo "mkswap failed"; exit 1; }
-
-        Obtain the swapfile's physical offset for hibernation:
-        SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
-        #Replace $SWAP_OFFSET with actual precomputed values:
-        
-        echo $SWAP_OFFSET > /mnt/etc/swap_offset
-        umount /mnt/swap
-        #Replace $SWAP_OFFSET with actual precomputed values:
-        echo "/swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0" >> /mnt/etc/fstab
-
-f) Generate fstab:
-
+    ```
+  - Mount subvolumes with optimized options:
+    ```bash
+    mount -o subvol=@,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt
+    mkdir -p /mnt/{boot,windows-efi,.snapshots,home,data,var,var/lib,var/log,swap,srv}
+    mount /dev/nvme1n1p1 /mnt/boot
+    mount /dev/nvme0n1p1 /mnt/windows-efi
+    mount -o subvol=@home,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/home
+    mount -o subvol=@data,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/data
+    mount -o subvol=@var,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var
+    mount -o subvol=@var_lib,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var/lib
+    mount -o subvol=@log,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var/log
+    mount -o subvol=@srv,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/srv
+    mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
+    mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
+    ```
+  - **Why These Subvolumes?**:
+    - **@**: Isolates the root filesystem for snapshotting and rollback.
+    - **@home**: Separates user data for independent snapshots and backups.
+    - **@snapshots**: Stores Snapper snapshots for system recovery.
+    - **@var, @var_lib, @log**: Disables Copy-on-Write (`nodatacow`, `noatime`) for performance on frequently written data.
+    - **@swap**: Ensures swapfile compatibility with hibernation (`nodatacow`, `noatime`).
+    - **@srv, @data**: Provides flexible storage with compression (`zstd:3`) for server or user data.
+- **e) Configure Swap File**:
+  - Create a swap file on the `@swap` subvolume:
+    ```bash
+    touch /mnt/swap/swapfile
+    chattr +C /mnt/swap/swapfile  # Disable Copy-on-Write
+    fallocate -l 32G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; }
+    chmod 600 /mnt/swap/swapfile
+    mkswap /mnt/swap/swapfile || { echo "mkswap failed"; exit 1; }
+    ```
+  - Obtain the swapfile’s physical offset for hibernation:
+    ```bash
+    SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
+    echo $SWAP_OFFSET > /mnt/etc/swap_offset
+    echo $SWAP_OFFSET  # Should output a numerical offset like 12345678
+    ```
+    - **Record this SWAP_OFFSET** for `/etc/fstab` and kernel parameters.
+  - Unmount the swap subvolume:
+    ```bash
+    umount /mnt/swap
+    ```
+  - Add the swapfile to `/etc/fstab`:
+    ```bash
+    # Replace $SWAP_OFFSET with the actual precomputed value
+    echo "/swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0" >> /mnt/etc/fstab
+    ```
+- **f) Generate fstab**:
+  - Generate the initial fstab:
+    ```bash
     genfstab -U /mnt | tee /mnt/etc/fstab
-    Manually edit /mnt/etc/fstab to verify subvolume options, add umask=0077 to /boot, and add entries for tmpfs and the swapfile, ensuring you use the numerical resume_offset value.
-
-    **Adjust Btrfs subvolume and mount options (use $ROOT_UUID number from the pre-computation):
-      - UUID=$ROOT_UUID / btrfs subvol=@,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      - UUID=$ROOT_UUID /home btrfs subvol=@home,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      - UUID=$ROOT_UUID /data btrfs subvol=@data,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      - UUID=$ROOT_UUID /var btrfs subvol=@var,nodatacow,noatime 0 0
-      - UUID=$ROOT_UUID /var/lib btrfs subvol=@var_lib,nodatacow,noatime 0 0
-      - UUID=$ROOT_UUID /var/log btrfs subvol=@log,nodatacow,noatime 0 0
-      - UUID=$ROOT_UUID /srv btrfs subvol=@srv,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      - UUID=$ROOT_UUID /swap btrfs subvol=@swap,nodatacow,noatime 0 0
-      - UUID=$ROOT_UUID /.snapshots btrfs subvol=@snapshots,ssd,noatime 0 0
-
-    **Edit ESP (/boot) entry. Change defaults to umask=0077 for improved security. It will look something like: `UUID=<ARCH_ESP_UUID_VALUE> /boot vfat defaults 0 2`. Change `defaults` to `umask=0077`:
-      - UUID=$ARCH_ESP_UUID /boot vfat umask=0077 0 2
-
-    **Edit Windows ESP entry
-      - UUID=$WINDOWS_ESP_UUID /windows-efi vfat noauto,x-systemd.automount,umask=0077 0 2 
-
-    **Add tmpfs entries:
-      - tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777 0 0
-      - tmpfs /var/tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777 0 0
-
-    **Add swapfile entry (with numerical resume offset):
-    #Replace $SWAP_OFFSET with actual precomputed values:
-      - /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
-
-    **Validation Steps (List ESP UUIDs and check mapping):
-      - blkid | grep -E 'nvme0n1p1|nvme1n1p1' #(Ensure each UUID matches the correct fstab line for /boot and /windows-efi)
-
-    **Verify your final fstab and UUIDs:
-      - cat /mnt/etc/fstab
-      - blkid | grep -E "$ROOT_UUID|$LUKS_UUID|$ARCH_ESP_UUID|$WINDOWS_ESP_UUID"
-
-#Milestone 2: After Step 4f (fstab Generation) - Can pause at this point
-
-g) Check network:
-
-      - ping -c 3 archlinux.org
-      - nmcli device wifi connect <SSID> password <password>  # If using Wi-Fi
-      - Copy DNS into the new system so it can resolve mirrors
-      - cp /etc/resolv.conf /mnt/etc/resolv.conf #Copying /etc/resolv.conf from the live environment can be problematic if the network configuration changes or if the live environment's DNS servers aren't reliable/private for your permanent installation. NetworkManager will typically manage resolv.conf once installed and enabled.
-
-# Step 5: Install Arch Linux
-
-    Configure the mirrorlist with reflector.
-    -  pacman -Sy reflector
-    -  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist 
-
-    Install base system and necessary packages:
-    -  pacstrap /mnt base base-devel linux linux-firmware mkinitcpio intel-ucode zsh btrfs-progs sudo cryptsetup dosfstools efibootmgr networkmanager mesa libva-mesa-driver pipewire wireplumber sof-firmware vulkan-intel lib32-vulkan-intel pipewire-pulse pipewire-alsa pipewire-jack archlinux-keyring arch-install-scripts intel-media-driver sbctl git vulkan-radeon lib32-vulkan-radeon reflector udisks2 fwupd openssh rsync pacman-contrib polkit flatpak gdm acpi acpid thermald intel-gpu-tools nvme-cli wireless-regdb ethtool
-
-    Chroot into the system:
-    -  arch-chroot /mnt
-
-    #DEPRECATED - DO NOT EXECUTE. Move the crypto keyfile: 
-    -  mv /crypto_keyfile /root/luks-keyfile && chmod 600 /root/luks-keyfile
-    #Do not move the crypto keyfile to /root/luks-keyfile. WHY: The keyfile is no longer needed in the initramfs for TPM-based unlocking with sd-encrypt. It is retained on the USBs for recovery purposes (e.g., GRUB rescue USB).
-
-    Keyring initialization:
-    - nano /etc/pacman.conf uncomment [multilib]
-    - add **Include = /etc/pacman.d/mirrorlist** below the [core], [extra], [community], and [multilib] sections in /etc/pacman.conf
-    - pacman -Sy
-    - pacman -Syy
-
-    The Arch Wiki on Intel graphics recommends adding the i915 module to /etc/mkinitcpio.conf for early KMS (Kernel Mode Setting) to prevent flickering or display issues during boot:
-    - echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
-    - mkinitcpio -P
-
-# Step 6: System Configuration
-
-    Set timezone, locale, and hostname.
-    - ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime
-    - hwclock --systohc
-    - echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
-    - locale-gen
-    - echo 'LANG=en_US.UTF-8' > /etc/locale.conf
-    - echo 'thinkbook' > /etc/hostname
-    - cat <<'EOF' > /etc/hosts
-      - 127.0.0.1 localhost
-      - ::1 localhost
-      - 127.0.1.1 thinkbook.localdomain thinkbook
-    - EOF
-
-    Create User Account
-    - Set root password:
-      - passwd
-    - Create a user with Zsh as the default shell:
-      - useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh <username>
-      - passwd <username>
-    - Configure `sudo`:
-      - sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
-
-#Milestone 3: After Step 6 (System Configuration) - Can pause at this point
-
-# Step 7: Set Up TPM and LUKS2
-
-    Install tpm2-tools and dependencies: 
-      - pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
-
-    Verify TPM device is detected
-      - tpm2_getcap properties-fixed 
-
-    Enroll the LUKS key to the TPM, binding to PCRs 0, 4, and 7 (firmware, bootloader, Secure Boot state):
-      - systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
-
-    Testing the TPM unlocking works with the current PCR value and Back up PCR values for stability checking:
-      - systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 #If the test fails, check PCR values (tpm2_pcrread sha256:0,4,7) and ensure the TPM2 module is correctly initialized.
-      - systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt #This helps catch firmware changes in the future.
-      - tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt #Ensure PCRs 0, 4 and 7 (firmware, boot loader and Secure Boot state) are stable across reboots. If PCR values change unexpectedly, TPM unlocking may fail, requiring the LUKS passphrase. Also, very important to document PCR values.
-
-    Verification for TPM PCR 4 Measurement:
-      - tpm2_pcrread sha256:4 | grep -v "0x0000000000000000000000000000000000000000000000000000000000000000" #Verify PCR 4 is non-zero (indicating measurement by systemd-boot)
-
-    Add the keyfile and sd-encrypt hook to /etc/mkinitcpio.conf:
-      - cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm #This command is for informational purposes, to see if the TPM slot is registered. It doesn't directly modify mkinitcpio.conf
-      - sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf #Ensure the order is: base systemd autodetect modconf block plymouth sd-encrypt resume filesystems. Incorrect order can cause Plymouth to fail or LUKS to prompt incorrectly. Ensure `plymouth` is before `sd-encrypt` in `/etc/mkinitcpio.conf` HOOKS and regenerate.
-      Include btrfs binary for BTRFS filesystem support
-      - sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
-      - mkinitcpio -P
-
-    Enable Plymouth for a graphical boot splash. Add the plymouth hook to mkinitcpio.conf before sd-encrypt:
-      - pacman -S --noconfirm plymouth
-      - plymouth-set-default-theme -R bgrt
-
-    Back up keyfile to a secure USB:
-      - lsblk
-      - mkfs.fat -F32 /dev/sdX1 **Replace sdX1 with USB partition confirmed via lsblk previously executed**
-      - mkdir -p /mnt/usb
-      - mount /dev/sdX1 /mnt/usb **Replace sdX1 with USB partition confirmed via lsblk previously executed**
-      - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
-      - umount /mnt/usb
-      - echo "WARNING: Store the LUKS recovery passphrase securely in Bitwarden. TPM unlocking may fail after firmware updates or Secure Boot changes."
-
-    Store a copy in an encrypted, offsite location (e.g., Bitwarden or encrypted cloud):
-      - sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
-      - echo "WARNING: Ensure /mnt/usb/luks-header-backup is stored securely. Consider an additional encrypted backup (e.g., Bitwarden attachment or cloud)." 
-
-    Test Boot with TPM2/LUKS2. Exit chroot, unmount filesystems, and reboot (with Secure Boot disabled):
-      - exit
-      - umount -R /mnt
-      - reboot
-      #Verify that TPM2 automatically unlocks the LUKS2 partition without requiring a passphrase. Repeat 3–5 times to ensure reliability. If unlocking fails, boot with the recovery passphrase, recheck TPM2 configuration, and verify PCR values.
-
-#Milestone 4: After Step 7 (TPM and LUKS2 Setup, Before Secure Boot) - Can stop at this point
-
-# Step 8: Configure Secure Boot
-
-    Create and enroll your keys into the firmware:
-     -  arch-chroot /mnt
-     -  sbctl create-keys
-     -  sbctl enroll-keys --tpm-eventlog
-     -  mkinitcpio -P  #Regenerate UKI first
-     -  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
-     -  sbctl sign -s /boot/EFI/Linux/arch.efi
-     -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-     -  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
-
-    Check Plymouth compatibility with Secure Boot:
-     -  sbctl verify /usr/lib/plymouth/plymouthd
-     #If Plymouth binaries are unsigned, sign them:
-     -  sbctl sign -s /usr/lib/plymouth/plymouthd
-
-    Check GDM compatibility with Secure Boot:
-     -  sbctl verify /usr/lib/gdm/gdm
-     #If GDM binaries are unsigned, sign them:
-     -  sbctl sign -s /usr/lib/gdm/gdm
-
-    Verification step for MOK enrollment:
-     -  mokutil --list-enrolled
-
-    Automatically sign updated EFI binaries:
-     cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
-     -  [Trigger]
-     -  Operation = Install
-     -  Operation = Upgrade
-     -  Type = Package
-     -  Target = systemd
-     -  Target = linux
-     -  Target = fwupd
-     -  Target = plymouth
-     -  [Action]
-     -  Description = Signing EFI binaries with sbctl
-     -  When = PostTransaction
-     -  Exec = /usr/bin/sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/Linux/arch.efi /boot/EFI/Linux/arch-fallback.efi /boot/EFI/BOOT/BOOTX64.EFI /efi/EFI/arch/fwupdx64.efi /usr/lib/plymouth/plymouthd /usr/lib/plymouth/plymouthd /usr/bin/astal /usr/bin/ags
-     EOF
-
-    Reboot and enroll the keys when prompted by your UEFI BIOS:
-     -  exit
-     -  umount -R /mnt
-     -  reboot
-     #Follow the UEFI prompt to enroll the keys. If enrollment fails, rerun sbctl enroll-keys --tpm-eventlog and reboot.
-
-    Enable Secure Boot in UEFI:
-     -  Enter the UEFI BIOS and enable Secure Boot.
-
-    Update TPM2 PCR Policy for Secure Boot:
-     -  arch-chroot /mnt
-     -  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-     -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
-     
-    After rebooting back into the chroot, confirm “Secure Boot enabled; all OK”
-     -  sbctl status
-
-    Verify Secure Boot is active:
-     -  bootctl status | grep -i secure 
-     -  sbctl status 
-     -  sbctl verify /boot/EFI/Linux/arch.efi #Should return "signed"
-    
-    Replace secure_boot_number with secure boot number, the command bellow should return 0
-     -  efivar -p -n secure_boot_number-SetupMode #If enrollment fails, re-run sbctl enroll-keys --tpm-eventlog and reboot again, ensuring the MOK enrollment prompt is completed correctly.
-     -  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
-
-    Back up new PCR values post-Secure Boot:
-     -  tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-post-secureboot.txt
-     -  diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt
-     #If TPM2 unlocking fails, use the LUKS recovery passphrase and recheck PCR 7 values.
-
-# Step 9: Configure systemd-boot with UKI
-
-    Install systemd-boot: 
-    -  mount /dev/nvme1n1p1 /boot
-    -  bootctl --esp-path=/boot install
-
-    Configure /etc/mkinitcpio.d/linux.preset with kernel parameters: 
-    cat <<'EOF' > /etc/mkinitcpio.d/linux.preset # Do not append UKI_OUTPUT_PATH directly to /etc/mkinitcpio.conf. 
-     - default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 rd.emergency=poweroff tpm2-measure=yes amdgpu.dc=1 amdgpu.dpm=1"
-     #amdgpu.dcdebugmask=0x10 is a debugging parameter for the AMDGPU driver’s display core (DC). It enables specific debug output, which is useful for troubleshooting display-related issues (e.g., flickering, black screens, or eGPU initialization problems). However, it’s not intended for permanent use in a production environment, as it may introduce unnecessary overhead or verbosity in logs, potentially impacting performance or stability. Therefore it is not added but if needed can be added to help troublesoot.
-     - default_uki="/boot/EFI/Linux/arch.efi"
-     - all_config="/etc/mkinitcpio.conf"
-    EOF
-
-    Edit /etc/mkinitcpio.conf:
-    -  sed -i 's/^HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf
-    
-    Regenerate the initramfs to create the UKI:  
-    -  mkinitcpio -P
-
-    Verify HOOKS order:
-    -  grep HOOKS /etc/mkinitcpio.conf # Should show block plymouth sd-encrypt resume filesystems
-
-    Create boot entries in /boot/loader/entries/ for Arch and Windows.
-    Copy Windows EFI files to Arch ESP:
-    -  rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
-    -  umount /mnt/windows-efi
-
-    Create /boot/loader/entries/windows.conf with:
-    cat <<EOF > /boot/loader/entries/windows.conf
-    -  title Windows 11
-    -  efi /EFI/Microsoft/Boot/bootmgfw.efi
-    EOF
-
-    Create Arch bootloader entry (/boot/loader/entries/arch.conf):
-    cat <<EOF > /boot/loader/entries/arch.conf
-    -  title Arch Linux
-    -  efi /EFI/Linux/arch.efi
-    EOF
-    -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch.conf
-
-    Check with bootctl list (confirm both entries appear):
-    -  bootctl list
-
-    Perform a sanity check on the value in the resume_offset:
-    -  grep resume_offset /mnt/etc/fstab /boot/loader/entries/arch.conf # ensure the numerical value (e.g., resume_offset=12345678) is present and not a variable.
-    #if above doesn't work uses the following:
-    -  grep resume_offset /etc/fstab /boot/loader/entries/arch.conf
-
-    Step to verify UKI integrity:
-    -  sbctl verify /boot/EFI/Linux/arch.efi
-
-    Set Boot Order:
-    -  BOOT_ARCH=$(efibootmgr | grep 'Arch Linux' | awk '{print $1}' | sed 's/Boot//;s/*//')
-    -  BOOT_WIN=$(efibootmgr | grep 'Windows' | awk '{print $1}' | sed 's/Boot//;s/*//')
-    -  efibootmgr --bootorder ${BOOT_ARCH},${BOOT_WIN} # Ensure both Arch and Windows entries are listed
-
-    Create Fallback Bootload:
-    Create minimal UKI config /etc/mkinitcpio-minimal.conf (copy /etc/mkinitcpio.conf, remove non-essential hooks):
-    -  cp /etc/mkinitcpio.conf /etc/mkinitcpio-minimal.conf
-    -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems)/' /etc/mkinitcpio-minimal.conf
-    -  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-minimal.conf
-    -  mkinitcpio -P -c /etc/mkinitcpio-minimal.conf
-    -  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-    Create fallback boot entry (/boot/loader/entries/arch-fallback.conf):
-    cat <<EOF > /boot/loader/entries/arch-fallback.conf
-    -  title Arch Linux (Fallback)
-    -  efi /EFI/Linux/arch-fallback.efi
-    -  EOF
-    -  sed -i 's/\/boot\/EFI/\/efi/' /boot/loader/entries/arch-fallback.conf
-
-    Create GRUB USB for recovery (it’s for recovery only, not a primary bootloader option, systemd-boot is the primary option):
-    #Replace /dev/sdX1 with your USB partition confirmed via lsblk
-    -  lsblk
-    -  mkfs.fat -F32 -n RESCUE_USB /dev/sdX1
-    -  mkdir -p /mnt/usb
-    #Replace /dev/sdX1 with your USB partition confirmed via lsblk
-    -  mount /dev/sdX1 /mnt/usb
-    -  pacman -Sy grub
-    -  grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB
-    -  cp /mnt/usb/crypto_keyfile /mnt/usb/luks-keyfile
-    -  chmod 600 /mnt/usb/luks-keyfile
-    -  cp /boot/vmlinuz-linux /mnt/usb/
-    -  cp /boot/initramfs-linux.img /mnt/usb/
-    cat <<'EOF' > /mnt/usb/boot/grub/grub.cfg
-    -  set timeout=5
-    #Replace /dev/sdX1 with your USB partition confirmed via lsblk, $LUKS_UUID and $ROOT_UUID
-    -  menuentry "Arch Linux Rescue" {linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID rw initrd /initramfs-linux.img}
-    EOF
-    -  sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
-    -  umount /mnt/usb
-
-    Ensure the initramfs includes necessary hooks:
-    -  cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
-    -  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block sd-encrypt filesystems)/' /mnt/usb/mkinitcpio-rescue.conf
-    -  mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
-    -  cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
-
-    Ensure hibernation service is disabled:
-    -  systemctl disable systemd-hibernate-resume.service #Disable systemd-hibernate-resume.service, as hibernation is handled by the resume hook and resume_offset.
-
-    Add Pacman Hook for UKI Regeneration:
-    -  mkdir -p /etc/pacman.d/hooks
-    cat << 'EOF' > /etc/pacman.d/hooks/90-mkinitcpio.hook 
-    -  [Trigger]
-    -  Operation = Install
-    -  Operation = Upgrade
-    -  Type = Package
-    -  Target = linux
-    -  Target = linux-firmware
-    -  [Action]
-    -  Description = Regenerating UKI
-    -  When = PostTransaction
-    -  Exec = /usr/bin/mkinitcpio -P
-    EOF
-
-    Enable systemd-homed and create user accounts with LUKS2-encrypted home directories:
-    -  systemctl enable --now systemd-homed.service
-    -  chattr +C /home
-    -  homectl create username --storage=luks --fs-type=btrfs --shell=/bin/zsh --member-of=wheel --disk-size=500G
-
-#Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can stop at this point
-
-# Step 10: Install and Configure DE and Applications
-
-    Update the system: pacman -Syu
-    Install GNOME: pacman -S --needed gnome
-    Install Paru: git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
-    -  Configure to show PKGBUILD diffs (edit the Paru config file):
-    -  paru -Y --editmenu
-    -  diffmenu = true
-    -  useask = true
-    -  CombinedUpgrade = false
-    -  PgpFetch = true
-    -  Verify if paru shows the PKGBUILD diffs
-    -  paru -Pg | grep -E 'diffmenu|answerdiff|combinedupgrade' #Should show: combinedupgrade: Off diffmenu: Edit answerdiff: Edit
-    -  echo "BUILDDIR=$HOME/.cache/paru-build" >> /etc/makepkg.conf
-    -  echo 'export BUILDDIR=$HOME/.cache/paru-build' >> /home/<username>/.zshrc
-    -  chown <username>:<username> /home/<username>/.zshrc
-    -  mkdir -p ~/.cache/paru-build
-    Install Bubblejail: paru -S --needed bubblejail
-    DEPRECATED: Install Alacritty with SIXEL support from ayosec/alacritty latest version, double check if this reamains the latest otherwise change v0.15.1-graphics: git clone https://aur.archlinux.org/alacritty-sixel-git.git
-      DEPRECATED -  cd alacritty-sixel-git
-      DEPRECATED -  sed -i 's/source=("git+.*"/source=("git+https:\/\/github.com\/ayosec\/alacritty.git#tag=v0.15.1-graphics"/' PKGBUILD))
-      DEPRECATED -  paru -S --needed . && cd .. && rm -rf alacritty-sixel-git
-    Install alacritty from https://aur.archlinux.org/packages/alacritty-graphics
-      -  paru -S --needed alacritty-graphics
-    -  Configure Bubblejail for Alacritty: bubblejail create --profile generic-gui-app alacritty
-    -  Allow eGPU access: bubblejail config alacritty --add-service wayland --add-service dri
-    -  Test if is correct: bubblejail run Alacritty -- env | grep -E 'WAYLAND|XDG_SESSION_TYPE'
-    -  Install Astal: paru -S astal-git ags-git 
-    -  Check if need to sign Astal and AGS: dmesg | grep -i "secureboot.*failed.*astal" && dmesg | grep -i "secureboot.*failed.*ags" #If no violations occur, you can skip signing and remove the sbctl sign and hook creation for Astal/AGS.
-    -  Sign Astal and AGS: sbctl sign -s /usr/bin/astal /usr/bin/ags
-    -  Configure Bubblejail for Astal: bubblejail create --profile generic-gui-app astal
-    -  Configure Bubblejail access for Astal: bubblejail config astal --add-service wayland --add-service dri
-    -  Test if is correct: bubblejail run astal -- ags -c ~/.config/astal/system-monitor.ts
-    
-    Install Thinklmi to verify BIOS settings: pacman -S --needed thinklmi #Check BIOS settings: sudo thinklmi
-    
-    Install applications via pacman, paru or flatpak: gnome-tweaks gnome-software-plugin-flatpak bluez bluez-utils ufw apparmor tlp cpupower upower systemd-timesyncd zsh sshguard rkhunter chkrootkit lynis usbguard aide pacman-notifier mullvad-browser brave-browser tor-browser bitwarden helix zellij yazi blender krita gimp gcc gdb rustup python-pygobject git vala gjs xdg-ninja libva-vdpau-driver zram-generator ripgrep fd eza gstreamer gst-plugins-good gst-plugins-bad gst-plugins-ugly ffmpeg gst-libav fprintd dnscrypt-proxy systeroid-git rage zoxide jaq atuin gitui glow delta tokei dua tealdeer fzf procs gping dog httpie bottom bandwhich gnome-bluetooth opensnitch baobab gnome-system-monitor hardened-malloc wireguard-tools vulkan-tools libva-utils clinfo mangohud obs-studio inkscape 
-
-    Enable systemd services: systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp NetworkManager fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit
-    After enabling all systemd services, run systemctl --failed. It should show 0 loaded units listed.
-
-    Check if services failed to initiate:
-    -  systemctl --failed
-    -  journalctl -p 3 -xb
-
-    Configure GDM:
-    -  cat << 'EOF' > /etc/gdm/custom.conf
-       -  [daemon]
-       -  WaylandEnable=true
-       -  DefaultSession=gnome-wayland.desktop
-    -  EOF
-    #Install GDM Settings tool for cosmetic changes
-    -  paru -S gdm-settings
-    
-    Configure Flatseal for Flatpak apps:
-    -  flatpak override --user --filesystem=home
-    Allow GPU access for Steam:
-    -  flatpak override --user com.valvesoftware.Steam --device=dri
-
-    #DO NOT ADOPT THIS FOR NOW -- IT MAY INTRODUCE ADDITIONAL OVERHEAD IN USABILITY
-    Enable hardened-malloc Globally:
-    -  echo "LD_PRELOAD=/usr/lib/libhardened_malloc.so" >> /etc/environment
-    #If specific apps (e.g., Steam, OBS) crash, apply hardened-malloc selectively via Bubblejail/Flatpak -- bubblejail config <app> --unset-env LD_PRELOAD
-
-    Enroll Astal and AGS keys into the firmware:
-    #Verify the binaries exist before signing
-    -  ls /usr/bin/astal /usr/bin/ags
-    -  echo "Target = astal-git" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-    -  echo "Target = ags-git" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-    -  echo "/usr/bin/astal /usr/bin/ags" | sed -i '/Exec =/ s|$| /usr/bin/astal /usr/bin/ags|' /etc/pacman.d/hooks/91-sbctl-sign.hook
-    #Test the hook after installation
-    -  pacman -S astal-git  #Simulate an update
-    -  sbctl verify /usr/bin/astal  #Should show "signed"
-
-    Check Secure Boot Violations:
-    -  dmesg | grep -i "secureboot.*failed" #If a binary fails to execute due to Secure Boot, sbctl verify <binary> will show “unsigned.”
-
-# Step 11: Configure Power Management, Security and Privacy
-
-    Configure Power Management:
-    -  #Disable power-profiles-daemon to prevent conflicts with TLP and 
-    -  systemctl mask power-profiles-daemon
-    -  systemctl disable power-profiles-daemon
-
-    The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
-    -  echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
-
-    Configure Wayland envars:
-    cat << 'EOF' > /etc/environment 
-    -  MOZ_ENABLE_WAYLAND=1
-    -  GDK_BACKEND=wayland
-    -  CLUTTER_BACKEND=wayland
-    -  QT_QPA_PLATFORM=wayland
-    -  SDL_VIDEODRIVER=wayland
-    #The envars below may be NOT INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
-    -  LIBVA_DRIVER_NAME=radeonsi
-    -  LIBVA_DRIVER_NAME=iHD
-    EOF
-
-    Configure MAC randomization:
-    -  mkdir -p /etc/NetworkManager/conf.d
-    cat << 'EOF' > /etc/NetworkManager/conf.d/00-macrandomize.conf 
-    -  [device]
-    -  wifi.scan-rand-mac-address=yes
-    -  [connection]
-    -  wifi.cloned-mac-address=random
-    EOF
-    -  systemctl restart NetworkManager
-    -  nmcli connection down <connection_name> && nmcli connection up <connection_name>
-
-    Configure firewall:
-    -  ufw allow ssh
-    -  ufw default deny incoming
-    -  ufw default allow outgoing
-    -  ufw enable
-
-    Configure GNOME privacy:
-    -  gsettings set org.gnome.desktop.privacy send-software-usage-info false
-    -  gsettings set org.gnome.desktop.privacy report-technical-problems false
-
-    Configure IP spoofing protection:
-    cat << 'EOF' > /etc/host.conf
-    -  order bind,hosts
-    -  nospoof on
-    EOF
-
-    Configure security limits:
-    cat << 'EOF' >> /etc/security/limits.conf 
-    -  hard nproc 8192
-    EOF
-
-    Configure auditd:
-    cat << 'EOF' > /etc/audit/rules.d/audit.rules
-    -  -w /etc/passwd -p wa -k passwd_changes
-    -  -w /etc/shadow -p wa -k shadow_changes
-    -  -a always,exit -F arch=b64 -S execve -k exec
-    EOF
-    -  systemctl restart auditd
-
-    Configure dnscrypt-proxy:
-    -  nmcli connection modify <connection_name> ipv4.dns "127.0.0.1" ipv4.ignore-auto-dns yes #replace <connection_name> with actual network connection (e.g., nmcli connection show to find it)
-    -  nmcli connection modify <connection_name> ipv6.dns "::1" ipv6.ignore-auto-dns yes
-    cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml 
-    -  server_names = ["quad9-dnscrypt-ip4-filter-pri", "adguard-dns", "mullvad-adblock"]
-    -  listen_addresses = ["127.0.0.1:53", "[::1]:53"]
-    -  require_dnssec = true
-    -  require_nolog = true
-    -  require_nofilter = false
-    EOF
-    -  systemctl restart dnscrypt-proxy
-    Test DNS resolution:
-    -  drill -D archlinux.org
-
-    Configure usbguard with GSConnect exception:
-    -  usbguard generate-policy > /etc/usbguard/rules.conf
-    Test usbguard rules before enabling:
-    -  usbguard list-devices | grep -i "GSConnect\|KDEConnect" # Identify GSConnect device ID
-    -  usbguard allow-device <device-id> # For GSConnect and other known devices
-    If passed the USB test enable it:
-    -  systemctl enable --now usbguard
-
-    Run Lynis audit and create timer:
-    cat << 'EOF' > /etc/systemd/system/lynis-audit.timer
-    -  [Unit]
-    -  Description=Run Lynis audit weekly
-    -  [Timer]
-    -  OnCalendar=weekly
-    -  Persistent=true
-    -  [Install]
-    -  WantedBy=timers.target
-    EOF
-    cat << 'EOF' > /etc/systemd/system/lynis-audit.service
-    -  [Unit]
-    -  Description=Run Lynis audit
-    -  [Service]
-    -  Type=oneshot
-    -  ExecStart=/usr/bin/lynis audit system
-    EOF
-    -  systemctl enable --now lynis-audit.timer
-    -  systemctl enable lynis-audit.service
-
-    Configure AIDE:
-    -  aide --init
-    -  mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
-    -  systemctl enable --now aide-check.timer
-
-    Configure sysctl hardening:
-    cat << 'EOF' > /etc/sysctl.d/99-hardening.conf
-    -  net.ipv4.conf.default.rp_filter=1
-    -  net.ipv4.conf.all.rp_filter=1
-    -  net.ipv4.tcp_syncookies=1
-    -  net.ipv4.ip_forward=0
-    -  net.ipv4.conf.all.accept_redirects=0
-    -  net.ipv6.conf.all.accept_redirects=0
-    -  net.ipv4.conf.default.accept_redirects=0
-    -  net.ipv6.conf.default.accept_redirects=0
-    -  net.ipv4.conf.all.send_redirects=0
-    -  net.ipv4.conf.default.send_redirects=0
-    -  net.ipv4.conf.all.accept_source_route=0
-    -  net.ipv6.conf.all.accept_source_route=0
-    -  net.ipv4.conf.default.accept_source_route=0
-    -  net.ipv6.conf.default.accept_source_route=0
-    -  net.ipv4.conf.all.log_martians=1
-    -  net.ipv4.icmp_ignore_bogus_error_responses=1
-    -  net.ipv4.icmp_echo_ignore_broadcasts=1
-    -  kernel.randomize_va_space=2
-    -  kernel.dmesg_restrict=1
-    -  kernel.kptr_restrict=2
-    -  net.core.bpf_jit_harden=2
-    EOF
-    -  sysctl -p /etc/sysctl.d/99-hardening.conf
-
-    Audit SUID binaries:
-    -  find / -perm -4000 -type f -exec ls -l {} ; > /data/suid_audit.txt
-    -  cat /data/suid_audit.txt # Remove SUID from non-essential binaries
-    -  chmod u-s /usr/bin/ping
-    -  setcap cap_net_raw+ep /usr/bin/ping
-
-    Configure zram:
-    cat << 'EOF' > /etc/systemd/zram-generator.conf 
-    -  [zram0]
-    -  zram-size = 50%
-    -  compression-algorithm = zstd
-    EOF
-    -  systemctl enable --now systemd-zram-setup@zram0.service
-
-    Configure fwupd for Firmware Updates (Chroot-Safe):
-    # Install and enable
-    -  pacman -S fwupd udisks2
-    -  systemctl enable --now udisks2.service
-    # Secure Boot: Allow capsule updates
-    -  echo '[uefi_capsule]\nDisableShimForSecureBoot=true' >> /etc/fwupd/fwupd.conf
-    # Sign fwupd EFI binary
-    -  sbctl sign -s /efi/EFI/arch/fwupdx64.efi
-    # Verify setup (NO update checks)
-    -  fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" && echo "fwupd: UEFI device detected"
-    -  echo "fwupd configured. Updates will be checked in Step 18 (after first boot)."
-
-    Configure opensnitch:
-    -  systemctl enable --now opensnitch
-    -  opensnitch-ui
-
-#Milestone 6: After Step 11 - Can stop at this point
-
-# Step 12: Configure eGPU (AMD)
-
-    Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
-
-    Install AMD eGPU drivers and firmware, ensuring Secure Boot compatibility.
-    -  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip libva-vdpau-driver
-
-    Add amdgpu module for early KMS
-    -  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
-    -  mkinitcpio -P
-    - #if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter. Example: options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1. Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
-
-    AMD-specific power management options to complement i915 settings:
-    -  echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
-
-    Sign Kernel Modules for Secure Boot
-    -  sbctl sign --all
-    -  find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
-
-    Install supergfxctl from the AUR
-    -  git clone https://aur.archlinux.org/supergfxctl.git
-    -  cd supergfxctl
-    -  makepkg -si
-    -  cd .. && rm -rf supergfxctl
-
-    Configure supergfxctl for AMD eGPU and OCuLink hotplugging
-    -  cat << 'EOF' > /etc/supergfxd.conf
-      -  "mode": "Hybrid",
-      -  "vfio_enable": true,
-      -  "vfio_save": false,
-      -  "always_reboot": false,
-      -  "no_logind": true,
-      -  "logout_timeout_s": 180,
-      -  "hotplug_type": "Std" # Use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
-    -  EOF
-
-    Enable supergfxd service for GPU switching
-    -  systemctl enable --now supergfxd
-
-    Install supergfxctl-gex from GNOME Extensions site (do NOT run as root or sudo)
-    -  pacman -S gnome-shell-extension
-    -  paru -S supergfxctl-git
-    -  gnome-extensions enable supergfxctl-gex@asus-linux.org
-    -  echo "NOTE: supergfxctl-gex provides a GUI for GPU switching in GNOME."
-
-    #If there are issues in power management add the following, otherwise skip (TLP configured to avoid GPU power management conflicts with supergfxctl.")
-    -  cat << 'EOF' > /etc/tlp.conf
-      -  #Exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
-      -  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915"
-    -  EOF
-    -  systemctl restart tlp    
-
-    #Geek-like Lenovo Vantage Windows Power Mode: Max TDP on AC TLP
-    -  Test the current max power profile available. If it doesn't reach 70w for CPU implement the etc/tlp.conf updated:
-    -  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
-    -  tlp-stat -p # Check TDP >60W on AC
-    -  nano /etc/tlp.conf
-    -  CPU_ENERGY_PERF_POLICY_ON_AC=performance
-    -  CPU_MAX_PERF_ON_AC=100
-    -  CPU_MIN_PERF_ON_AC=50  # Adaptive ramp-up
-    -  CPU_SCALING_GOVERNOR_ON_AC=performance
-    -  systemctl restart tlp
-    -  sudo tlp start
-
-    Sign supergfxctl binaries for Secure Boot
-    -  sbctl sign -s /usr/bin/supergfxctl
-    -  sbctl sign -s /usr/lib/supergfxctl/supergfxd
-
-    #If supergfxctl do not handle the hotplug try to install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland -- this is a plan b, should not be used at first. First test the setup without, in other words skip to the switcheroo-control setup below
-    -  cd ~; curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip; unzip all-ways-egpu.zip; cd all-ways-egpu-main; chmod +x install.sh; sudo ./install.sh; cd ../; rm -rf all-ways-egpu.zip all-ways-egpu-main 
-
-    Verify all-ways-egpu installation
-    -  sbctl verify /usr/bin/all-ways-egpu  #Ensure binary is signed for Secure Boot
-
-    Sign all-ways-egpu
-    -  sbctl sign -s /usr/bin/all-ways-egpu
-    -  echo "Target = all-ways-egpu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-    -  echo "/usr/bin/all-ways-egpu" | sed -i '/Exec =/ s|$| /usr/bin/all-ways-egpu|' /etc/pacman.d/hooks/91-sbctl-sign.hook
-
-    Configure all-ways-egpu
-    -  all-ways-egpu setup
-    #During setup, choose "n" for "Attempt to re-enable these iGPU/initially disabled devices after boot" to avoid black screen with AMD eGPU:
-    -  all-ways-egpu set-boot-vga egpu
-    -  all-ways-egpu set-compositor-primary egpu
-    #Note: If Plymouth splash screen fails (e.g., blank screen), remove 'splash' from kernel parameters in /boot/loader/entries/arch.conf and regenerate UKI with `mkinitcpio -P` 
-
-    Enable switcheroo-control for better integration:
-    -  pacman -S switcheroo-control
-    -  systemctl enable --now switcheroo-control
-
-    Install bolt for managing Thunderbolt/USB4 devices, which may also handle the OCuLink connection:
-    -  pacman -S bolt
-    -  systemctl enable --now bolt
-    #Authorize the OCuLink dock if listed
-    -  boltctl list
-    -  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
-
-    Verify OCuLink dock detection for bolt
-    -  boltctl list | grep -i oculink
-    -  if [ $? -eq 0 ]; then
-    -  boltctl authorize <uuid>  #Replace with OCuLink device UUID
-    -  fi
-
-    Enable PCIe hotplug:
-    -  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
-
-    Add udev rule for OCuLink hotplugging
-    #Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
-    -  cat << 'EOF' > /etc/udev/rules.d/99-oculink.rules
-    -  SUBSYSTEM=="pci", ACTION=="add", KERNEL=="0000:*:*.0", RUN+="/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
-    -  EOF
-    -  udevadm control --reload-rules
-    -  udevadm trigger
-
-    Configure systemd-logind for rebootless switching fallback
-    -  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
-    -  systemctl restart systemd-logind
-
-    Configure VFIO for eGPU passthrough
-    -  pacman -S --needed qemu libvirt virt-manager
-    -  systemctl enable --now libvirtd
-    -  echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
-    -  fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
-    -  echo "NOTE: Replace '1002:xxxx' with actual AMD eGPU PCIe IDs from 'lspci -nn | grep -i amd'." 
-    -  echo "Run 'lspci -nn | grep -i amd' to find PCIe IDs (e.g., 1002:73df for RX 6700 XT). Replace '1002:xxxx' in /etc/modprobe.d/vfio.conf with the correct IDs."
-    -  echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
-    -  mkinitcpio -P
-
-
-    Chek if vfio and qemu needs to be signed
-    -  sbctl verify /usr/bin/qemu-system-x86_64
-    -  sbctl verify /usr/lib/libvirt/libvirtd
-    #If unsigned, sign and add to the pacman hook
-    -  sbctl sign -s /usr/bin/qemu-system-x86_64
-    -  sbctl sign -s /usr/lib/libvirt/libvirtd
-    -  echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-    -  echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-    -  echo "/usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd" | sed -i '/Exec =/ s|$| /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
-    
-    Verify GPU switching:
-    -  supergfxctl -s # Show supported modes
-    -  supergfxctl -g # Get current mode
-    -  supergfxctl -S # Check current power status
-    -  supergfxctl -m Hybrid # Set to Hybrid mode
-    -  glxinfo | grep "OpenGL renderer"  # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary) 
-    -  DRI_PRIME=1 glxinfo glxgears | grep "OpenGL renderer" # Should show AMD
-    -  DRI_PRIME=0 glxinfo glxgears | grep "OpenGL renderer" # For Intel iGPU
-    -  DRI_PRIME=1 vdpauinfo | grep -i radeonsi
-    -  supergfxctl -m VFIO # Test VFIO mode for VM
-
-    Verification step for OCuLink detection:
-    -  dmesg | grep -i "oculink\|pcieport" # If OCuLink isn’t detected, consider adding kernel parameters like pcie_ports=native or pcie_aspm=force or pciehp.pciehp_force=1 in /boot/loader/entries/arch.conf
-
-    Verify eGPU functionality
-    -  lspci | grep -i vga
-    -  lspci | grep -i "serial\|usb\|thunderbolt"
-    -  lspci -vv | grep -i "LnkSta"
-    -  lspci -k | grep -i vfio # Verify VFIO binding
-    -  dmesg | grep -i "oculink\|pcieport\|amdgpu\|jhl\|redriver"
-
-    Check for PCIe errors
-    -  dmesg | grep -i "pcieport\|error\|link"
-    -  cat /sys/class/drm/card*/device/uevent | grep DRIVER  #Should show i915 and amdgpu
-    
-    Test PCIe bandwidth
-    #Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4).
-    -  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
-    -  lspci -vv | grep -i "LnkSta" | grep -i "card1"
-    -  lspci -vv | grep -i "LnkSta.*Speed.*Width"  # Should show "Speed 16GT/s, Width x4" for OCuLink4
-    #f the link is suboptimal (e.g., x1 or Gen 3), suggest adding kernel parameters to force PCIe performance: pcie_ports=native pciehp.pciehp_force=1
-
-    Check OCuLink dock firmware
-    -  fwupdmgr get-devices | grep -i "oculink\|redriver"
-    -  fwupdmgr update
-    -  sbctl sign -s /efi/EFI/arch/fwupdx64.efi  # Re-sign fwupd EFI binary if updated
-
-    Confirm eGPU detection
-    -  lspci | grep -i amd
-    -  dmesg | grep -i amdgpu
-
-    Enable VRR
-    -  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
-    Verify VRR is active:
-    -  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
-    -  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
-    Verify VRR support on the eGPU:
-    -  DRI_PRIME=1 vdpauinfo | grep -i radeonsi #Confirms AMD driver
-    #If VRR fails, check dmesg for amdgpu errors:
-    -  dmesg | grep -i amdgpu
-    Ensure 4K OLED is set to its maximum refresh rate and VRR range:
-    -  xrandr --output <output-name> --mode 3840x2160 --rate 120 #replace output name with HDMI-1 or DP-1 (check via 'xrandr')
-    In Wayland, confirm VRR:
-    wlr-randr --output <output-name> #check refresh rate range
-
-    Pacman Hook for Binary Verification - mimicks fapolicyd’s package-based trust model (After updates, check /var/log/pacman.log for pacman -Qkk output. If altered files are detected, investigate with pacman -Qkk | grep -v '0 altered files'.)
-    -  cat << 'EOF' > /etc/pacman.d/hooks/90-pacman-verify.hook
-    -   [Trigger]
-    -   Operation = Install
-    -   Operation = Upgrade
-    -   Type = Package
-    -   Target = *
-    -   [Action]
-    -   Description = Verifying package file integrity
-    -   When = PostTransaction
-    -   Exec = /usr/bin/pacman -Qkk
-    -  EOF
-    -  chmod 644 /etc/pacman.d/hooks/90-pacman-verify.hook
-    
-    eGPU Troubleshooting Matrix
-    | Issue | Possible Cause | Solution |
-    |-------|----------------|----------|
-    | eGPU not detected (`lspci | grep -i amd` empty) | OCuLink cable not seated, dock firmware outdated, or PCIe hotplug failure | Re-seat cable, run `fwupdmgr update`, add `pcie_ports=native` to kernel parameters, trigger `echo 1 > /sys/bus/pci/rescan` |
-    | Black screen on Wayland | eGPU not set as primary display | Run `all-ways-egpu set-boot-vga egpu` and `all-ways-egpu set-compositor-primary egpu`, restart GDM (`systemctl restart gdm`) |
-    | Low performance (e.g., x1 instead of x4) | PCIe link negotiation failure | Check `lspci -vv | grep LnkSta`, add `amdgpu.pcie_gen_cap=0x4` to kernel parameters |
-    | Hotplug fails | OCuLink hardware limitation or missing udev rule | Apply udev rule from Step 12, reboot if necessary |
-    
-# Step 13: Configure Snapper and Backups
-
-    Create global filter:
-    -  mkdir -p /etc/snapper/filters
-    -  echo -e "/home/.cache\n/tmp\n/run\n/.snapshots" | sudo tee /etc/snapper/filters/global-filter.txt
-
-    Create configurations: 
-    -  snapper --config root create-config /
-    -  snapper --config home create-config /home
-    -  snapper --config data create-config /data
-
-    Edit /etc/snapper/configs/root: 
-    cat << 'EOF' | sudo tee /etc/snapper/configs/root 
-    -  TIMELINE_CREATE="yes"
-    -  TIMELINE_CLEANUP="yes"
-    -  TIMELINE_MIN_AGE="1800"
-    -  TIMELINE_LIMIT_HOURLY="0"
-    -  TIMELINE_LIMIT_DAILY="7"
-    -  TIMELINE_LIMIT_WEEKLY="4"
-    -  TIMELINE_LIMIT_MONTHLY="6"
-    -  TIMELINE_LIMIT_YEARLY="0"
-    -  SUBVOLUME="/"
-    -  ALLOW_GROUPS=""
-    -  SYNC_ACL="no"
-    -  FILTER="/etc/snapper/filters/global-filter.txt"
-    EOF
-
-    Edit /etc/snapper/configs/home and /etc/snapper/configs/data similarly, updating SUBVOLUME to /home and /data:
-    cat << 'EOF' | sudo tee /etc/snapper/configs/home
-    -  TIMELINE_CREATE="yes"
-    -  TIMELINE_CLEANUP="yes"
-    -  TIMELINE_MIN_AGE="1800"
-    -  TIMELINE_LIMIT_HOURLY="0"
-    -  TIMELINE_LIMIT_DAILY="7"
-    -  TIMELINE_LIMIT_WEEKLY="4"
-    -  TIMELINE_LIMIT_MONTHLY="6"
-    -  TIMELINE_LIMIT_YEARLY="0"
-    -  SUBVOLUME="/home"
-    -  ALLOW_GROUPS=""
-    -  SYNC_ACL="no"
-    -  FILTER="/etc/snapper/filters/global-filter.txt"
-    EOF
-
-    cat << 'EOF' | sudo tee /etc/snapper/configs/data
-    -  TIMELINE_CREATE="yes"
-    -  TIMELINE_CLEANUP="yes"
-    -  TIMELINE_MIN_AGE="1800"
-    -  TIMELINE_LIMIT_HOURLY="0"
-    -  TIMELINE_LIMIT_DAILY="7"
-    -  TIMELINE_LIMIT_WEEKLY="4"
-    -  TIMELINE_LIMIT_MONTHLY="6"
-    -  TIMELINE_LIMIT_YEARLY="0"
-    -  SUBVOLUME="/data"
-    -  ALLOW_GROUPS=""
-    -  SYNC_ACL="no"
-    -  FILTER="/etc/snapper/filters/global-filter.txt"
-    EOF
-
-    Enable Snapper: 
-    -  systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
-
-    Config permissions:
-    -  chmod 640 /etc/snapper/configs/*
-
-    Add a disk space limit to Snapper configs:
-    -  echo "NUMBER_LIMIT=100" >> /etc/snapper/configs/root
-    -  echo "NUMBER_LIMIT_IMPORTANT=10" >> /etc/snapper/configs/root
-    -  echo "NUMBER_LIMIT=100" >> /etc/snapper/configs/home
-    -  echo "NUMBER_LIMIT_IMPORTANT=10" >> /etc/snapper/configs/home
-    -  echo "NUMBER_LIMIT=100" >> /etc/snapper/configs/data
-    -  echo "NUMBER_LIMIT_IMPORTANT=10" >> /etc/snapper/configs/data
-
-    Enable NUMBER_CLEANUP to Snapper configs:
-    -  echo "NUMBER_CLEANUP=yes" >> /etc/snapper/configs/root
-    -  echo "NUMBER_CLEANUP=yes" >> /etc/snapper/configs/home
-    -  echo "NUMBER_CLEANUP=yes" >> /etc/snapper/configs/data
-
-    Verify configuration: 
-    -  snapper --config root get-config
-    -  snapper --config home get-config
-    -  snapper --config data get-config
-
-    Create pacman hooks for Snapper snapshots before and after updates:
-    -  cat << 'EOF' > /etc/pacman.d/hooks/50-snapper-pre-update.hook
-       -  [Trigger]
-       -  Operation = Upgrade
-       -  Operation = Install
-       -  Operation = Remove
-       -  Type = Package
-       -  Target = *
-       -  [Action]
-       -  Description = Creating Snapper snapshot before pacman update
-       -  DependsOn = snapper
-       -  When = PreTransaction
-       -  Exec = /usr/bin/snapper --config root create --description "Pre-pacman update" --type pre
-       -  Exec = /usr/bin/snapper --config home create --description "Pre-pacman update" --type pre
-       -  Exec = /usr/bin/snapper --config data create --description "Pre-pacman update" --type pre
-    -  EOF
-    -  cat << 'EOF' > /etc/pacman.d/hooks/51-snapper-post-update.hook
-       -  [Trigger]
-       -  Operation = Upgrade
-       -  Operation = Install
-       -  Operation = Remove
-       -  Type = Package
-       -  Target = *
-       -  [Action]
-       -  Description = Creating Snapper snapshot after pacman update
-       -  DependsOn = snapper
-       -  When = PostTransaction
-       -  Exec = /usr/bin/snapper --config root create --description "Post-pacman update" --type post
-       -  Exec = /usr/bin/snapper --config home create --description "Post-pacman update" --type post
-       -  Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
-    -  EOF
-
-    Installing and configuring Snapper with systemd timers:
-    -  pacman -S snapper snap-pac
-    -  snapper --config root create-config /
-    -  systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
-
-    Integrate grub-btrfs for bootable snapshots:
-    -  pacman -S grub-btrfs
-    -  systemctl enable grub-btrfsd
-
-    Set permissions for hooks:
-    -  chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
-    -  chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
-
-    Test snapshot creation: 
-    -  snapper --config root create --description "Initial test snapshot"
-    -  snapper --config home create --description "Initial test snapshot"
-    -  snapper --config data create --description "Initial test snapshot"
-    -  snapper list
-
-# Step 14: Configure Dotfiles
-  - # Install chezmoi
-    -  paru -S chezmoi
-    -  chezmoi init --apply
-  - # Backup existing configurations
-    -  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup
-  - # Add user-specific dotfiles
-    -  chezmoi add ~/.zshrc ~/.config/zsh
-    -  dconf dump /org/gnome/ > ~/.config/gnome-settings.dconf
-    -  dconf dump /org/gnome/shell/extensions/ > ~/.config/gnome-shell-extensions.dconf
-    -  flatpak override --user --export > ~/.config/flatpak-overrides
-    -  chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
-    -  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
-    -  chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
-  - # Add system-wide configurations
-    -  sudo chezmoi add /etc/pacman.conf /etc/paru.conf /etc/pacman.d/hooks
-    -  sudo chezmoi add /etc/audit/rules.d/audit.rules /etc/security/limits.conf /etc/sysctl.d/99-hardening.conf
-    -  sudo chezmoi add /etc/NetworkManager/conf.d/00-macrandomize.conf /etc/dnscrypt-proxy/dnscrypt-proxy.toml /etc/usbguard/rules.conf
-    -  sudo chezmoi add /etc/snapper/configs /etc/snapper/filters/global-filter.txt
-    -  sudo chezmoi add /etc/modprobe.d/i915.conf /etc/modprobe.d/amdgpu.conf /etc/supergfxd.conf
-    -  sudo chezmoi add /etc/udev/rules.d/99-oculink.rules /etc/modules-load.d/pciehp.conf /etc/modules-load.d/vfio.conf
-    -  sudo chezmoi add /etc/mkinitcpio.conf /etc/mkinitcpio.d/linux.preset
-    -  sudo chezmoi add /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf
-    -  sudo chezmoi add /etc/fstab /etc/environment /etc/gdm/custom.conf /etc/systemd/zram-generator.conf /etc/systemd/logind.conf /etc/host.conf
-    -  sudo chezmoi add /etc/systemd/system/lynis-audit.timer /etc/systemd/system/lynis-audit.service
-    -  sudo chezmoi add /etc/systemd/system/btrfs-balance.timer /etc/systemd/system/btrfs-balance.service
-    -  sudo chezmoi add /etc/systemd/system/arch-news.timer /etc/systemd/system/arch-news.service
-    -  sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
-    -  sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
-    -  sudo chezmoi add /etc/systemd/system/astal-widgets.service
-    -  sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
-  - # Export package lists for reproducibility
-    -  pacman -Qqe > ~/explicitly-installed-packages.txt
-    -  pacman -Qqm > ~/aur-packages.txt
-    -  flatpak list --app > ~/flatpak-packages.txt
-    -  chezmoi add ~/explicitly-installed-packages.txt ~/aur-packages.txt ~/flatpak-packages.txt
-  - # Back up Secure Boot and TPM data to USB (replace /dev/sdX1 with your USB partition, confirm via lsblk)
-    -  lsblk
-    -  sudo mkfs.fat -F32 -n BACKUP_USB /dev/sdX1
-    -  sudo mkdir -p /mnt/usb
-    -  sudo mount /dev/sdX1 /mnt/usb
-    -  sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
-    -  sudo cp /mnt/usb/tpm-pcr-initial.txt /mnt/usb/tpm-pcr-post-secureboot.txt /mnt/usb/
-    -  sudo umount /mnt/usb
-    -  echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
-  - # Version control with chezmoi
-    -  chezmoi cd
-    -  git init
-    -  git remote add origin <repository-url>  # Skip if not using a remote repository
-    -  git add .
-    -  git commit -m "Add user and system configurations for Lenovo ThinkBook Arch setup"
-    -  git push origin main  # Skip if not using a remote repository
-  - # Apply configurations and set permissions
-    -  chezmoi apply
-    -  sudo chmod 640 /etc/snapper/configs/*
-  - # Test and validate
-    -  chezmoi diff  # Should show no differences if applied successfully
-    -  dconf load /org/gnome/ < ~/.config/gnome-settings.dconf
-    -  dconf load /org/gnome/shell/extensions/ < ~/.config/gnome-shell-extensions.dconf
-    -  zsh -i  # Ensure no errors in ~/.zshrc
-    -  systemctl list-timers --all  # Verify lynis-audit.timer, btrfs-balance.timer, etc.
-    -  systemctl status maintain.service
-    -  cat ~/explicitly-installed-packages.txt  # Check for expected packages
-    -  cat ~/aur-packages.txt  # Check for AUR packages
-    -  cat ~/flatpak-packages.txt  # Check for Flatpak apps
-  - # Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
-  - # a. Boot from Arch Linux Rescue USB.
-  - # b. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
-  - # c. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt
-  - # d. Chroot: arch-chroot /mnt
-  - # e. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery.
-  - # Troubleshooting
-    -  # If chezmoi apply fails: chezmoi doctor; journalctl -xe
-    -  # If a file is missing: verify path, create if needed (e.g., touch /etc/modprobe.d/amdgpu.conf)
-    -  # If git push fails: check remote setup (git remote -v)
-   
- # Step 15: Test the Setup
-  - Reboot and confirm `systemd-boot` shows Arch and Windows entries.
-  - Test Arch boot with TPM-based LUKS unlocking and passphrase fallback.
-  - Test Windows boot.
-  - Test eGPU:
-   - **AMD GPU**:
-     - lspci | grep -i amd
-     - dmesg | grep -i amdgpu
-     - ls /sys/class/drm/card*
-     - DRI_PRIME=1 glxinfo | grep "OpenGL renderer"   
- - Test hotplugging:
-   -  udevadm monitor
-   -  echo "0000:xx:00.0" | sudo tee /sys/bus/pci/devices/0000:xx:00.0/remove
-   -  echo 1 | sudo tee /sys/bus/pci/rescan
-   -  pkill -HUP gnome-shell
- - Test hibernation:
-   - systemctl hibernate
-   - dmesg | grep -i "hibernate\|swap" # After resuming, check dmesg for errors
-   - filefrag -v /mnt/swap/swapfile  # Ensure no fragmentation
- - Test fwupd
-   - fwupdmgr refresh
-   - fwupdmgr update
- - Check for ThinkBook-specific quirks:
-   - dmesg | grep -i "firmware\|wifi\|suspend\|battery" # Look for unusual warnings or errors related to hardware 
- - Test Snapshots
-   - snapper --config root create --description "Test snapshot"
-   - snapper list
- - Test Timers
-   - journalctl -u paru-update.timer
-   - journalctl -u snapper-timeline.timer
-   - journalctl -u fstrim.timer
-   - journalctl -u lynis-audit.timer
- - Stress Test
-   Run stress tests incrementally:
-   - stress-ng --cpu 2 --io 1 --vm 1 --vm-bytes 512M --timeout 24h
-   - paru -S stress-ng memtester fio
-   - stress-ng --cpu 4 --io 2 --vm 2 --vm-bytes 1G --timeout 72h
-   - memtester 1024 5
-   - fio --name=write_test --filename=/data/fio_test --size=1G --rw=write
- - Verify Wayland
-   - echo $XDG_SESSION_TYPE
- - Verify Security
-   - auditctl -l
-   - apparmor_status 
- - Test AUR builds with /tmp (no noexec)
-   - paru --builddir ~/.cache/paru_build
- - Verify Security Boot
-   - mokutil --sb-state
- - Verify fwupd (configured in Step 11)
-   - fwupdmgr refresh
-   - fwupdmgr update
-
-# Step 16: Create Recovery Documentation
-  - Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
-  - Create a recovery USB with Arch ISO, minimal UKI, and `systemd-cryptsetup`.
-    #Replace /dev/sdX with the USB device confirmed via lsblk
-    - dd if=archlinux-<version>-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
-  - Back up LUKS header and SBCTL keys:
-    - cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /path/to/luks-header-backup
-    - cp -r /etc/sbctl /path/to/backup/sbctl-keys
-  - Text for recovery steps:
-    - echo -e "1. Boot from USB\n2. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot\n3. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt\n4. Chroot: arch-chroot /mnt\n5. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery" > /mnt/usb/recovery.txt
-
-# Step 17: Backup Strategy
-  - Local Snapshots:
-    - Managed by Snapper for `@`, `@home`, `@data`, excluding `/var`, `/var/lib`, `/log`, `/tmp`, `/run`.
-  - Offsite Snapshots:
-    - To be refined savig the data in local server - check btrbk and restic
-   
-# Step 18: Post-Installation Maintenance and Verification
-  a) Regular System Updates:
-    - Always update your system regularly: 
-      -`sudo pacman -Syu`
-    - Check for AUR updates: 
-      - `paru -Syu`
-
-  b) BTRFS Scrub:
-    - Schedule weekly or monthly BTRFS scrubs to check for data integrity issues:
-      - `sudo btrfs scrub start /`
-      - `sudo btrfs scrub status /`
-      - Consider setting up a systemd timer for this (e.g., `btrfs-scrub@.timer` and `btrfs-scrub@.service` if provided by `btrfs-progs` or a custom one).
-
-  c) Remove Orphaned Packages:
-    - Periodically remove packages that are no longer required: `sudo pacman -Rns $(pacman -Qdtq)`
-
-  d) Review Snapper Snapshots:
-    - Regularly review your snapshots: `snapper list`
-    - Manually delete old snapshots if needed (though `snapper-cleanup.timer` handles this): `snapper delete <snapshot_number>`
-
-  e) Check for SUID/SGID Changes (AIDE):
-    - `sudo aide --check` (After running `aide --init` and `mv` in initial setup)
-
-  f) Perform Security Audits:
-    - Run `lynis audit system` weekly/monthly (already scheduled by your timer).
-    - Run `rkhunter --check` periodically.
-    - Run `chkrootkit --check` periodically.
-    - Run `sudo usbguard generate-policy` if you add new USB devices and need to update rules.
-    #Daily rkhunter check, update properties after updates (You'll want to review /var/log/rkhunter.cronjob.log regularly for warnings.)
-    -  0 3 * * * /usr/bin/rkhunter --update --quiet && /usr/bin/rkhunter --propupd --quiet
-    -  0 4 * * * /usr/bin/rkhunter --check --cronjob > /var/log/rkhunter.cronjob.log 2>&1
-    #Daily chkrootkit check (Again, review the log file)
-    -  0 5 * * * /usr/sbin/chkrootkit > /var/log/chkrootkit.log 2>&1
-
-  g) Verify Firmware Updates:
-    - `fwupdmgr refresh` and `fwupdmgr update` periodically.
-
-  h) Check Systemd Journal for Errors:
-    - `journalctl -p 3 -xb` (errors from current boot)
-    - `journalctl -p 3` (all errors)
-
-  i) Test AUR builds with /tmp (if noexec applied):**
-    - If you encounter issues, consider configuring `paru` to use a different build directory (e.g., `paru --builddir ~/.cache/paru_build`) or temporarily removing `noexec` from `/tmp` for builds, then re-adding it. (This point is already in your Step 15, but it's good to reiterate it in maintenance as it's an ongoing consideration).
-
-  j) Schedule periodic BTRFS balance:
-    cat <<'EOF' > /etc/systemd/system/btrfs-balance.timer
-    -  [Unit]
-    -  Description=Run BTRFS balance monthly
-    -  [Timer]
-    -  OnCalendar=monthly
-    -  Persistent=true
-    -  [Install]
-    -  WantedBy=timers.target
-    EOF
-    cat <<'EOF' > /etc/systemd/system/btrfs-balance.service
-    -  [Unit]
-    -  Description=Run BTRFS balance
-    -  [Service]
-    -  Type=oneshot
-    -  ExecStart=/usr/bin/btrfs balance start -dusage=50 /
-    EOF
-    -  systemctl enable --now btrfs-balance.timer
-
-  k) Automation? script to automate common maintenance tasks:
-    cat << 'EOF' > /usr/local/bin/maintain.sh
-    -  #!/bin/bash
-    -  pacman -Syu
-    -  paru -Syu
-    -  pacman -Qkk | grep -v '0 altered files' || echo "No altered package files detected"
-    -  btrfs scrub start /
-    -  snapper list
-    -  aide --check
-    -  lynis audit system
-    -  supergfxctl -g
-    -  su - <username> -c "pgrep ags || ags -c /home/<username>/.config/astal/security-dashboard.ts &"
-    EOF
-    chmod +x /usr/local/bin/maintain.sh
-
-    Save it as /usr/local/bin/maintain.sh and run it weekly via a systemd timer.
-
-  l) Automation TPM Reenroll Hook for Kernel Updates
-    sudo nano /etc/pacman.d/hooks/90-tpm-reenroll.hook
-    [Trigger]
-    Operation = Upgrade
-    Type = Package
-    Target = linux
-    Target = linux-lts
-    [Action]
-    Description = Re-enrolling TPM2 for LUKS after kernel update
-    When = PostTransaction
-    Depends = mkinitcpio
-    Exec = /bin/sh -c 'LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2); systemd-cryptenroll --wipe-slot=tpm2 UUID=$LUKS_UUID && systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 UUID=$LUKS_UUID || { echo "TPM re-enrollment failed for UUID=$LUKS_UUID" >> /var/log/tpm-reenroll.log; notify-send --urgency=critical "TPM Re-enrollment Failed" "Check /var/log/tpm-reenroll.log and re-enroll manually"; exit 1; }'
-    sudo chmod 644 /etc/pacman.d/hooks/90-tpm-reenroll.hook
-
-    # Test the hook:
-    sudo pacman -Syu linux --overwrite "*" # Simulate a kernel update
-    cat /var/log/tpm-reenroll.log # Check for errors if the hook fails
-    systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 # Verify TPM unlocking
-
-    # Note: If the hook fails, check /var/log/tpm-reenroll.log, verify TPM availability (tpm2_getcap properties-fixed), and ensure PCRs 0, 4, and 7 are stable (tpm2_pcrread sha256:0,4,7). Back up the LUKS passphrase in Bitwarden for recovery.
-
-  m) Monitor Arch Linux News:
-    #Install jaq for RSS parsing
-    pacman -S --noconfirm jaq
-
-    # Create script to fetch and notify about Arch news
-    cat << 'EOF' > /usr/local/bin/check-arch-news.sh
-      #!/bin/bash
-      NEWS_FILE="/var/log/arch_news.log"
-      TEMP_FILE="/tmp/arch_news.txt"
-      curl -s https://archlinux.org/feeds/news/ | jaq -r '.channel.item[] | select(.pubDate | fromdateiso8601 > (now - 604800)) | .title + ": " + .description' > "$TEMP_FILE"
-      if [[ -s "$TEMP_FILE" ]]; then
-      if ! cmp -s "$TEMP_FILE" "$NEWS_FILE"; then
-      notify-send --urgency=critical "Arch Linux News" "$(cat "$TEMP_FILE")" --icon=system-software-update
-      mv "$TEMP_FILE" "$NEWS_FILE"
-      fi
-      fi
-    EOF
-
-    #Set permissions
-    chmod 755 /usr/local/bin/check-arch-news.sh
-
-    #Create systemd service
-    cat << 'EOF' > /etc/systemd/system/arch-news.service
-      [Unit]
-      Description=Check Arch Linux news
-      [Service]
-      Type=oneshot
-      ExecStart=/usr/local/bin/check-arch-news.sh
-      User=<username>  # Replace with actual username
-    EOF
-
-    #Create systemd timer
-    cat << 'EOF' > /etc/systemd/system/arch-news.timer
-      [Unit]
-      Description=Check Arch Linux news daily
-      [Timer]
-      OnCalendar=daily
-      Persistent=true
-      [Install]
-      WantedBy=timers.target
-    EOF
- 
-    #Enable and start the timer
-    systemctl enable --now arch-news.timer
-
-  n) Remove after installation: After completing the installation and verifying the system boots correctly, you can safely remove arch-install-scripts with:
-    - pacman -R arch-install-scripts
-
-  o) Set up a systemd timer for paccache to clean the cache weekly:
-    cat << 'EOF' > /etc/systemd/system/paccache.timer
-      [Unit]
-      Description=Clean Pacman cache weekly
-      [Timer]
-      OnCalendar=weekly
-      Persistent=true
-      [Install]
-      WantedBy=timers.target
-    EOF
-
-    cat << 'EOF' > /etc/systemd/system/paccache.service
-      [Unit]
-      Description=Clean Pacman cache
-      [Service]
-      Type=oneshot
-      ExecStart=/usr/bin/paccache -r
-    EOF
-
-    #Timer creation
-    cat << 'EOF' > /etc/systemd/system/maintain.timer
-      [Unit]
-      Description=Run maintenance tasks weekly
-      [Timer]
-      OnCalendar=weekly
-      Persistent=true
-      [Install]
-      WantedBy=timers.target
-    EOF
-    cat << 'EOF' > /etc/systemd/system/maintain.service
-      [Unit]
-      Description=Run maintenance tasks
-      [Service]
-      Type=oneshot
-      ExecStart=/usr/bin/bash /usr/local/bin/maintain.sh
-    EOF
-    
-    systemctl enable --now maintain.timer
-    systemctl enable --now paccache.timer
-    
-  p) Astal integrety security checker:
-    #Create a security dashboard widget
-    mkdir -p ~/.config/astal
-    cat << 'EOF' > ~/.config/astal/security-dashboard.ts
-      import { exec } from 'astal';
-      const lynisOutput = exec('sudo tail -n 10 /var/log/lynis.log | grep -i warning') || 'Lynis: No warnings or error running command';
-      const rkhunterOutput = exec('sudo tail -n 10 /var/log/rkhunter.cronjob.log') || 'Rkhunter: No logs or error running command';
-      const snapperStatus = exec('snapper list | tail -n 5') || 'Snapper: No snapshots or error running command';
-      const securityWidget = new Widget({
-        type: 'scroller',
-        content: `
-          <b>Lynis Warnings:</b>\n${lynisOutput}\n
-          <b>Rkhunter Log:</b>\n${rkhunterOutput}\n
-          <b>Snapper Status:</b>\n${snapperStatus}
-        `,
-      });
-      const window = new Window({
-        title: 'Security Dashboard',
-        widgets: [securityWidget],
-      });
-      window.show();
-      EOF
-      chmod g+r /var/log/lynis.log /var/log/rkhunter.cronjob.log
-      #Compile and run the widget
-      ags -c ~/.config/astal/security-dashboard.ts
-
-      #Automation Script to refresh Astal widgets
-      cat << 'EOF' >> /usr/local/bin/maintain.sh
-        -  pacman -Syu
-        -  paru -Syu
-        -  btrfs scrub start /
-        -  snapper list
-        -  aide --check
-        -  lynis audit system
-        -  supergfxctl -g
-        -  su - <username> -c "pgrep ags || /usr/bin/bubblejail run astal -- /usr/bin/ags -c /home/<username>/.config/astal/security-dashboard.ts &" #Replace <username> with the actual username (e.g., john)
-      EOF
-      chmod +x /usr/local/bin/maintain.sh
-
-      #Create a systemd service for persistent widgets
-      cat << 'EOF' > /etc/systemd/system/astal-widgets.service
-        [Unit]
-        Description=Security Widgets
-        After=gdm.service
-        [Service]
-        Type=simple
-        ExecStart=/usr/bin/bubblejail run astal -- /usr/bin/ags -c /home/<username>/.config/astal/security-dashboard.ts #Replace <username> with the actual username (e.g., john)
-        Restart=always
-        User=<username>
-        Environment="GDK_BACKEND=wayland"
-        [Install]
-        WantedBy=graphical.target
-      EOF
-      systemctl enable --now astal-widgets.service
-
-      #Ensure ~/.config/astal/security-dashboard.ts is readable by <username>:
-      chown <username>:<username> /home/<username>/.config/astal/security-dashboard.ts
-      chmod 644 /home/<username>/.config/astal/security-dashboard.ts
-      
-  q) Firmware Updates
-      -  echo "NOTE: fwupd updates may change PCR 0, requiring TPM re-enrollment. Back up the LUKS passphrase in Bitwarden and run 'systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2' if unlocking fails."
-      # Backup LUKS header
-      -  sudo cryptsetup luksHeaderBackup /dev/nvme0n1p2 --header-backup-file ~/luks-header-backup.img
-      -  echo "Store backup on USB + Bitwarden"
-      # Check and apply firmware updates
-      -  sudo fwupdmgr refresh --force
-      -  sudo fwupdmgr get-devices
-      -  sudo fwupdmgr get-updates
-      # If BIOS update available
-      -  echo "PLUG IN AC POWER"
-      -  read -p "Press Enter to apply updates..."
-      -  sudo fwupdmgr update
-      # Reboot immediately
-      -  sudo reboot
-      # Note: Firmware updates may change TPM PCR values (e.g., PCR 0). Back up LUKS recovery passphrase and re-enroll TPM if unlocking fails:
-      -  sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme0n1p2
-      -  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
-      # Regenerate and re-sign UKI
-      -  sudo mkinitcpio -P
-      -  sudo sbctl sign -s /boot/efi/EFI/Linux/*.efi
+    # Remove auto-generated swap and tmpfs lines to avoid duplicates
+    sed -i '/swapfile\|\/tmp\|\/var\/tmp/d' /mnt/etc/fstab
+    ```
+  - Manually edit `/mnt/etc/fstab` to verify subvolume options and add security settings.
+  - **BTRFS Subvolume and Mount Options**:
+    - Replace `$ROOT_UUID` with the actual UUID from `blkid`:
+      ```bash
+      UUID=$ROOT_UUID / btrfs subvol=@,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /home btrfs subvol=@home,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /data btrfs subvol=@data,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /var btrfs subvol=@var,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /var/lib btrfs subvol=@var_lib,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /var/log btrfs subvol=@log,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /srv btrfs subvol=@srv,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
+      UUID=$ROOT_UUID /swap btrfs subvol=@swap,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /.snapshots btrfs subvol=@snapshots,ssd,noatime 0 0
+      ```
+  - **Edit ESP (/boot) Entry**:
+    - Add `umask=0077` for security:
+      ```bash
+      UUID=$ARCH_ESP_UUID /boot vfat umask=0077 0 2
+      ```
+  - **Edit Windows ESP Entry**:
+    - Use `noauto` and `x-systemd.automount` for manual mounting:
+      ```bash
+      UUID=$WINDOWS_ESP_UUID /windows-efi vfat noauto,x-systemd.automount,umask=0077 0 2
+      ```
+  - **Add tmpfs Entries**:
+    - Use `tmpfs` for temporary directories to reduce disk writes:
+      ```bash
+      tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777 0 0
+      tmpfs /var/tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777 0 0
+      ```
+  - **Add Swapfile Entry**:
+    - Replace `$SWAP_OFFSET` with the actual value:
+      ```bash
+      /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
+      ```
+  - **Validation Steps**:
+    - List ESP UUIDs to confirm:
+      ```bash
+      blkid | grep -E 'nvme0n1p1|nvme1n1p1'
+      ```
+    - Verify the generated fstab:
+      ```bash
+      cat /mnt/etc/fstab
+      ```
+    - Check all UUIDs:
+      ```bash
+      blkid | grep -E "$ROOT_UUID|$LUKS_UUID|$ARCH_ESP_UUID|$WINDOWS_ESP_UUID"
+      ```
+- **g) Check Network**:
+  - Verify connectivity:
+    ```bash
+    ping -c 3 archlinux.org
+    ```
+  - If using Wi-Fi, connect:
+    ```bash
+    nmcli device wifi connect <SSID> password <password>
+    ```
+  - Copy resolver configuration:
+    ```bash
+    cp /etc/resolv.conf /mnt/etc/resolv.conf
+    ```
+
+## Milestone 2: After Step 4f (fstab Generation) - Can pause at this point
+
+## Step 5: Install Arch Linux
+
+- Configure the mirrorlist for faster package downloads:
+  ```bash
+  pacman -Sy reflector
+  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist
+  ```
+- Enable parallel downloads
+  ```bash
+  sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
+  ```
+- Install the base system and necessary packages:
+  ```bash
+  pacstrap /mnt \
+  # Core
+  base base-devel linux linux-firmware mkinitcpio archlinux-keyring \
+  \
+  # Boot / Encryption
+  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools systemd-boot\
+  \
+  # Hardware / Firmware
+  sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
+  \
+  # Graphics
+  mesa libva-mesa-driver mesa-demos vulkan-intel lib32-vulkan-intel \
+  vulkan-radeon lib32-vulkan-radeon intel-gpu-tools \
+  \
+  # Audio
+  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack \
+  \
+  # System
+  sudo polkit udisks2 thermald acpi acpid ethtool \
+  \
+  # Network / Install
+  networkmanager openssh rsync reflector arch-install-scripts \
+  \
+  # User / DE
+  zsh git flatpak gdm pacman-contrib
+  ```
+- Chroot into the installed system:
+  ```bash
+  arch-chroot /mnt
+  ```
+- Ensure multilib repository is enabled (required for 32-bit drivers):
+  ```bash
+  sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
+  ```
+- Force-refresh package database and keyring:
+  ```bash
+  pacman -Syy --noconfirm
+  pacman-key --init
+  pacman-key --populate archlinux
+  ```
+- Add the `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
+  ```bash
+  echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
+  mkinitcpio -P
+  ```
+
+## Step 6: System Configuration
+
+- Set timezone, locale, and hostname:
+  ```bash
+  ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime
+  hwclock --systohc
+  echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
+  locale-gen
+  echo 'LANG=en_US.UTF-8' > /etc/locale.conf
+  echo 'thinkbook' > /etc/hostname
+  cat << 'EOF' > /etc/hosts
+  127.0.0.1 localhost
+  ::1 localhost
+  127.0.1.1 thinkbook.localdomain thinkbook
+  EOF
+  ```
+- Create a user account with appropriate groups:
+  ```bash
+  read -p "Enter your username: " username
+  useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh "$username"
+  chsh -s /usr/bin/zsh "$username"
+  passwd  # root
+  passwd "$username"
+  ```
+- Enable sudo
+  ```bash
+  sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
+  ```
+- Enable NetworkManager
+  ```bash
+  systemctl enable NetworkManager
+  ```
+- TTY console
+  ```bash
+  echo "KEYMAP=us" > /etc/vconsole.conf
+  echo "FONT=ter-v16n" >> /etc/vconsole.conf
+  ```
+- Enable polkit caching (run0 15-min password reuse)
+  ```bash
+  mkdir -p /etc/polkit-1/rules.d
+  tee /etc/polkit-1/rules.d/49-run0-cache.rules > /dev/null <<'EOF'
+  polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+   });
+   EOF
+  ```
+- Shell Configuration — Add to ~/.zshrc or ~/.bashrc
+  ```bash
+  cat << 'EOF' >> /home/$username/.zshrc
+  # Load fzf if available
+  if command -v fzf >/dev/null 2>&1; then
+    source <(fzf --zsh)
+  fi
+
+  # AUR wrapper: force paru, block yay:
+  if command -v paru >/dev/null 2>&1; then
+    alias yay='paru'
+  else
+    alias yay='echo -e "\nERROR: paru not installed. Run: sudo pacman -S --needed paru\n"; false'
+  fi
+
+  # Block 'yay' via pacman
+  pacman() {
+    if [[ " $* " == *" yay "* ]] || [[ " $* " == *" yay-bin "* ]]; then
+      echo -e "\nERROR: Do not install 'yay'. This system uses 'paru' only.\n"
+      return 1
+    fi
+    command pacman "$@"
+  }
   
-  r) [Windows Post-Install Hardening Guide](https://discuss.privacyguides.net/t/windows-post-install-hardening-guide/27335)
+  # Modern CLI tool alias:
+  if [[ $- == *i* ]]; then
+    alias sysctl='systeroid'
+    alias grep='rg'
+    alias find='fd'
+    alias ls='eza  --icons --git'
+    alias cat='bat --paging=never'
+    alias du='dua'
+    alias man='tldr'
+    alias ps='procs'
+    alias dig='dog'
+    alias curl='http --continue'  # curl-like behavior
+    alias btop='btm'
+    alias iftop='bandwhich'
 
-# Step 19: User Customizations
+  # Interactive: Prefer run0 (secure, no SUID, polkit)
+  if [[ -t 1 ]]; then
+    alias sudo='run0'
+  fi
 
-  a) Setup Adwaita (preferable) or Osaka Light as the Gnome Shell theme in the gnome-tweaks #Skip Osaka Light or Catppuccin as separate themes, replicating their aesthetics with CSS to align with Libadwaita.
+  # zoxide: use 'z' and 'zi' (no autojump alias needed)
+  if command -v zoxide >/dev/null 2>&1; then
+    eval "$(zoxide init zsh)"
+  fi
+  fi
 
-  b) Create CSS Files (For Kanagawa Wave):
-        - /* ~/.config/gtk-4.0/gtk-kanagawa.css */
-        - window {
-        -  background-color: #1f1f28;
-        -  color: #dcd7ba;
-        -  font-family: Inter;
-        -  border: none; /* Remove window border */
-        -  box-shadow: none; /* Remove window shadow */ 
-        - }
-        - .adw-header-bar {
-        -  background-color: #2a2a37;
-        -  border-bottom: none; /* Remove header bar border */
-        -  box-shadow: none; /* Remove header bar shadow */ 
-        - }
-        - button {
-        -  background-color: #76946a;
-        -  color: #1f1f28;
-        -  border-radius: 6px;
-        -  border: none; /* Remove button borders */
-        - }
-        - /* Target CSD window decorations */
-        - .csd {
-        -  border: none;
-        -  box-shadow: none; 
-        -  margin: 0; /* Remove margin for tighter tiling */ 
-        - }
+  # Safe update alias
+  alias update='paru -Syu --noconfirm'
+  echo "Run 'update' weekly. Use 'paru -Syu' for full control."
+  EOF
 
-  c) Create CSS Files (For Rosé Pine Dawn):
-        - /* ~/.config/gtk-4.0/gtk-rose-pine-dawn.css */
-        - window {
-        -  background-color: #faf4ed;
-        -  color: #575279;
-        -  font-family: Inter;
-        - }
-        - .adw-header-bar {
-        -  background-color: #fffaf3;
-        -  border-bottom: 1px solid #ea9d34;
-        - }
-        - button {
-        -  background-color: #ea9d34;
-        -  color: #faf4ed;
-        -  border-radius: 6px;
-        - }
+  # Set ownership
+  chown $username:$username /home/$username/.zshrc
+  chmod 644 /home/$username/.zshrc
+  ```
+- Validate run0
+  ```
+  $ run0 whoami
+  # → polkit prompt (first time)
+  root
 
-  d) Symlink the active CSS:
-        - ln -sf ~/.config/gtk-4.0/gtk-kanagawa.css ~/.config/gtk-4.0/gtk.css
+  $ run0 id
+  # → **no prompt** (cached)
 
-  e) Create GTK 3.0 CSS:
-        - /* ~/.config/gtk-3.0/gtk.css */
-        - window {
-        -  background-color: #1f1f28;
-        -  color: #dcd7ba;
-        -  border: none; /* Remove window border */
-        -  box-shadow: none; /* Remove window shadow */ 
-        - }
-        - headerbar {
-        -  background-color: #2a2a37;
-        -  border-bottom: none; /* Remove header bar border */
-        -  box-shadow: none; /* Remove header bar shadow */
-        - }
-        - .csd {
-        -  border: none;
-        -  box-shadow: none;
-        -  margin: 0; 
-        - }
+  $ reboot
+  # → cache cleared on next login
+  ```
+## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
-  f) Manage with Chezmoi:
-        - chezmoi add ~/.config/gtk-4.0 ~/.config/gtk-3.0
-        - chezmoi cd
-        - git add . && git commit -m "Add GTK CSS for Libadwaita and legacy apps"
+## Step 7: Set Up TPM and LUKS2
 
-  g) Ensure Flatpak Compatibility:
-        - flatpak override --user --env=GTK_THEME=Adwaita --filesystem=xdg-config/gtk-4.0 --filesystem=xdg-config/gtk-3.0
+- Install TPM tools:
+  ```bash
+  pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
+  ```
+- Verify TPM device is detected:
+  ```bash
+  tpm2_getcap properties-fixed
+  ```
+- Enroll the LUKS key to TPM2 for automatic unlocking:
+  ```bash
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+  ```
+- Test TPM unlocking and back up PCR values:
+  ```bash
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+  # If test fails: tpm2_pcrread sha256:0,4,7  and compare with expected values
+  systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt
+  tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt
+  # Verify PCR 4 is measured by systemd-boot (non-zero)
+  tpm2_pcrread sha256:4 | grep -v "0x00\{64\}"
+  # Confirm TPM keyslot exists
+  cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
+  echo "WARNING: Store /mnt/usb/tpm-pcr-initial.txt in Bitwarden."
+  echo "WARNING: Store /mnt/usb/tpm-pcr-backup.txt in Bitwarden."
+  echo "WARNING: PCR values are critical for TPM unlocking; back them up securely."
+  ```
+  WARNING: Store both /mnt/usb/tpm-pcr-initial.txt and /mnt/usb/tpm-pcr-backup.txt in Bitwarden. Firmware or Secure Boot changes will alter PCRs and break auto-unlock.
+- Configure `mkinitcpio` for TPM and encryption support:
+  ```bash
+  # HOOKS order is critical: plymouth BEFORE sd-encrypt
+  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf
+  # Ensure btrfs binary is available in initramfs (replace any existing line)
+  sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
+  mkinitcpio -P
+  ```
+- Enable Plymouth for a graphical boot splash:
+  ```bash
+  pacman -S --noconfirm plymouth
+  plymouth-set-default-theme -R bgrt
+  ```
+- Back up the LUKS header for recovery:
+  ```bash
+  mkdir -p /mnt/usb
+  lsblk  # Identify USB device
+  mkfs.fat -F32 /dev/sdX1  # Replace sdX1 with USB partition
+  mount /dev/sdX1 /mnt/usb
+  cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+  sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
+  umount /mnt/usb
+  echo "WARNING: Store /mnt/usb/luks-header-backup in Bitwarden or an encrypted cloud."
+  echo "WARNING: TPM unlocking may fail after firmware updates; keep the LUKS passphrase in Bitwarden."
+  echo "WARNING: Verify the LUKS header backup integrity with sha256sum before storing."
+  ```
+- Test TPM boot:
+  ```bash
+  exit
+  umount -R /mnt
+  reboot
+  ```
 
-  h) Toggle Script:
-        - #!/bin/bash
-        - # /usr/local/bin/toggle-theme.sh
-        - if [ "$1" = "dark" ]; then
-        -  ln -sf ~/.config/gtk-4.0/gtk-kanagawa.css ~/.config/gtk-4.0/gtk.css
-        -  ln -sf ~/.config/gtk-3.0/gtk-kanagawa.css ~/.config/gtk-3.0/gtk.css
-        -  gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
-        -  gsettings set org.gnome.desktop.background picture-uri 'file:///home/<username>/.local/share/backgrounds/abstract-kanagawa.jpg'
-        -  gsettings set org.gnome.shell.extensions.pop-shell gap-inner 2
-        -  gsettings set org.gnome.shell.extensions.pop-shell gap-outer 2 
-        - else
-        -  ln -sf ~/.config/gtk-4.0/gtk-rose-pine-dawn.css ~/.config/gtk-4.0/gtk.css
-        -  ln -sf ~/.config/gtk-3.0/gtk-rose-pine-dawn.css ~/.config/gtk-3.0/gtk.css
-        -  gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'
-        -  gsettings set org.gnome.desktop.background picture-uri 'file:///home/<username>/.local/share/backgrounds/abstract-rose-pine.jpg'
-        -  gsettings set org.gnome.shell.extensions.pop-shell gap-inner 2
-        -  gsettings set org.gnome.shell.extensions.pop-shell gap-outer 2
-        - fi
-        - chmod +x /usr/local/bin/toggle-theme.sh
-        - chezmoi add /usr/local/bin/toggle-theme.sh
+## Milestone 4: After Step 7 (TPM and LUKS2 Setup) - Can pause at this point
 
-  i) Adjust Pop Shell Gaps:
-        - gsettings set org.gnome.shell.extensions.pop-shell gap-inner 2
-        - gsettings set org.gnome.shell.extensions.pop-shell gap-outer 2
+## Step 8: Configure Secure Boot
 
-  j) (Optional) Use Orchis Shell Theme:
-        - paru -S orchis-theme
-        - gsettings set org.gnome.shell.extensions.user-theme name 'Orchis'
-        #Orchis has thinner borders and minimal shadows compared to Adwaita, closer to Hyprland’s aesthetic.
-        - Ensure the AUR package is signed for Secure Boot:
-        - sbctl verify /usr/share/themes/Orchis
-        - sbctl sign -s /usr/share/themes/Orchis
-        - echo "Target = orchis-theme" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+- Create and enroll Secure Boot keys:
+  ```bash
+  # Enter chroot
+  arch-chroot /mnt
 
-  k) (Optional) Hardware Fixes:
-     # ideapad-laptop-tb2024g6plus - https://github.com/ty2/ideapad-laptop-tb2024g6plus/blob/main/README.md
-     # lenovo_thinkbook_g7_plus_asp_linux_fixes - https://github.com/Shiro836/lenovo_thinkbook_g7_plus_asp_linux_fixes
-     # EasyEffects-ThinkBook-Presets - https://github.com/Nekoyue/EasyEffects-ThinkBook-Presets
-     # thinkbook-arch kernel config/patch - https://github.com/rcvd/thinkbook-arch/blob/main/linux/linux-6.9.10.arch1-1/sound.patch
+  # Create and enroll sbctl keys
+  sbctl create-keys
+  sbctl enroll-keys --tpm-eventlog
+
+  # Regenerate UKI (required before signing)
+  mkinitcpio -P
+
+  # Sign all EFI binaries
+  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+  sbctl sign -s /boot/EFI/Linux/arch.efi
+  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
+  ```
+- Check Plymouth and GDM compatibility with Secure Boot:
+  ```bash
+  # Plymouth
+  if [[ -f /usr/lib/plymouth/plymouthd ]]; then
+    sbctl verify /usr/lib/plymouth/plymouthd || sbctl sign -s /usr/lib/plymouth/plymouthd
+  fi
+
+  # GDM (or other display manager)
+  if [[ -f /usr/lib/gdm/gdm ]]; then
+    sbctl verify /usr/lib/gdm/gdm || sbctl sign -s /usr/lib/gdm/gdm
+  fi
+  ```
+- Create a Pacman hook to automatically sign EFI binaries after updates:
+  ```bash
+  cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = systemd
+  Target = linux
+  Target = linux-lts
+  Target = fwupd
+  Target = plymouth
+  
+  [Action]
+  Description = Signing EFI binaries with sbctl after updates
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s \
+    /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
+    /boot/EFI/Linux/arch.efi \
+    /boot/EFI/Linux/arch-fallback.efi \
+    /boot/EFI/BOOT/BOOTX64.EFI \
+    /efi/EFI/arch/fwupdx64.efi \
+    /usr/lib/plymouth/plymouthd \
+    /usr/lib/gdm/gdm
+  EOF
+  ```
+- Verify MOK enrollment before reboot:
+  ```bash
+  mokutil --list-enrolled
+  # You should see the sbctl key listed. If not, re-run sbctl enroll-keys --tpm-eventlog.
+  ```
+- Reboot to enroll keys and enable Secure Boot in UEFI:
+  ```bash
+  exit
+  umount -R /mnt
+  reboot
+  ```
+  ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
+- Update TPM PCR policy after enabling Secure Boot:
+  ```bash
+  # Boot back into Arch ISO
+  arch-chroot /mnt
+  # Wipe old TPM policy and reenroll with Secure Boot PCRs
+  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/nvme1n1p2
+  # Final TPM unlock test
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  # Should return 0 and print "Unlocking with TPM2... success".
+  # Confirm Secure Boot is active
+  sbctl status
+  # Expected:
+  ✓ Secure Boot: Enabled
+  ✓ Setup Mode: Disabled
+  ✓ Signed: all files
+  sbctl verify /boot/EFI/Linux/arch.efi | grep -q "signed" && echo "UKI signed"
+  ```
+- Verify Secure Boot is fully enabled:
+  ```bash
+  # Check SetupMode: 0 = Secure Boot active, 1 = Setup Mode
+  efivar -p -n 8be4df61-93ca-11d2-aa0d-00e098032b8c-SetupMode
+
+  # Check SecureBoot state: 1 = enabled
+  efivar -p -n 8be4df61-93ca-11d2-aa0d-00e098032b8c-SecureBoot
+
+  # Expected output:
+  SetupMode: 0
+  SecureBoot: 1
+
+  # If SetupMode=1:
+  → Reboot into UEFI, complete MOK enrollment, save keys, then reboot again.
+  ```
+- Back up PCR values post-Secure Boot:
+  ```bash
+  mount /dev/sdX1 /mnt/usb  # Replace with your USB
+  tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-post-secureboot.txt
+  diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt || echo "PCR 7 changed (expected)"
+  echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
+  echo "WARNING: Compare PCR values to ensure TPM policy consistency."
+  ```
+- Create boot entries for dual-boot:
+  ```bash
+  # Copy Windows EFI files to Arch ESP:
+  rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
+  umount /mnt/windows-efi
+  
+  # Create /boot/loader/entries/windows.conf with:
+  cat << 'EOF' > /boot/loader/entries/windows.conf
+  title Windows 11
+  efi /EFI/Microsoft/Boot/bootmgfw.efi
+  EOF
+
+  # Create Arch bootloader entry (/boot/loader/entries/arch.conf):
+  cat << 'EOF' > /boot/loader/entries/arch.conf
+  title Arch Linux
+  efi /EFI/Linux/arch.efi
+  EOF
+  ```
+- Final reboot into encrypted system:
+  ```bash
+  exit
+  umount -R /mnt
+  reboot
+  ```
+## Step 9: Configure systemd-boot with UKI
+
+- Mount ESP (EFI System Partition)
+  ```bash
+  mount /dev/nvme1n1p1 /boot
+  ```
+- Install `systemd-boot`:
+  ```bash
+  # Creates /boot/loader/, installs systemd-bootx64.efi.
+  bootctl --esp-path=/boot install
+  ```
+- Configure Unified Kernel Image (UKI):
+  ```bash
+  # Note: Along the step 9 we have multiple ($LUKS_UUID, $ROOT_UUID, $SWAP_OFFSET) that needs to be replaced by pre computed values.
+  cat << 'EOF' > /etc/mkinitcpio.d/linux.preset
+  # UKI output path
+  default_uki="/boot/EFI/Linux/arch.efi"
+  # Use main mkinitcpio config
+  all_config="/etc/mkinitcpio.conf"
+  # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.  
+  default_options="rd.luks.uuid=$LUKS_UUID \
+    root=UUID=$ROOT_UUID \
+    resume_offset=$SWAP_OFFSET \
+    rw quiet splash \
+    intel_iommu=on amd_iommu=on iommu=pt \
+    pci=pcie_bus_perf,realloc \
+    mitigations=auto,nosmt \
+    slab_nomerge slub_debug=FZ \
+    init_on_alloc=1 init_on_free=1 \
+    rd.emergency=poweroff \
+    tpm2-measure=yes \
+    amdgpu.dc=1 amdgpu.dpm=1"
+  EOF
+  # Update mkinitcpio.conf HOOKS (critical order)
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
+  # Generate UKI
+  mkinitcpio -P
+  ```
+- Verify configuration:
+  ```bash
+  # Check HOOKS order
+  grep HOOKS /etc/mkinitcpio.conf
+
+  # List boot entries
+  bootctl list
+
+  # Verify UKI is signed
+  sbctl verify /boot/EFI/Linux/arch.efi
+  ```
+- Create a fallback UKI:
+  ```bash
+  # Minimal config (same hooks, different output)
+  cp /etc/mkinitcpio.conf /etc/mkinitcpio-fallback.conf
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio-fallback.conf
+  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-fallback.conf
+  # Generate fallback UKI
+  mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
+  # Sign it
+  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+  # Fallback entry
+  cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
+  title Arch Linux (Fallback)
+  efi /EFI/Linux/arch-fallback.efi
+  EOF
+  
+  # Verify resume_offset is numeric (not $SWAP_OFFSET)
+  grep resume_offset /etc/fstab
+  grep resume_offset /boot/loader/entries/arch.conf
+  ```
+- Set Boot Order (Arch first)
+  ```bash
+  BOOT_ARCH=$(efibootmgr | grep 'Arch Linux' | awk '{print $1}' | cut -c5-)
+  BOOT_WIN=$(efibootmgr | grep 'Windows' | awk '{print $1}' | cut -c5-)
+  efibootmgr --bootorder ${BOOT_ARCH},${BOOT_WIN}
+  ```
+- Create a GRUB USB for recovery:
+  ```bash
+  lsblk  # Identify USB device (e.g., /dev/sdX1)
+  read -p "Enter USB partition (e.g. /dev/sdb1): " USB_PART
+  mkfs.fat -F32 -n RESCUE_USB /dev/sdX1 # Make sure to enter the USB ID in use replacing the placeholder "/dev/sdX1"
+
+  mkdir -p /mnt/usb
+  mount /dev/sdX1 /mnt/usb # Replace /dev/sdX1 with your USB partition confirmed via lsblk
+
+  pacman -Sy grub
+  grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB --recheck
+
+  # Copy kernel + initramfs
+  cp /crypto_keyfile /mnt/usb/luks-keyfile
+  chmod 600 /mnt/usb/luks-keyfile
+  cp /boot/vmlinuz-linux /mnt/usb/
+  cp /boot/initramfs-linux.img /mnt/usb/initramfs-linux.img
+
+  # Generate minimal rescue initramfs (no plymouth, resume)
+  cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block sd-encrypt btrfs filesystems keyboard)/' /mnt/usb/mkinitcpio-rescue.conf
+  mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
+  cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
+
+  # Copy LUKS keyfile
+  cp /crypto_keyfile /mnt/usb/luks-keyfile 2>/dev/null || \
+  echo "Warning: No keyfile found. Using passphrase only."
+  chmod 600 /mnt/usb/luks-keyfile 2>/dev/null || true
+
+  # GRUB config (Replace $LUKS_UUID and $ROOT_UUID with actual values in the menuentry)
+  cat << EOF > /mnt/usb/boot/grub/grub.cfg
+  set timeout=5
+  menuentry "Arch Linux Rescue" {
+    insmod part_gpt
+    insmod fat
+    insmod luks
+    insmod luks2
+    linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw
+    initrd /initramfs-linux.img
+  }
+  EOF
+
+  # Sign GRUB bootloader
+  sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
+  shred -u /crypto_keyfile
+  umount /mnt/usb
+  
+  echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
+  ```
+- Pacman Hook: Auto-Regenerate UKI on Kernel Update
+  ```bash
+  mkdir -p /etc/pacman.d/hooks
+  cat << 'EOF' > /etc/pacman.d/hooks/90-mkinitcpio.hook
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = linux
+  Target = linux-firmware
+  Target = linux-lts
+
+  [Action]
+  Description = Regenerating UKI after kernel update
+  When = PostTransaction
+  Exec = /usr/bin/mkinitcpio -P
+  EOF
+  ```
+- Disable Hibernation Resume Service
+  ```bash
+  systemctl disable systemd-hibernate-resume.service
+  ```
+- (Optional) Enable systemd-homed with LUKS-encrypted homes
+  ```bash
+  systemctl enable --now systemd-homed.service
+  chattr +C /home
+  
+  # Example user
+  read -p "Create homed user? (y/N): " CREATE_HOMED
+  if [[ "$CREATE_HOMED" =~ ^[Yy]$ ]]; then
+    read -p "Username: " USERNAME
+    homectl create "$USERNAME" \
+      --storage=luks \
+      --fs-type=btrfs \
+      --shell=/bin/zsh \
+      --member-of=wheel \
+      --disk-size=100G
+  fi
+  ```
+## Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can pause at this point
+
+## Step 10: Install and Configure DE and Applications
+
+- Install the **GNOME desktop environment**:
+  ```bash
+  # Install Gnome
+  pacman -Sy --needed gnome
+  ```
+- Install **Paru and configure it**:
+  ```bash   
+  # Clone & build in a clean temp dir
+  TMP_PARU=$(mktemp -d)
+  git clone https://aur.archlinux.org/paru.git "$TMP_PARU"
+  (cd "$TMP_PARU" && makepkg -si)
+  rm -rf "$TMP_PARU"
+
+  # Configure to show PKGBUILD diffs (edit the Paru config file):
+  mkdir -p /home/arch/.config/paru
+  cat << 'EOF' > /home/arch/.config/paru/paru.conf
+  [options]
+  PgpFetch
+  BottomUp
+  RemoveMake
+  SudoLoop
+  EditMenu = true
+  CombinedUpgrade = false
+
+  [bin]
+  DiffMenu = true
+  UseAsk = true
+  EOF
+  chown -R arch:arch /home/arch/.config/paru
+  
+  # Verify if paru shows the PKGBUILD diffs
+  paru -Pg | grep -E 'diffmenu|combinedupgrade|editmenu' # Should show: combinedupgrade: Off diffmenu: Edit editmenu: Edit
+
+  # Set build directory
+  echo 'BUILDDIR = /home/arch/.cache/paru-build' >> /etc/makepkg.conf
+  sudo -p /home/arch/.cache/paru-build
+  chown arch:arch /home/arch/.cache/paru-build
+  ```
+- Install Pacman applications:
+  ```bash
+  # System packages (CLI + system-level)
+  pacman -S --needed \
+  # Security & Hardening
+  aide apparmor auditd chkrootkit lynis rkhunter sshguard ufw usbguard firejail\
+  \
+  # System Monitoring
+  baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
+  \
+  # Hardware
+  bluez bluez-utils fprintd thermald \
+  \
+  # Networking & Privacy
+  dnscrypt-proxy opensnitch wireguard-tools \
+  \
+  # CLI Tools
+  atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
+  helix httpie hyfetch jaq procs python-pygobject rage ripgrep rustup starship tealdeer \
+  tokei xdg-ninja yazi zellij zoxide zsh-autosuggestions \
+  \
+  # Multimedia (system)
+  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud \
+  \
+  # Browsers & OBS (native)
+  brave-browser mullvad-browser tor-browser obs-studio \
+  \
+  # Utilities
+  bandwhich pacman-contrib pacman-notifier \
+  \
+  # GNOME
+  gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks
+  ```
+- Enable essential services:
+  ```bash
+  systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
+  systemctl --failed  # Check for failed services
+  journalctl -p 3 -xb
+  ```
+- Install the AUR applications:
+  ```bash
+  # AUR applications:
+  paru -S --needed \
+    apparmor.d-git \
+    alacritty-graphics \
+    astal-git \
+    ags-git \
+    gdm-settings \
+    thinklmi-git \
+    systeroid-git
+
+  # Verify ThinkLMI for BIOS settings
+  sudo thinklmi  # Check BIOS settings (e.g., Secure Boot, TPM). 
+
+  # Verify binaries exist before signing
+    [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
+  
+  # Sign astal/ags for Secure Boot once
+    sbctl sign -s /usr/bin/astal /usr/bin/ags
+  
+  # Append Astal/AGS to existing 91-sbctl-sign.hook
+  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
+  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = astal-git
+  Target = ags-git
+
+  [Action]
+  Description = Sign astal/ags with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags
+  EOF
+  fi
+  
+  # Test the hook after installation:
+  sbctl verify /usr/bin/astal  #Should show "signed"
+  ```
+- Enable AppArmor integration for Firejail
+  ```bash
+  # Check if Apparmor service is active:
+  systemctl is-active apparmor || { echo "Error: AppArmor service not active"; exit 1; }
+  # Activate the integration if Apparmor is active
+  sed -i 's/# apparmor/apparmor/' /etc/firejail/firejail.config
+  ```
+- Verify AppArmor is enabled
+  ```bash
+  grep apparmor /etc/firejail/firejail.config | grep -v '^#' || echo "Warning: Firejail AppArmor not enabled"
+  ```
+- Sign Firejail binary for Secure Boot
+  ```bash
+  sbctl verify /usr/bin/firejail || { echo "Signing Firejail binary"; sbctl sign -s /usr/bin/firejail; }
+  ```
+- Append Firejail to existing 91-sbctl-sign.hook
+  ```bash
+  if ! grep -q "Target = firejail" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
+  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = firejail
+
+  [Action]
+  Description = Signing Firejail binary with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/firejail
+  EOF
+  ```
+- Create .local Overrides for High-Risk Apps
+  ```bash
+  # DO NOT edit default profiles. Use .local to *add* GPU/Wayland access.
+  # --- Browsers ---
+  for app in brave-browser mullvad-browser tor-browser; do
+  sudo tee /etc/firejail/$app.local > /dev/null << 'EOF'
+  # Local override: Add eGPU + Wayland + Audio
+  protocol wayland
+  whitelist /dev/dri
+  whitelist /dev/snd
+  whitelist ${HOME}/.config/pulse
+  whitelist ${HOME}/.config/pipewire
+  EOF
+  done
+
+  # --- OBS Studio ---
+  sudo tee /etc/firejail/obs-studio.local > /dev/null << 'EOF'
+  # Local override: eGPU + Wayland + Audio + Capture
+  protocol wayland
+  whitelist /dev/dri
+  whitelist /dev/snd
+  whitelist /dev/video*
+  whitelist ${HOME}/.config/obs-studio
+  whitelist ${HOME}/Videos
+  include /etc/firejail/disable-common.inc
+  EOF
+  ```
+- Add Aliases to ~/.zshrc
+  ```bash
+  cat >> ~/.zshrc << 'EOF'
+  # HIGH-RISK: Always sandboxed with AppArmor:
+  alias brave="firejail --apparmor --private-tmp brave-browser"
+  alias mullvad="firejail --apparmor --private-tmp mullvad-browser"
+  alias tor="firejail --apparmor --private-tmp tor-browser"
+  alias obs="firejail --apparmor --private-tmp obs-studio"
+  EOF
+  ```
+- Configure GDM for Wayland:
+  ```bash
+  cat << 'EOF' > /etc/gdm/custom.conf
+  [daemon]
+  WaylandEnable=true
+  DefaultSession=gnome-wayland.desktop
+  EOF
+  systemctl restart gdm # or reboot
+  ```
+- Install Bazzar and the Flatpak applications via GUI
+  ```bash
+  # Install Bazaar (Flatpak-focused app store) and Flatseal
+  flatpak install -y flathub io.github.kolunmi.Bazaar com.github.tchx84.Flatseal
+
+  # Launch once to initialize
+  flatpak run io.github.kolunmi.Bazaar
+
+  # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
+  ```
+- Configure Flatpak sandboxing (via Flatseal or CLI):
+  ```bash
+  # Allow Flatpaks to read/write their own config/data only
+  flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
+  # Allow GPU access for Steam:
+  flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
+  ```
+- Setup Automated System/AUR Updates
+  ```bash
+  # Install pacman-contrib for the essential paccache timer
+  paru -S --noconfirm pacman-contrib
+
+  # Enable Pacman Cache Cleanup Timer
+  sudo systemctl enable --now paccache.timer
+
+  # Create a service and timer for automated paru (AUR/System) updates
+  cat << EOF | sudo tee /etc/systemd/system/paru-update.service
+  [Unit]
+  Description=Paru and System Update
+  Wants=network-online.target
+  After=network-online.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/bin/paru --noconfirm -Syu
+  User=%i
+  # Remember to replace your_username with the actual username you set up in Step 6.
+  User=your_username 
+  EOF
+
+  cat << EOF | sudo tee /etc/systemd/system/paru-update.timer
+  [Unit]
+  Description=Runs paru-update.service daily
+
+  [Timer]
+  # Run at 03:00 (3 AM) daily
+  OnCalendar=daily
+  # Wait up to 15 minutes to prevent all systems hitting the mirror at once
+  RandomizedDelaySec=15min
+  Persistent=true
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+
+  # Enable and start the paru timer
+  sudo systemctl enable paru-update.timer
+  sudo systemctl start paru-update.timer
+  ```
+- Final full system update + UKI rebuild
+  ```bash
+  pacman -Syu                 # now safe – hooks are active
+  mkinitcpio -P               # regenerate UKI (covers new kernel)
+  sbctl verify                # sanity-check all signed files
+  ```
+- Check Secure Boot Violations:
+  ```bash
+  journalctl -b -p 3 | grep -i secureboot
+  ```
+## Step 11: Configure Power Management, Security, Network and Privacy
+
+- Disable power-profiles-daemon to prevent conflicts with TLP and Configure power management for efficiency:
+  ```bash
+  systemctl mask power-profiles-daemon
+  systemctl disable power-profiles-daemon
+  # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
+  echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
+  ```
+- Configure Wayland environment variables:
+  ```bash
+  sudo tee /etc/environment > /dev/null <<'EOF'
+  # WAYLAND (FORCE HIGH-PERFORMANCE)
+  MOZ_ENABLE_WAYLAND=1
+  GDK_BACKEND=wayland
+  CLUTTER_BACKEND=wayland
+  QT_QPA_PLATFORM=wayland
+  SDL_VIDEODRIVER=wayland
+  ELECTRON_OZONE_PLATFORM_HINT=auto
+  XDG_SESSION_TYPE=wayland
+
+  # PATH HARDENING (SYSTEM-WIDE ONLY)
+  # User paths ($HOME/.local/bin) added in ~/.zshrc
+  PATH=/usr/local/bin:/usr/bin:/bin
+  EOF
+  #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
+  LIBVA_DRIVER_NAME=radeonsi
+  LIBVA_DRIVER_NAME=iHD
+
+  cat >> ~/.zshrc <<'EOF'
+  # XDG BASE DIRECTORIES (FHS COMPLIANT)
+  export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+  export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+  # USER PATH: ~/.local/bin (paru, scripts)
+  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
+
+  # WAYLAND GUARD (REINFORCE)
+  export XDG_SESSION_TYPE=wayland
+  EOF
+
+  # Add to ~/.profile (sourced by login shells & display managers)
+  cat >> ~/.profile <<'EOF'
+  # XDG Base Dirs
+  export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+  export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+  # PATH
+  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
+  EOF
+  ```
+- Configure MAC randomization:
+  ```bash
+  mkdir -p /etc/NetworkManager/conf.d
+  cat << 'EOF' > /etc/NetworkManager/conf.d/00-macrandomize.conf
+  [device]
+  wifi.scan-rand-mac-address=yes
+  [connection]
+  wifi.cloned-mac-address=random
+  EOF
+  systemctl restart NetworkManager
+  nmcli connection down <connection_name> && nmcli connection up <connection_name>
+  ```
+- Configure UFW firewall:
+  ```bash
+  ufw allow ssh
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw enable
+  ```
+- Configure GNOME privacy:
+  ```bash
+  gsettings set org.gnome.desktop.privacy send-software-usage-info false
+  gsettings set org.gnome.desktop.privacy report-technical-problems false
+  ```
+- Configure IP spoofing protection:
+  ```bash
+  cat << 'EOF' > /etc/host.conf
+  order bind,hosts
+  nospoof on
+  EOF
+  ```
+- Configure security limits:
+  ```bash
+  cat << 'EOF' >> /etc/security/limits.conf
+  hard nproc 8192
+  EOF
+  ```
+- Configure auditd:
+  ```bash
+  cat << 'EOF' > /etc/audit/rules.d/audit.rules
+  -w /etc/passwd -p wa -k passwd_changes
+  -w /etc/shadow -p wa -k shadow_changes
+  -a always,exit -F arch=b64 -S execve -k exec
+  EOF
+  systemctl restart auditd
+  ```  
+- Configure `dnscrypt-proxy` for secure DNS:
+  ```bash
+  CONN=$(nmcli -t -f NAME,TYPE connection show --active | grep wifi | cut -d: -f1)
+  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv4.dns "127.0.0.1"
+  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv6.dns "::1" ipv6.ignore-auto-dns yes
+  cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock']
+  listen_addresses = ['127.0.0.1:53', '[::1]:53']
+  max_clients = 512
+  ipv4_servers = true
+  ipv6_servers = true
+  dnscrypt_servers = true
+  doh_servers = true
+  require_dnssec = true
+  require_nolog = true
+  require_nofilter = false
+  force_tcp = false
+  timeout = 3000
+  cert_refresh_delay = 240
+  EOF
+  systemctl restart dnscrypt-proxy
+  # Test DNS resolution:
+  dog archlinux.org
+  ```
+- Configure usbguard with GSConnect exception:
+  ```bash
+  usbguard generate-policy > /etc/usbguard/rules.conf
+  # Test usbguard rules before enabling:
+  usbguard list-devices | grep -i "GSConnect\|KDEConnect" # Identify GSConnect device ID
+  usbguard allow-device <device-id> # For GSConnect and other known devices
+  # If passed the USB test enable it:
+  systemctl enable --now usbguard
+  ```
+- Configure Lynis audit and create timer:
+  ```bash
+  # Timer
+  cat << 'EOF' > /etc/systemd/system/lynis-audit.timer
+  [Unit]
+  Description=Run Lynis audit weekly
+  [Timer]
+  OnCalendar=weekly
+  Persistent=true
+  [Install]
+  WantedBy=timers.target
+  EOF
+  # Service
+  cat << 'EOF' > /etc/systemd/system/lynis-audit.service
+  [Unit]
+  Description=Run Lynis audit
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/bin/lynis audit system
+  EOF
+  systemctl enable --now lynis-audit.timer
+  systemctl enable lynis-audit.service
+  ```
+- Configure AIDE:
+  ```bash
+  aide --init
+  mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  systemctl enable --now aide-check.timer
+  ```
+- Configure sysctl hardening:
+  ```bash
+  cat << 'EOF' > /etc/sysctl.d/99-hardening.conf
+  net.ipv4.conf.default.rp_filter=1
+  net.ipv4.conf.all.rp_filter=1
+  net.ipv4.tcp_syncookies=1
+  net.ipv4.ip_forward=0
+  net.ipv4.conf.all.accept_redirects=0
+  net.ipv6.conf.all.accept_redirects=0
+  net.ipv4.conf.default.accept_redirects=0
+  net.ipv6.conf.default.accept_redirects=0
+  net.ipv4.conf.all.send_redirects=0
+  net.ipv4.conf.default.send_redirects=0
+  net.ipv4.conf.all.accept_source_route=0
+  net.ipv6.conf.all.accept_source_route=0
+  net.ipv4.conf.default.accept_source_route=0
+  net.ipv6.conf.default.accept_source_route=0
+  net.ipv4.conf.all.log_martians=1
+  net.ipv4.icmp_ignore_bogus_error_responses=1
+  net.ipv4.icmp_echo_ignore_broadcasts=1
+  kernel.randomize_va_space=2
+  kernel.dmesg_restrict=1
+  kernel.kptr_restrict=2
+  net.core.bpf_jit_harden=2
+  EOF
+  sysctl -p /etc/sysctl.d/99-hardening.conf
+  ```
+- Audit SUID binaries:
+  ```bash
+  find / -perm -4000 -type f -exec ls -l {} ; > /data/suid_audit.txt
+  cat /data/suid_audit.txt # Remove SUID from non-essential binaries
+  chmod u-s /usr/bin/ping
+  setcap cap_net_raw+ep /usr/bin/ping
+  ```
+- Configure zram:
+  ```bash
+  cat << 'EOF' > /etc/systemd/zram-generator.conf 
+  [zram0]
+  zram-size = 50%
+  compression-algorithm = zstd
+  EOF
+  systemctl enable --now systemd-zram-setup@zram0.service
+  ```
+- Configure fwupd for Firmware Updates (Chroot-Safe):
+  ```bash
+  # Install and enable
+  pacman -S fwupd udisks2
+  systemctl enable --now udisks2.service
+
+  # Secure Boot: Allow capsule updates
+  echo '[uefi_capsule]\nDisableShimForSecureBoot=true' >> /etc/fwupd/fwupd.conf
+
+  # Sign fwupd EFI binary
+  sbctl sign -s /efi/EFI/arch/fwupdx64.efi
+
+  # Verify setup (NO update checks)
+  fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" && echo "fwupd: UEFI device detected"
+  echo "fwupd configured. Updates will be checked in Step 18 (after first boot)."
+  ```
+- Configure opensnitch:
+  ```bash
+  systemctl enable --now opensnitch
+  opensnitch-ui
+  ```
+- Enable FSP in COMPLAIN mode
+  ```bash
+  # This activates the *complete* AppArmor.d policy (1000+ profiles)
+  # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
+  
+  # Enable service
+  sudo systemctl enable --now apparmor
+  
+  # Load Full System Policy in COMPLAIN mode
+  sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
+
+  # Warm cache for boot-time performance (critical for UKI + Secure Boot)
+  sudo apparmor_parser -r /usr/share/apparmor.d/*
+
+  # Restart to apply everything
+  sudo systemctl restart apparmor
+
+  echo "AppArmor FSP is now in COMPLAIN mode."
+  echo "Use system normally for 1–2 days, then check denials:"
+  echo "  journalctl -u apparmor | grep DENIED"
+  echo "  sudo aa-logprof"
+  echo "NEXT STEPS (after eGPU setup + normal use):"
+  echo "  1. Use system normally for 1–2 days"
+  echo "  2. Check denials:"
+  echo "       journalctl -u apparmor | grep -i DENIED"
+  echo "       ausearch -m avc -ts recent | tail -20"
+  echo "  3. Tune interactively:"
+  echo "       sudo aa-logprof"
+  echo "       sudo aa-genprof <binary>  # e.g., astal, supergfxctl, obs-studio"
+  echo "  4. After tuning → ENFORCE:"
+  echo "       sudo just fsp-enforce"
+  echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
+  echo "       sudo systemctl restart apparmor"
+  ```
+## Step 12: Configure eGPU (AMD)
+
+- Install AMD drivers and microcode:
+  ```bash
+  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip libva-vdpau-driver
+  ```
+- Configure early KMS
+  ```bash
+  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
+  mkinitcpio -P
+  # if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter. Example: options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1. Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
+  lspci -vv | grep -i "LnkSta.*Speed.*Width"  # Should show "Speed 16GT/s, Width x4"
+  if ! lspci -vv | grep -i "LnkSta" | grep -q "Speed 16GT/s, Width x4"; then
+    echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
+    echo "NOTE: If issues persist, add to /boot/loader/entries/arch.conf: 'amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1'"
+    mkinitcpio -P
+  fi
+  ```
+- Set AMD power management options
+  ```bash
+  echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
+  ```
+- Sign kernel modules for Secure Boot
+  ```bash
+  sbctl sign --all
+  find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
+  ```
+- Install and configure `supergfxctl` for GPU switching:
+  ```bash
+  paru -S supergfxctl
+  cat << 'EOF' > /etc/supergfxd.conf
+  "mode": "Hybrid",
+  "vfio_enable": true,
+  "vfio_save": false,
+  "always_reboot": false,
+  "no_logind": true,
+  "logout_timeout_s": 180,
+  "hotplug_type": "Std" # Use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
+  EOF
+  systemctl enable --now supergfxd
+  sbctl sign -s /usr/bin/supergfxctl
+  sbctl sign -s /usr/lib/supergfxctl/supergfxd
+  ```
+- Install supergfxctl-gex for GUI switching (do NOT run as root or sudo)
+  ```bash
+  pacman -S --needed gnome-shell-extension
+  gnome-extensions enable supergfxctl-gex@asus-linux.org
+  echo "NOTE: supergfxctl-gex provides a GUI for GPU switching in GNOME."
+  ```
+- Install switcheroo-control for GPU integration
+  ```bash
+  pacman -S --needed switcheroo-control
+  systemctl enable --now switcheroo-control
+  ```
+- Install bolt for OCuLink/Thunderbolt management
+  ```bash
+  pacman -S --needed bolt
+  systemctl enable --now bolt
+  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
+  boltctl list | grep -i oculink && boltctl authorize <uuid> # Replace with OCuLink device UUID
+  ```
+- Enable PCIe hotplug
+  ```bash
+  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
+  ```
+- (SKIP AT FIRST) Create a udev rule for eGPU hotplug support:
+  ```bash
+  # Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
+  # Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
+  cat << 'EOF' > /etc/udev/rules.d/99-oculink-hotplug.rules
+  SUBSYSTEM=="pci", ACTION=="add", ATTRS{vendor}=="0x1002", RUN+="/usr/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
+  EOF
+  udevadm control --reload-rules && udevadm trigger
+  ```
+- Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
+  ```bash
+  cat << 'EOF' >> /etc/tlp.conf
+  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915" # This exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
+  CPU_ENERGY_PERF_POLICY_ON_AC=performance
+  CPU_MAX_PERF_ON_AC=100
+  CPU_MIN_PERF_ON_AC=50
+  CPU_SCALING_GOVERNOR_ON_AC=performance
+  EOF
+  systemctl restart tlp
+  tlp-stat -p # Check TDP >60W on AC
+  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
+  ```
+- Configure systemd-logind for reliable GPU switching
+  ```bash
+  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
+  systemctl restart systemd-logind
+  ```
+- (SKIP AT FIRST) Install all-ways-egpu if eGPU isn’t primary
+  ```bash
+  # If supergfxctl do not handle the hotplug try to install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland -- this is a plan b, should not be used at first. First test the setup without, in other words skip to the switcheroo-control
+  if ! DRI_PRIME=1 glxinfo | grep -i radeon; then
+    cd ~; curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip; unzip all-ways-egpu.zip; cd all-ways-egpu-main; chmod +x install.sh; sudo ./install.sh; cd ../; rm -rf all-ways-egpu.zip all-ways-egpu-main
+    sbctl sign -s /usr/bin/all-ways-egpu # Ensure binary is signed for Secure Boot
+    all-ways-egpu setup
+    all-ways-egpu set-boot-vga egpu
+    all-ways-egpu set-compositor-primary egpu
+    systemctl restart gdm
+  fi
+  #Note: If Plymouth splash screen fails (e.g., blank screen), remove 'splash' from kernel parameters in /boot/loader/entries/arch.conf and regenerate UKI with `mkinitcpio -P` 
+  ```
+- VFIO for eGPU passthrough
+  ```bash
+  pacman -S --needed qemu libvirt virt-manager
+  systemctl enable --now libvirtd
+  echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
+  echo "1. Run: lspci -nn | grep -i amd"
+  echo "2. Example output: 1002:73df [AMD Radeon RX 6700 XT]"
+  echo "3. Edit /etc/modprobe.d/vfio.conf and replace 1002:xxxx with real IDs"
+  echo "4. Then: mkinitcpio -P && reboot"
+  lspci -nn | grep -i amd
+  fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
+  echo "Run 'lspci -nn | grep -i amd' to find PCIe IDs (e.g., 1002:73df for RX 6700 XT). Replace '1002:xxxx' in /etc/modprobe.d/vfio.conf with the correct IDs."
+  echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
+  mkinitcpio -P
+
+  # Chek if vfio and qemu needs to be signed
+  sbctl verify /usr/bin/qemu-system-x86_64
+  sbctl verify /usr/lib/libvirt/libvirtd
+
+  # If unsigned, sign and add to the pacman hook
+  sbctl sign -s /usr/bin/qemu-system-x86_64
+  sbctl sign -s /usr/lib/libvirt/libvirtd
+  echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = supergfxctl" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
+  ```
+- Enable VRR for 4K OLED
+  ```bash
+  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
+
+  # Verify VRR is active:
+  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
+  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
+
+  # Verify VRR support on the eGPU:
+  DRI_PRIME=1 vdpauinfo | grep -i radeonsi #Confirms AMD driver
+
+  # If VRR fails, check dmesg for amdgpu errors:
+  dmesg | grep -i amdgpu
+
+  # Ensure 4K OLED is set to its maximum refresh rate and VRR range:
+  xrandr --output <output-name> --mode 3840x2160 --rate 120 #replace output name with HDMI-1 or DP-1 (check via 'xrandr')
+  # In Wayland, confirm VRR:
+  wlr-randr --output <output-name> #check refresh rate range
+
+  # Check AppArmor denials
+  journalctl -u apparmor | grep -i "supergfxctl\|qemu\|libvirtd"
+  # echo "NOTE: If AppArmor denials are found, generate profiles with 'aa-genprof supergfxctl' or 'aa-genprof qemu-system-x86_64' and customize rules for /dev/dri/*, /dev/vfio/*, and /sys/bus/pci/* access."
+
+  # Log denials to a file for review
+  journalctl -u apparmor | grep -i DENIED > /var/log/apparmor-denials.log
+
+  # DO NOT ENFORCE YET — FSP is in COMPLAIN mode
+  # Denials will be logged to /var/log/apparmor-denials.log
+  # Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
+  ```
+- Pacman hook for binary verification
+  ```bash
+  cat << 'EOF' > /etc/pacman.d/hooks/90-pacman-verify.hook
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = *
+  [Action]
+  Description = Verifying package file integrity
+  When = PostTransaction
+  Exec = /usr/bin/pacman -Qkk
+  EOF
+  chmod 644 /etc/pacman.d/hooks/90-pacman-verify.hook
+  ```
+- Verify eGPU setup
+  ```bash
+  # Verify eGPU detection
+  lspci | grep -i amd
+  dmesg | grep -i amdgpu
+
+  # Verify GPU switching
+  supergfxctl -s # Show supported modes
+  supergfxctl -g # Get current mode
+  supergfxctl -S # Check current power status
+  supergfxctl -m Hybrid # Set to Hybrid mode
+  glxinfo | grep -i renderer # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary)
+
+  **Note:** Switch modes before testing:
+  # Hybrid: `supergfxctl -m Hybrid` → `DRI_PRIME=1 glxinfo | grep renderer`
+  # VFIO: `supergfxctl -m VFIO` → `lspci -k | grep vfio`
+  DRI_PRIME=1 glxinfo | grep -i radeon # Should show AMD
+  DRI_PRIME=0 glxinfo | grep -i arc # Should show Intel
+  DRI_PRIME=1 vdpauinfo | grep -i radeonsi
+  supergfxctl -m VFIO # Test VFIO mode for VM
+
+  # Verify PCIe bandwidth. Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4):
+  lspci -vv | grep -i "LnkSta.*Speed.*Width" # Should show "Speed 16GT/s, Width x4" for OCuLink4
+  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
+  lspci -vv | grep -i "LnkSta" | grep -i "card1"
+  # If the link is suboptimal (e.g., x1 or Gen 3), suggest adding kernel parameters to force PCIe performance: pcie_ports=native pciehp.pciehp_force=1
+
+  # Verify OCuLink firmware
+  fwupdmgr get-devices | grep -i "oculink\|redriver"
+
+  # Verify VRR
+  wlr-randr --output <output-name>
+
+  # Verify eGPU functionality
+  lspci | grep -i vga
+  lspci | grep -i "serial\|usb\|thunderbolt"
+  lspci -vv | grep -i "LnkSta"
+  lspci -k | grep -i vfio # Verify VFIO binding
+  dmesg | grep -i "oculink\|pcieport\|amdgpu\|jhl\|redriver"
+
+  # Check for PCIe errors
+  dmesg | grep -i "pcieport\|error\|link"
+  cat /sys/class/drm/card*/device/uevent | grep DRIVER  # Should show i915 and amdgpu
+
+  # (Optional) Check OCuLink dock firmware - Firmware Update may be better performed in Step 18
+  fwupdmgr get-devices | grep -i "oculink\|redriver"
+  fwupdmgr update - echo "fwupd upgrade moved to Step 18 for BIOS/firmware updates."
+  ```
+- **eGPU Troubleshooting Matrix**:
+  | Issue | Possible Cause | Solution |
+  |-------|----------------|----------|
+  | eGPU not detected (`lspci \| grep -i amd` empty) | OCuLink cable not seated properly, dock firmware outdated, or PCIe hotplug failure | Re-seat the OCuLink cable, run `fwupdmgr update`, add `pcie_ports=native` to kernel parameters, trigger `echo 1 > /sys/bus/pci/rescan` |
+  | Black screen on Wayland | eGPU not set as primary display | Run `all-ways-egpu set-boot-vga egpu` and `all-ways-egpu set-compositor-primary egpu`, then restart GDM: `systemctl restart gdm` |
+  | Low performance (e.g., x1 instead of x4) | PCIe link negotiation failure | Check link status: `lspci -vv \| grep LnkSta`, add `amdgpu.pcie_gen_cap=0x4` to kernel parameters |
+  | Hotplug fails | OCuLink hardware limitation or missing udev rule | Apply the udev rule above, reboot if necessary |
+  - Additional troubleshooting commands:
+    ```bash
+    lspci | grep -i amd  # Check eGPU detection
+    dmesg | grep -i amdgpu  # Check driver loading
+    glxinfo | grep -i renderer  # Verify GPU rendering
+    ```
+## Step 13: Configure Snapper and Backups
+- Install Snapper and snap-pac
+  ```bash
+  pacman -S --noconfirm snapper snap-pac
+  ```
+- Create global filter
+  ```bash
+  mkdir -p /etc/snapper/filters
+  echo -e "/home/.cache\n/tmp\n/run\n/.snapshots" | sudo tee /etc/snapper/filters/global-filter.txt
+  ```
+- Create Snapper configurations for root, home and data:
+  ```bash
+  snapper --config root create-config /
+  snapper --config home create-config /home
+  snapper --config data create-config /data
+  ```
+- Configure Snapper for automatic snapshots:
+  ```bash
+  #root
+  cat << 'EOF' > /etc/snapper/configs/root
+  TIMELINE_CREATE="yes"
+  TIMELINE_CLEANUP="yes"
+  TIMELINE_MIN_AGE="1800"
+  TIMELINE_LIMIT_HOURLY="0"
+  TIMELINE_LIMIT_DAILY="7"
+  TIMELINE_LIMIT_WEEKLY="4"
+  TIMELINE_LIMIT_MONTHLY="6"
+  TIMELINE_LIMIT_YEARLY="0"
+  NUMBER_CLEANUP="yes"
+  NUMBER_LIMIT="50"
+  NUMBER_LIMIT_IMPORTANT="10"
+  SUBVOLUME="/"
+  ALLOW_GROUPS=""
+  SYNC_ACL="no"
+  FILTER="/etc/snapper/filters/global-filter.txt"
+  EOF
+
+  #home
+  cat << 'EOF' > /etc/snapper/configs/home
+  TIMELINE_CREATE="yes"
+  TIMELINE_CLEANUP="yes"
+  TIMELINE_MIN_AGE="1800"
+  TIMELINE_LIMIT_HOURLY="0"
+  TIMELINE_LIMIT_DAILY="7"
+  TIMELINE_LIMIT_WEEKLY="4"
+  TIMELINE_LIMIT_MONTHLY="6"
+  TIMELINE_LIMIT_YEARLY="0"
+  NUMBER_CLEANUP="yes"
+  NUMBER_LIMIT="50"
+  NUMBER_LIMIT_IMPORTANT="10"
+  SUBVOLUME="/home"
+  ALLOW_GROUPS=""
+  SYNC_ACL="no"
+  FILTER="/etc/snapper/filters/global-filter.txt"
+  EOF
+
+  #data
+  cat << 'EOF' > /etc/snapper/configs/data
+  TIMELINE_CREATE="yes"
+  TIMELINE_CLEANUP="yes"
+  TIMELINE_MIN_AGE="1800"
+  TIMELINE_LIMIT_HOURLY="0"
+  TIMELINE_LIMIT_DAILY="7"
+  TIMELINE_LIMIT_WEEKLY="4"
+  TIMELINE_LIMIT_MONTHLY="6"
+  TIMELINE_LIMIT_YEARLY="0"
+  NUMBER_CLEANUP="yes"
+  NUMBER_LIMIT="50"
+  NUMBER_LIMIT_IMPORTANT="10"
+  SUBVOLUME="/data"
+  ALLOW_GROUPS=""
+  SYNC_ACL="no"
+  FILTER="/etc/snapper/filters/global-filter.txt"
+  EOF
+  ```
+- Config permissions:
+  ```bash
+  chmod 640 /etc/snapper/configs/*
+  ```
+- Enable Snapper timeline and cleanup:
+  ```bash
+  systemctl enable --now snapper-timeline.timer
+  systemctl enable --now snapper-cleanup.timer
+  ```
+- Create Pacman hooks to snapshot before and after package transactions:
+  ```bash
+  mkdir -p /etc/pacman.d/hooks
+  cat << 'EOF' > /etc/pacman.d/hooks/50-snapper-pre-update.hook
+  [Trigger]
+  Operation = Upgrade
+  Operation = Install
+  Operation = Remove
+  Type = Package
+  Target = *
+  [Action]
+  Description = Creating snapshot before pacman transaction
+  DependsOn = snapper
+  When = PreTransaction
+  Exec = /usr/bin/snapper --config root create --description "Pre-pacman update" --type pre
+  Exec = /usr/bin/snapper --config home create --description "Pre-pacman update" --type pre
+  Exec = /usr/bin/snapper --config data create --description "Pre-pacman update" --type pre
+  EOF
+  
+  cat << 'EOF' > /etc/pacman.d/hooks/51-snapper-post-update.hook
+  [Trigger]
+  Operation = Upgrade
+  Operation = Install
+  Operation = Remove
+  Type = Package
+  Target = *
+  [Action]
+  Description = Creating snapshot after pacman transaction
+  DependsOn = snapper
+  When = PostTransaction
+  Exec = /usr/bin/snapper --config root create --description "Post-pacman update" --type post
+  Exec = /usr/bin/snapper --config home create --description "Post-pacman update" --type post
+  Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
+  EOF
+  ```
+  - Set permissions for hooks:
+  ```bash
+  chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
+  chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
+  ```
+  - Verify configuration:
+  ```bash 
+  snapper --config root get-config
+  snapper --config home get-config
+  snapper --config data get-config
+  ```
+  - Test snapshot creation:
+  ```bash
+  snapper --config root create --description "Initial test snapshot"
+  snapper --config home create --description "Initial test snapshot"
+  snapper --config data create --description "Initial test snapshot"
+  snapper list
+  ```
+  - Check for AppArmor denials (if enabled in Step 11)
+  ```bash
+  echo "NOTE: If AppArmor is enabled, check for denials: journalctl -u apparmor | grep -i 'snapper'. Generate profiles with 'aa-genprof snapper' if needed."
+  journalctl -u apparmor | grep -i "snapper"
+  ```
+## Step 14: Configure Dotfiles
+
+- Install `chezmoi` for dotfile management:
+  ```bash
+  # Install chezmoi
+  pacman -S --noconfirm chezmoi
+  ```
+- Initialize and apply dotfiles from a repository:
+  ```bash
+  chezmoi init --apply https://github.com/yourusername/dotfiles.git
+  ```
+- Run doctor as user
+  ```bash
+  chezmoi doctor || echo "chezmoi OK"
+  ```
+- Verify dotfile application:
+  ```bash
+  chezmoi status
+  ```
+- Backup existing configurations
+  ```bash
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup
+  ```
+- Add user-specific dotfiles
+  ```bash
+  chezmoi add ~/.zshrc ~/.config/zsh
+  dconf dump /org/gnome/ > ~/.config/gnome-settings.dconf
+  dconf dump /org/gnome/shell/extensions/ > ~/.config/gnome-shell-extensions.dconf
+  flatpak override --user --export > ~/.config/flatpak-overrides
+  chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
+  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
+  chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
+  ```
+- Add system-wide configurations
+  ```bash
+  sudo chezmoi add /etc/pacman.conf /etc/paru.conf /etc/pacman.d/hooks
+  sudo chezmoi add /etc/audit/rules.d/audit.rules /etc/security/limits.conf /etc/sysctl.d/99-hardening.conf
+  sudo chezmoi add /etc/NetworkManager/conf.d/00-macrandomize.conf /etc/dnscrypt-proxy/dnscrypt-proxy.toml /etc/usbguard/rules.conf
+  sudo chezmoi add /etc/snapper/configs /etc/snapper/filters/global-filter.txt
+  sudo chezmoi add /etc/modprobe.d/i915.conf /etc/modprobe.d/amdgpu.conf /etc/supergfxd.conf
+  sudo chezmoi add /etc/udev/rules.d/99-oculink-hotplug.rules /etc/modules-load.d/pciehp.conf /etc/modules-load.d/vfio.conf
+  sudo chezmoi add /etc/mkinitcpio.conf /etc/mkinitcpio.d/linux.preset
+  sudo chezmoi add /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf
+  sudo chezmoi add /etc/fstab /etc/environment /etc/gdm/custom.conf /etc/systemd/zram-generator.conf /etc/systemd/logind.conf /etc/host.conf
+  sudo chezmoi add /etc/systemd/system/lynis-audit.timer /etc/systemd/system/lynis-audit.service
+  sudo chezmoi add /etc/systemd/system/btrfs-balance.timer /etc/systemd/system/btrfs-balance.service
+  sudo chezmoi add /etc/systemd/system/arch-news.timer /etc/systemd/system/arch-news.service
+  sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
+  sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
+  sudo chezmoi add /etc/systemd/system/astal-widgets.service
+  sudo chezmoi add /etc/pacman.d/hooks/91-sbctl-sign.hook
+  sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
+  sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
+  sudo chezmoi add /etc/pacman.d/hooks/90-mkinitcpio-uki.hook
+  sudo chezmoi add /etc/tlp.conf
+  sudo chezmoi add /etc/boltd/boltd.conf
+  sudo chezmoi add /etc/locale.conf /etc/vconsole.conf
+  sudo chezmoi add /etc/pacman.d/mirrorlist
+  sudo chezmoi add -r /etc/dnscrypt-proxy/
+  sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
+  sudo chezmoi add -r /etc/apparmor.d/local/
+  ```
+- Add Firejail configuration files
+  ```bash
+  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile; do
+    [ -f /etc/firejail/$profile ] || { echo "Error: /etc/firejail/$profile not found"; exit 1; }
+    sudo chezmoi add /etc/firejail/$profile
+  done
+  sudo chezmoi add /etc/firejail/firejail.config
+  sudo chezmoi add /etc/firejail/brave-browser.profile
+  sudo chezmoi add /etc/firejail/mullvad-browser.profile
+  sudo chezmoi add /etc/firejail/tor-browser.profile
+  sudo chezmoi add /etc/firejail/obs-studio.profile
+  ```
+- Export package lists for reproducibility
+  ```bash
+  pacman -Qqe > ~/explicitly-installed-packages.txt
+  pacman -Qqm > ~/aur-packages.txt
+  flatpak list --app > ~/flatpak-packages.txt
+  chezmoi add ~/explicitly-installed-packages.txt ~/aur-packages.txt ~/flatpak-packages.txt
+  ```
+- Backup Secure Boot and TPM data to USB (replace /dev/sdX1 with your USB partition, confirm via lsblk)
+  ```bash
+  lsblk
+  sudo mkfs.fat -F32 -n BACKUP_USB /dev/sdX1
+  sudo mkdir -p /mnt/usb
+  sudo mount /dev/sdX1 /mnt/usb
+  sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
+  sudo cp /var/lib/tpm-pcr-initial.txt /mnt/usb/ 2>/dev/null || true
+  sudo umount /mnt/usb
+  echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
+  ```
+- Version control with chezmoi
+  ```bash
+  chezmoi cd
+  git init
+  git remote add origin # Skip if not using a remote repository
+  git add .
+  git commit -m "Add user and system configurations for Lenovo ThinkBook Arch setup"
+  git push origin main # Skip if not using a remote repository
+  ```
+- Apply configurations and set permissions
+  ```bash
+  chezmoi apply
+  sudo chmod 640 /etc/snapper/configs/*
+  sudo chezmoi chown root:root /etc/firejail/*
+  sudo chezmoi chmod 644 /etc/firejail/*
+  ```
+- Test and validate
+  ```bash
+  chezmoi diff # Should show no differences if applied successfully
+  dconf load /org/gnome/ < ~/.config/gnome-settings.dconf
+  dconf load /org/gnome/shell/extensions/ < ~/.config/gnome-shell-extensions.dconf
+  zsh -i # Ensure no errors in ~/.zshrc
+  systemctl list-timers --all # Verify lynis-audit.timer, btrfs-balance.timer, etc.
+  systemctl status maintain.service
+  cat ~/explicitly-installed-packages.txt # Check for expected packages
+  cat ~/aur-packages.txt # Check for AUR packages
+  cat ~/flatpak-packages.txt # Check for Flatpak apps
+  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio}.profile || echo "Error: Firejail profiles not restored by chezmoi"
+  # Test to ensure Firejail profiles are functional post-restore
+  echo "Testing Firejail profiles after chezmoi restore"
+  for profile in brave-browser mullvad-browser tor-browser obs-studio; do
+    [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
+    firejail --apparmor --profile=/etc/firejail/$profile.profile --dry-run || echo "Warning: $profile.profile failed"
+  done
+  ```
+- Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
+  ```bash
+  a. Boot from Arch Linux Rescue USB.
+  b. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+  c. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt
+  d. Chroot: arch-chroot /mnt
+  e. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery.
+  ```
+- Troubleshooting
+  ```bash
+  If chezmoi apply fails: chezmoi doctor; journalctl -xe
+  If a file is missing: verify path, create if needed (e.g., touch /etc/modprobe.d/amdgpu.conf)
+  If git push fails: check remote setup (git remote -v)
+
+  # Check AppArmor logs
+  journalctl -u apparmor | grep -i chezmoi || echo "No AppArmor denials for chezmoi"
+  ```
+## Step 15: Test the Setup
+
+- Reboot to test the full system:
+  ```bash
+  echo "Verifying bootloader configuration before reboot"
+  bootctl status | grep -i "systemd-boot" || echo "Error: systemd-boot not installed"
+  ls /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf || echo "Error: Boot entries missing"
+  sbctl verify /boot/EFI/systemd/systemd-bootx64.efi || { echo "Signing bootloader"; sbctl sign -s /boot/EFI/systemd/systemd-bootx64.efi; }
+  sbctl verify /boot/EFI/BOOT/BOOTX64.EFI || { echo "Signing bootloader"; sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI; }
+  echo "Rebooting to test systemd-boot. Press F1 to access the boot menu and confirm Arch and Windows entries."
+  reboot
+  ```
+- Verify TPM unlocking:
+  ```bash
+  # Boot and confirm the LUKS partition unlocks automatically via TPM.
+  echo "After reboot, checking TPM unlock logs"
+  journalctl -b | grep -i "systemd-cryptsetup.*tpm2" || echo "Warning: TPM unlock not confirmed"
+
+  # Check the PCRs you actually enrolled (0, 4, 7)
+  tpm2_pcrread sha256:0,4,7 > /tmp/tpm-pcr-current.txt
+
+  # Mount USB to read the backup file
+  echo "Please insert your backup USB drive..."
+  sleep 5 # Give yourself time to plug it in
+
+  # Find the USB, e.g., /dev/sdb1 (use lsblk to confirm)
+  lsblk 
+  read -p "Enter the USB partition (e.g., /dev/sdb1): " USB_PART
+  mkdir -p /mnt/usb
+  mount "$USB_PART" /mnt/usb
+
+  # Diff against the correct file on the USB
+  echo "Comparing current PCRs with the backup from Step 8..."
+  diff /tmp/tpm-pcr-current.txt /mnt/usb/tpm-pcr-post-secureboot.txt || echo "Warning: TPM PCR values differ (This is expected if you've updated firmware/bootloader since Step 8)"
+
+  # Clean up
+  umount /mnt/usb
+  rmdir /mnt/usb
+  ```  
+- Check Secure Boot status:
+  ```bash
+  sbctl verify /boot/EFI/Linux/arch.efi
+  sbctl status
+  mokutil --sb-state
+  ```
+- Verify eGPU detection:
+  ```bash
+  lspci | grep -i amd
+  dmesg | grep -i amdgpu
+  ls /sys/class/drm/card*
+  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" || echo "Warning: GLX test failed, trying Vulkan"
+  DRI_PRIME=1 vulkaninfo --summary | grep deviceName
+  systemctl status supergfxd
+  supergfxctl -s
+  sbctl verify /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko || { echo "Signing amdgpu module"; sbctl sign -s /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko; }
+  ```
+- Test hibernation
+  ```bash
+  echo "Verifying swapfile configuration"
+  swapon --show
+  btrfs inspect-internal map-swapfile /swap/swapfile
+  filefrag -v /swap/swapfile | grep "extents found: 1" || echo "Warning: Swapfile is fragmented" # Ensure no fragmentation
+  systemctl hibernate
+  echo "After resuming, checking hibernation logs"
+  dmesg | grep -i "hibernate|swap"
+  ```
+- Test Wayland session:
+  ```bash
+  echo $XDG_SESSION_TYPE  # Should output "wayland"
+  grep WaylandEnable /etc/gdm/custom.conf
+
+  # Verify Mutter is running as the Wayland compositor
+  ps aux | grep -i mutter | grep -v grep || echo "Error: Mutter not running"
+
+  # Check if GNOME is using Wayland for rendering
+  gsettings get org.gnome.mutter experimental-features  # Should include Wayland-related features
+
+  # Test Wayland rendering with a simple GNOME application
+  GDK_BACKEND=wayland gnome-calculator &  # Launch a Wayland-native app
+  sleep 2
+  killall gnome-calculator
+  ```
+- Verify Snapper snapshots:
+  ```bash
+  for config in root home data; do
+    snapper --config "$config" create --description "Test snapshot"
+    snapper --config "$config" list
+  done
+  ```
+- Test Timers
+  ```bash
+  systemctl list-timers --all | grep -E "paru-update|paccache|snapper-timeline|snapper-cleanup|fstrim|lynis-audit"
+  journalctl -u paru-update.timer
+  journalctl -u paccache.timer
+  journalctl -u snapper-timeline.timer
+  journalctl -u fstrim.timer
+  journalctl -u lynis-audit.timer
+  systemctl start paru-update.service snapper-timeline.service fstrim.service lynis-audit.service
+  ```
+- Test network connectivity:
+  ```bash
+  ping -c 3 archlinux.org
+  nslookup archlinux.org
+  systemctl status dnscrypt-proxy
+  ```
+- Check for failed services:
+  ```bash
+  systemctl --failed
+  systemctl --failed | awk '/failed/ {print $2}' | xargs -I {} journalctl -u {} -n 50  ```
+- Verify AppArmor.d full-system policy (FSP) is active
+  ```bash
+  echo "=== AppArmor.d FSP Status ==="
+  aa-status | head -20
+
+  # Check if FSP is loaded from /usr/share/apparmor.d
+  if [ -d /usr/share/apparmor.d ] && command -v just >/dev/null; then
+    echo "✓ apparmor.d FSP detected"
+    just fsp-status || echo "Warning: FSP not fully loaded"
+  else
+    echo "✗ apparmor.d not installed or 'just' command missing"
+  fi
+
+  # Show loaded profiles count
+  aa-status | grep -E "(profiles are loaded|enforce|complain)" || echo "No profiles loaded"
+
+  # Log recent denials (FSP logs to same audit)
+  ausearch -m avc -ts recent | tail -10 || echo "No recent AVC denials"
+
+  # Confirm cache is enabled
+  grep -q "cache-loc = /etc/apparmor.d/cache" /etc/apparmor/parser.conf && \
+    echo "✓ AppArmor cache enabled" || echo "✗ Cache not configured"
+
+  echo "Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce'."
+  ```
+- Test AUR builds with /tmp (no noexec)
+  ```bash
+  mount | grep /tmp | grep -v noexec || echo "Error: /tmp mounted with noexec"
+  # The paru command succeeding is the test. No need to sign the binary.
+  paru -S --builddir ~/.cache/paru_build --noconfirm hello-world-bin
+  ```
+- Test Firejail sandboxing
+  ```bash
+  echo "Verifying Firejail sandboxing"
+  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
+  firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
+  firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
+  firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
+  firejail --list || echo "No Firejail sandboxes running"
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs" || echo "No AppArmor denials for Firejail"
+  firejail --list || echo "No Firejail sandboxes running (expected if tests passed)"
+  ```
+- AppArmor Tuning Milestone (Run After Normal Use)
+  ```bash
+  echo "=== APARMOR TUNING ==="
+  echo "Use system normally (eGPU, browsers, OBS, AGS) for 1–2 hours."
+  echo "Then run:"
+
+  sudo ausearch -m avc -ts boot | audit2allow
+  sudo aa-logprof
+
+  # For AGS/Astal:
+  sudo aa-genprof astal
+  # → In another terminal: astal -- ags -c ~/.config/ags/config.js
+  # → Exercise UI, then Ctrl+C and finish aa-genprof
+
+  echo "Repeat for: ags, supergfxctl, boltctl, qemu-system-x86_64"
+
+  echo "After tuning: reboot and verify no denials in journalctl -u apparmor"
+  ```
+- (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
+  ```bash
+  echo "fwupd tests moved to Step 18 for BIOS/firmware updates."
+  ```
+- (Optional) Test Windows boot.
+  ```bash
+  echo "Reboot and select Windows from the boot menu (F12 or Enter). Verify Windows boots correctly."
+  sbctl verify /boot/EFI/Microsoft/Boot/bootmgfw.efi || { echo "Signing Windows bootloader"; sbctl sign -s /boot/EFI/Microsoft/Boot/bootmgfw.efi; }
+  ```
+## Step 16: Create Recovery Documentation
+
+- Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
+  ```bash
+  echo "Store UEFI password, LUKS passphrase, keyfile location, and MOK password in Bitwarden."
+  read -p "Confirm that UEFI password, LUKS passphrase, keyfile location, and MOK password are stored in Bitwarden (y/n): " confirm
+  [ "$confirm" = "y" ] || { echo "Error: Please store credentials in Bitwarden before proceeding."; exit 1; }
+  ```
+- Prepare and verify USB
+  ```bash
+  echo "Available devices:"
+  lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT
+  read -p "Enter USB partition (e.g., sdb1): " usb_dev
+  [ -b "/dev/$usb_dev" ] || { echo "Error: /dev/$usb_dev not found"; exit 1; }
+  echo "WARNING: Formatting /dev/$usb_dev will erase all data."
+  read -p "Continue? (y/n): " confirm
+  [ "$confirm" = "y" ] || { echo "Aborted."; exit 1; }
+  # The formatting command must be run as root
+  sudo mkfs.fat -F32 -n RECOVERY_USB /dev/$usb_dev || echo "Warning: USB formatting failed"
+  sudo mkdir -p /mnt/usb
+  sudo mount /dev/$usb_dev /mnt/usb
+  ```
+- Verify existing backups
+  ```bash
+  [ -f /mnt/usb/luks-keyfile ] || { echo "Error: /mnt/usb/luks-keyfile not found"; exit 1; }
+  [ -f /mnt/usb/luks-header-backup ] || { echo "Error: /mnt/usb/luks-header-backup not found"; exit 1; }
+  ```
+- Backup LUKS header and Secure Boot keys
+  ```bash
+  [ -f /mnt/usb/luks-header-backup ] && { echo "Warning: /mnt/usb/luks-header-backup exists. Overwrite? (y/n): "; read confirm; [ "$confirm" = "y" ] || exit 1; }
+  cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+  sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
+  cp -r /etc/sbctl /mnt/usb/sbctl-keys
+  sudo chmod -R 600 /mnt/usb/sbctl-keys
+  ```
+- Create a recovery document for troubleshooting:
+  ```bash
+  [ -f /mnt/usb/luks-keyfile ] && [ -f /mnt/usb/luks-header-backup ] || { echo "Error: Required files missing"; exit 1; }
+  cat << 'EOF' > /mnt/usb/recovery.md
+  # Arch Linux Recovery Instructions
+
+  a. **Boot from Rescue USB**:
+   - Insert the GRUB USB created in Step 9 or an Arch Linux ISO USB.
+   - For GRUB USB: Select "Arch Linux Rescue" from the GRUB menu.
+   - For Arch ISO: Boot into the Arch environment.
+   - Enter the LUKS passphrase or use the keyfile: /mnt/usb/luks-keyfile
+
+  b. **Mount Filesystems**:
+   cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
+   mount -o subvol=@ /dev/mapper/cryptroot /mnt
+   mount -o subvol=@home /dev/mapper/cryptroot /mnt/home
+   mount -o subvol=@data /dev/mapper/cryptroot /mnt/data
+   mount /dev/nvme1n1p1 /mnt/boot
+
+  c. **Chroot and Repair**:
+   arch-chroot /mnt
+   mkinitcpio -P
+   sbctl sign -s /boot/EFI/Linux/arch.efi
+   journalctl -u apparmor | grep -i DENIED
+   sbctl status
+
+  d. **Restore LUKS Header**:
+   cryptsetup luksHeaderRestore /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+   sha256sum -c /mnt/usb/luks-header-backup.sha256
+
+  e. **TPM Recovery**:
+   - If TPM unlocking fails, use the LUKS passphrase or keyfile.
+   - Re-enroll TPM:
+     systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+
+  f. **Rollback Snapshot**:
+   - List snapshots:
+   snapper --config root list
+   - Identify the desired snapshot number from the output (e.g., 42).
+   - Roll back:
+   snapper --config root rollback 42
+   - Repeat for home and data subvolumes:
+   snapper --config home list
+   snapper --config home rollback <snapshot-number>
+   snapper --config data list
+   snapper --config data rollback <snapshot-number>
+   reboot
+
+  g. **Firejail Troubleshooting**:
+   - Check AppArmor logs for denials:
+   journalctl -u apparmor | grep -i firejail
+   - Debug Firejail profile:
+   firejail --debug <application> (e.g., `firejail --debug brave-browser`)
+   - Rebuild profile:
+   Edit `/etc/firejail/<application>.profile` (e.g., add `whitelist /dev/dri/` for eGPU)
+   - Re-sign Firejail binary:
+   sbctl sign -s /usr/bin/firejail
+  EOF
+  ```
+  - Verify and unmount USB
+  ```bash
+  [ -f /mnt/usb/recovery.md ] || { echo "Error: Failed to create /mnt/usb/recovery.md"; exit 1; }
+  [ -d /mnt/usb/sbctl-keys ] || { echo "Error: /mnt/usb/sbctl-keys not found"; exit 1; }
+  sha256sum /mnt/usb/recovery.md > /mnt/usb/recovery.md.sha256
+  cat /mnt/usb/recovery.md
+  firejail --noprofile --profile=/etc/firejail/<application>.profile --dry-run || echo "Error: Invalid profile syntax for <application>"
+  sudo umount /mnt/usb
+  echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
+  echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
+  ```
+  - Check USB contents
+  ```bash
+  lsblk | grep $usb_dev
+  sudo mount /dev/$usb_dev /mnt/usb
+  ls /mnt/usb/recovery.md /mnt/usb/recovery.md.sha256 /mnt/usb/luks-keyfile /mnt/usb/luks-header-backup /mnt/usb/sbctl-keys
+  sha256sum -c /mnt/usb/recovery.md.sha256
+  sha256sum -c /mnt/usb/luks-header-backup.sha256
+  sudo umount /mnt/usb
+  ```
+  - Verify Bitwarden storage (manual)
+  ```bash
+  echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud. Keep the recovery USB secure."
+  read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
+  [ "$confirm" = "y" ] || { echo "Error: Please store all data in Bitwarden."; exit 1; }
+  ```
+## Step 17: Backup Strategy
+
+- Local Snapshots:
+  ```bash
+  # Managed by Snapper for @, @home, @data, excluding /var, /var/lib, /log, /tmp, /run.
+  ```
+- Install `restic` for backups:
+  ```bash
+  sudo pacman -S --noconfirm restic
+  ```
+- Verify & sign binary for Secure Boot
+  ```bash
+  sbctl verify /usr/bin/restic || sbctl sign -s /usr/bin/restic
+  ```
+- Pacman hook (auto-sign on updates)
+  ```bash
+  if ! grep -q "Target = restic" /etc/pacman.d/hooks/91-sbctl-sign.hook 2>/dev/null; then
+    sudo tee -a /etc/pacman.d/hooks/91-sbctl-sign.hook >/dev/null <<'EOF'
+
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = restic
+  [Action]
+  Description = Sign restic binary with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/restic
+  EOF
+  fi
+  ```
+- Excludes File:
+  ```bash
+  sudo mkdir -p /etc/restic
+  sudo tee /etc/restic/excludes.txt >/dev/null <<'EOF'
+  /tmp/*
+  /var/cache/*
+  /var/tmp/*
+  /proc/*
+  /sys/*
+  /dev/*
+  /run/*
+  /mnt/*
+  /media/*
+  /lost+found/*
+  /.swap/*
+  /home/*/.cache
+  /home/*/.local/share/Trash
+  /home/*/.thumbnails
+  /.snapshots
+  */.snapshots
+  /etc/pacman.d/mirrorlist*
+  /etc/machine-id
+  /var/log/journal/*
+  /var/lib/libvirt/images/*
+  /var/lib/flatpak/repo/*
+  /var/lib/pacman/sync/*
+  /home/*/.npm
+  /home/*/.gradle
+  /home/*/.cargo
+  EOF
+  ```
+- Create a backup script:
+  ```bash
+  sudo tee /usr/local/bin/restic-backup.sh >/dev/null <<'EOF'
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  # ----- CONFIGURATION (EDIT ONCE) -----
+  REPO="/mnt/backup/restic-repo"          # <-- CHANGE TO YOUR MOUNTPOINT / SFTP URL
+  HOSTNAME="$(hostname)"
+  TAG="thinkbook"
+  # -------------------------------------
+
+  export RESTIC_CACHE_DIR="/var/cache/restic"
+  export RESTIC_COMPRESSION="auto"
+
+  # Ensure bitwarden session is active
+  if ! bw status | grep -q '"status":"unlocked"'; then
+    echo "Bitwarden CLI not unlocked – trying to unlock..."
+    bw unlock --raw > /dev/null || { echo "Failed to unlock Bitwarden"; exit 1; }
+  fi
+
+  # Prevent concurrent runs
+  exec 200>/var/lock/restic-backup.lock
+  flock -n 200 || { echo "Another restic backup is already running"; exit 1; }
+
+  # Unlock any stale locks
+  restic unlock
+
+  # Backup
+  restic backup \
+    --verbose \
+    --one-file-system \
+    --tag="$TAG" \
+    --hostname="$HOSTNAME" \
+    --exclude-caches \
+    --exclude-if-present .nobackup \
+    --exclude-file=/etc/restic/excludes.txt \
+    /home /data /srv /etc
+
+  # Prune
+  restic forget \
+    --keep-last 10 \
+    --keep-daily 7 \
+    --keep-weekly 4 \
+    --keep-monthly 6 \
+    --keep-yearly 3 \
+    --prune
+
+  # Quick integrity check (5 GiB subset)
+  restic check --read-data-subset=5G
+  EOF
+  sudo chmod +x /usr/local/bin/restic-backup.sh 
+- Systemd Service & Timer:
+  ```bash
+  sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
+  [Unit]
+  Description=Restic incremental backup
+  After=network-online.target
+  Wants=network-online.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/local/bin/restic-backup.sh
+  Nice=19
+  IOSchedulingClass=best-effort
+  ProtectSystem=strict
+  ProtectHome=false
+  PrivateTmp=true
+  EOF
+
+  sudo tee /etc/systemd/system/restic-backup.timer >/dev/null <<'EOF'
+  [Unit]
+  Description=Daily restic backup
+  Requires=restic-backup.service
+
+  [Timer]
+  OnCalendar=*-*-* 02:30:00
+  RandomizedDelaySec=5m
+  Persistent=true
+  Unit=restic-backup.service
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+
+  sudo systemctl enable --now restic-backup.timer
+  ```
+- Weekly full repo check
+  ```bash
+  sudo tee /etc/systemd/system/restic-check.service >/dev/null <<'EOF'
+  [Unit]
+  Description=Restic repository integrity check
+  After=network-online.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/bin/restic check
+  Nice=19
+  EOF
+
+  sudo tee /etc/systemd/system/restic-check.timer >/dev/null <<'EOF'
+  [Unit]
+  Description=Weekly restic repo check
+
+  [Timer]
+  OnCalendar=Sun *-*-* 03:00:00
+  Persistent=true
+  Unit=restic-check.service
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+
+  sudo systemctl enable --now restic-check.timer
+  ```
+- First-run initialization (interactive)
+  ```bash
+  echo "=== RESTIC REPOSITORY INITIALIZATION ==="
+  read -p "Enter full repository path (local dir or sftp:user@host:/path): " REPO
+  sudo sed -i "s|^REPO=.*|REPO=\"$REPO\"|" /usr/local/bin/restic-backup.sh
+
+  echo "You must now initialize the repository. The user running the service MUST own this repository."
+  echo "If running as root (default for system service), use: sudo restic init --repo \"$REPO\""
+  echo "If running as your user (recommended for Bitwarden), use: restic init --repo \"$REPO\""
+  
+  # Init repo (ask for secondary key file for offline recovery)
+  restic init --repo "$REPO"
+  echo "Save the repository password in Bitwarden (item: restic-repo)."
+  read -p "Create a secondary key file for offline recovery? (y/N): " sec
+  if [[ $sec =~ ^[Yy]$ ]]; then
+    SECONDARY_KEY="/root/restic-secondary-key.txt"
+    restic key add --new-password-file "$SECONDARY_KEY"
+    echo "Store $SECONDARY_KEY securely (offline USB, encrypted vault)."
+  fi
+- Test + Notes
+  ```bash
+  echo "Running a quick test backup..."
+  /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
+
+  # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
+  # Check status any time:  restic snapshots --repo <path>
+  # Restore example:
+  # restic restore --target /tmp/restore latest --path /home/user/Documents
+  # Weekly integrity: systemctl status restic-check.timer
+  ```
+## Step 18: Post-Installation Maintenance and Verification
+
+- **a) Update System Regularly**:
+  - Keep the system up-to-date:
+    ```bash
+    pacman -Syu --noconfirm || echo "pacman failed"
+    paru -Syu --noconfirm || echo "paru failed"
+    flatpak update -y || echo "flatpak failed"
+    ```
+- **b) Monitor Logs**:
+  - Check for errors in system logs:
+    ```bash
+    journalctl -p 3 -xb
+    journalctl -b -p err --since "1 hour ago"
+    ```
+- **c) Check Snapshots**:
+  - Verify Snapper snapshots:
+    ```bash
+    snapper list
+    snapper status 0..1
+    ```
+- **d) Verify Secure Boot**:
+  - Confirm Secure Boot is active:
+    ```bash
+    sbctl status
+    sbctl verify
+    mokutil --sb-state
+    ```
+- **e) Test eGPU**:
+  - Verify eGPU detection and rendering:
+    ```bash
+    lspci | grep -i amd
+    DRI_PRIME=1 glxinfo | grep renderer
+    supergfxctl -g
+    DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
+    ```
+- **f) Verify Firejail profiles**:
+  ```bash
+  echo "Checking Firejail profiles..."
+  for app in brave-browser mullvad-browser tor-browser obs-studio; do
+    [ -f "/etc/firejail/$app.profile" ] && echo "✓ $app.profile" || echo "✗ $app.profile missing"
+  done
+
+  for browser in brave-browser mullvad-browser tor-browser; do
+    firejail --apparmor "$browser" --version >/dev/null 2>&1 && echo "✓ $browser sandbox OK" || echo "✗ $browser sandbox failed"
+  done
+
+  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor" || echo "No AppArmor denials"
+  firejail --version
+  ```
+- **g) Firmware Updates**:
+  ```bash
+  fwupdmgr refresh --force
+  fwupdmgr get-updates
+  fwupdmgr update
+  ```
+- **h) Security Audit**:
+  ```bash
+  lynis audit system > /root/lynis-report-$(date +%F).txt
+  rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
+  aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
+  ```
+- **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
+  ```bash
+  # Enable early policy caching (required for boot-time FSP)
+  sudo mkdir -p /etc/apparmor.d/cache
+  sudo sed -i '/^#.*cache-loc/s/^#//' /etc/apparmor/parser.conf
+  sudo sed -i 's|.*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
+
+  # Enable the upstream-sync timer (weekly profile updates)
+  sudo systemctl enable --now apparmor.d-update.timer
+
+  # Tune from logs (run after normal usage)
+  echo "Use the system for a while, then run:"
+  echo "  sudo aa-logprof   # interactive"
+  echo "  sudo aa-genprof <binary>   # for new apps"
+
+  # Switch to enforced mode once satisfied
+  read -p "Ready to enforce AppArmor.d FSP? (y/N): " confirm_fsp
+  [[ $confirm_fsp =~ ^[Yy]$ ]] || exit 1
+  sudo just fsp-enforce
+  sudo apparmor_parser -r /usr/share/apparmor.d/*
+  sudo systemctl restart apparmor
+  aa-status | grep -E "(profiles are in enforce mode|complain)"
+  echo "AppArmor FSP is now ENFORCED."
+
+  # Confirm no stray vanilla profiles interfere
+  if [ -f /etc/appamor.d/disable ] || ls /etc/apparmor.d/*.conf >/dev/null 2>&1; then
+    echo "Warning: Legacy profiles in /etc/apparmor.d/ — consider removing or disabling."
+  fi
+  # echo "AppArmor.d FSP is now ENFORCED.
+
+  # Warm cache on boot (critical for UKI + Secure Boot)
+  sudo mkdir -p /etc/systemd/system/apparmor.service.d
+  sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf > /dev/null <<'EOF'
+  [Service]
+  ExecStartPre=/usr/bin/apparmor_parser -r /usr/share/apparmor.d/*
+  EOF
+
+  # (Optional) Add user-specific tunables
+  sudo mkdir -p /etc/apparmor.d/tunables/local
+  echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf
+  sudo apparmor_parser -r /etc/apparmor.d/tunables/*
+
+  # Verify Firejail integration (unchanged from Step 10)
+  firejail --apparmor --list
+  journalctl -u apparmor | grep -i firejail || echo "No Firejail denials"
+
+  # Reboot to apply cache & early load
+  echo "Rebooting in 10 seconds to apply AppArmor.d cache..."
+  sleep 10
+  reboot
+  ```
+- **j) Create sandboxed (FireJail) desktop launchers (menu only)**:
+  ```bash
+  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty; do
+  desktop-file-install --dir="$HOME/.local/share/applications" \
+    --set-key=Name --set-value="$app (Sandboxed)" \
+    --set-key=Exec --set-value="firejail --apparmor $app %U" \
+    --set-key=Icon --set-value="$app" \
+    --set-key=NoDisplay --set-value="false" \
+    /usr/share/applications/$app.desktop
+  done
+
+  # Update menu
+  update-desktop-database ~/.local/share/applications
+  ```
+- **k) Final Reboot & Lock**:
+  ```bash
+  mkinitcpio -P
+  
+  # Sign only unsigned EFI binaries
+  sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
+
+  sbctl verify
+  echo "System locked and ready. Final reboot recommended."
+  reboot
+  ```
+## Step 19: User Customizations
+
+- Install a custom theme for GNOME:
+  ```bash
+  paru -S --noconfirm adw-gtk3-git
+  ```
+- Configure GNOME CSS for a dark theme:
+  ```bash
+  mkdir -p ~/.config/gtk-3.0
+  cat << 'EOF' > ~/.config/gtk-3.0/gtk.css
+  window {
+    background-color: #1e1e1e;
+  }
+  EOF
+  ```
+- Apply the theme:
+  ```bash
+  gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
+  ```
+- Backup Monitor in Astal
+  ```bash
+  // ~/.config/ags/widgets/backup-status.ts
+  import { Widget, Service, Utils } from 'astal/gtk3';
+  import Systemd from 'gi://AstalSystemd';
+
+  const systemd = Systemd.get_default();
+
+  export default () => Widget.Box({
+    className: "backup-status",
+    spacing: 8,
+    children: [
+        Widget.Icon({
+            icon: "backup-symbolic",
+        }),
+        Widget.Label({
+            label: systemd.unit("restic-backup.service")
+                .bind("ActiveState")
+                .as(state => {
+                    if (state === "active") return "✓ Running";
+                    if (state === "inactive") return "✓ Idle";
+                    if (state === "failed") return "✗ Failed";
+                    return "? Unknown";
+                }),
+        }),
+        Widget.Button({
+            label: "Run",
+            onClicked: () => Utils.execAsync("systemctl start restic-backup.service"),
+        }),
+    ],
+  });
+  ```
+- Logwatch
+  ```bash
+  // ~/.config/ags/widgets/logwatch.ts
+  import { Widget, Utils } from 'astal/gtk3';
+
+  export default () => Widget.Box({
+    className: "logwatch",
+    spacing: 6,
+    children: [
+      Widget.Icon({ icon: "security-high-symbolic" }),
+      Widget.Label({
+        label: Utils.execAsync(["journalctl", "-p", "err", "-n", "1", "--no-pager"])
+          .then(out => out.trim() || "No errors")
+          .catch(() => "Error"),
+      }),
+      Widget.Button({
+        label: "Open",
+        onClicked: () => Utils.execAsync("firejail --apparmor gnome-logs"),
+      }),
+    ],
+  });
+  ```
