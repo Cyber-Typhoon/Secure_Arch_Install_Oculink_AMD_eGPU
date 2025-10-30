@@ -1777,7 +1777,11 @@
   ```
 - Initialize and apply dotfiles from a repository:
   ```bash
-  chezmoi init --apply https://github.com/yourusername/dotfiles.git
+  sudo -u "$SUDO_USER" chezmoi init --apply https://github.com/yourusername/dotfiles.git
+  ```
+- Run doctor as user
+  ```bash
+  sudo -u "$SUDO_USER" chezmoi doctor || echo "chezmoi OK"
   ```
 - Verify dotfile application:
   ```bash
@@ -1804,7 +1808,7 @@
   sudo chezmoi add /etc/NetworkManager/conf.d/00-macrandomize.conf /etc/dnscrypt-proxy/dnscrypt-proxy.toml /etc/usbguard/rules.conf
   sudo chezmoi add /etc/snapper/configs /etc/snapper/filters/global-filter.txt
   sudo chezmoi add /etc/modprobe.d/i915.conf /etc/modprobe.d/amdgpu.conf /etc/supergfxd.conf
-  sudo chezmoi add /etc/udev/rules.d/99-oculink.rules /etc/modules-load.d/pciehp.conf /etc/modules-load.d/vfio.conf
+  sudo chezmoi add /etc/udev/rules.d/99-oculink-hotplug.rules /etc/modules-load.d/pciehp.conf /etc/modules-load.d/vfio.conf
   sudo chezmoi add /etc/mkinitcpio.conf /etc/mkinitcpio.d/linux.preset
   sudo chezmoi add /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf
   sudo chezmoi add /etc/fstab /etc/environment /etc/gdm/custom.conf /etc/systemd/zram-generator.conf /etc/systemd/logind.conf /etc/host.conf
@@ -1816,10 +1820,15 @@
   sudo chezmoi add /etc/systemd/system/astal-widgets.service
   sudo chezmoi add /etc/pacman.d/hooks/91-sbctl-sign.hook
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
-  sudo chezmoi add /etc/mkinitcpio.d/linux.preset
   sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
   sudo chezmoi add /etc/pacman.d/hooks/90-mkinitcpio-uki.hook
-  sudo chezmoi add /boot/loader/entries/
+  sudo chezmoi add /etc/tlp.conf
+  sudo chezmoi add /etc/boltd/boltd.conf
+  sudo chezmoi add /etc/locale.conf /etc/vconsole.conf
+  sudo chezmoi add /etc/pacman.d/mirrorlist
+  sudo chezmoi add -r /etc/dnscrypt-proxy/
+  sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
+  sudo chezmoi add -r /etc/apparmor.d/local/
   ```
 - Add Firejail configuration files
   ```bash
@@ -1847,7 +1856,7 @@
   sudo mkdir -p /mnt/usb
   sudo mount /dev/sdX1 /mnt/usb
   sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
-  sudo cp /mnt/usb/tpm-pcr-initial.txt /mnt/usb/tpm-pcr-post-secureboot.txt /mnt/usb/
+  sudo cp /var/lib/tpm-pcr-initial.txt /var/lib/tpm-pcr-post-secureboot.txt /mnt/usb/ 2>/dev/null || true
   sudo umount /mnt/usb
   echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
   ```
@@ -1883,7 +1892,7 @@
   echo "Testing Firejail profiles after chezmoi restore"
   for profile in brave-browser mullvad-browser tor-browser obs-studio; do
     [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
-    firejail --apparmor $app --version || echo "Warning: Restored $app profile test failed"
+    firejail --apparmor --profile=/etc/firejail/$profile.profile --dry-run || echo "Warning: $profile.profile failed"
   done
   ```
 - Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
