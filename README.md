@@ -2300,6 +2300,13 @@
   */.snapshots
   /etc/pacman.d/mirrorlist*
   /etc/machine-id
+  /var/log/journal/*
+  /var/lib/libvirt/images/*
+  /var/lib/flatpak/repo/*
+  /var/lib/pacman/sync/*
+  /home/*/.npm
+  /home/*/.gradle
+  /home/*/.cargo
   EOF
   ```
 - Create a backup script:
@@ -2421,7 +2428,11 @@
   ```bash
   echo "=== RESTIC REPOSITORY INITIALIZATION ==="
   read -p "Enter full repository path (local dir or sftp:user@host:/path): " REPO
-  sudo sed -i "s|^REPO=.*|REPO=\"$REPO\"|" /usr/local/bin/restic-backup.s
+  sudo sed -i "s|^REPO=.*|REPO=\"$REPO\"|" /usr/local/bin/restic-backup.sh
+
+  echo "You must now initialize the repository. The user running the service MUST own this repository."
+  echo "If running as root (default for system service), use: sudo restic init --repo \"$REPO\""
+  echo "If running as your user (recommended for Bitwarden), use: restic init --repo \"$REPO\""
   
   # Init repo (ask for secondary key file for offline recovery)
   restic init --repo "$REPO"
