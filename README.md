@@ -920,6 +920,7 @@
   BottomUp
   RemoveMake
   SudoLoop
+  EditMenu = true
   CombinedUpgrade = false
 
   [bin]
@@ -929,51 +930,12 @@
   chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.config/paru
   
   # Verify if paru shows the PKGBUILD diffs
-  sudo -u $SUDO_USER paru -Pg | grep -E 'diffmenu|combinedupgrade' # Should show: combinedupgrade: Off diffmenu: Edit answerdiff: Edit
+  sudo -u $SUDO_USER paru -Pg | grep -E 'diffmenu|combinedupgrade|editmenu' # Should show: combinedupgrade: Off diffmenu: Edit editmenu: Edit
 
   # Set build directory
   echo 'BUILDDIR = /home/$SUDO_USER/.cache/paru-build' >> /etc/makepkg.conf
   sudo -u $SUDO_USER mkdir -p /home/$SUDO_USER/.cache/paru-build
   chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.cache/paru-build
-  ```
-- Install the AUR applications:
-  ```bash
-  # AUR applications:
-  sudo -u $SUDO_USER paru -S --needed \
-    apparmor.d-git \
-    alacritty-graphics \
-    astal-git \
-    ags-git \
-    gdm-settings \
-    thinklmi-git \
-    systeroid-git
-
-  # Verify binaries exist before signing
-    [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
-  
-  # Sign astal/ags for Secure Boot once
-    sbctl sign -s /usr/bin/astal /usr/bin/ags
-  
-  # Append Astal/AGS to existing 91-sbctl-sign.hook
-  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
-  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = astal-git
-  Target = ags-git
-
-  [Action]
-  Description = Sign astal/ags with sbctl
-  When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags
-  EOF
-  fi
-  
-  # Test the hook after installation:
-  sbctl verify /usr/bin/astal  #Should show "signed"
   ```
 - Install Pacman applications:
   ```bash
@@ -1014,6 +976,48 @@
   systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
   systemctl --failed  # Check for failed services
   journalctl -p 3 -xb
+  ```
+- Install the AUR applications:
+  ```bash
+  # AUR applications:
+  sudo -u $SUDO_USER paru -S --needed \
+    apparmor.d-git \
+    alacritty-graphics \
+    astal-git \
+    ags-git \
+    gdm-settings \
+    thinklmi-git \
+    systeroid-git
+
+  # Verify ThinkLMI for BIOS settings
+  sudo thinklmi  # Check BIOS settings (e.g., Secure Boot, TPM). 
+
+  # Verify binaries exist before signing
+    [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
+  
+  # Sign astal/ags for Secure Boot once
+    sbctl sign -s /usr/bin/astal /usr/bin/ags
+  
+  # Append Astal/AGS to existing 91-sbctl-sign.hook
+  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
+  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = astal-git
+  Target = ags-git
+
+  [Action]
+  Description = Sign astal/ags with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags
+  EOF
+  fi
+  
+  # Test the hook after installation:
+  sbctl verify /usr/bin/astal  #Should show "signed"
   ```
 - Enable AppArmor integration for Firejail
   ```bash
@@ -1083,12 +1087,6 @@
   alias obs="firejail --apparmor --private-tmp obs-studio"
   EOF
   ```
-- Explicitly set permissions for custom Firejail profiles
-  ```bash
-  chmod 644 /etc/firejail/*.profile
-  chown root:root /etc/firejail/*.profile
-  ls -l /etc/firejail/*.profile | grep -q "rw-r--r--.*root:root" || echo "Warning: Firejail profile permissions incorrect"
-  ```
 - Configure GDM for Wayland:
   ```bash
   cat << 'EOF' > /etc/gdm/custom.conf
@@ -1100,15 +1098,14 @@
   ```
 - Install Bazzar and the Flatpak applications via GUI
   ```bash
-  # Install Bazaar (Flatpak-focused app store)
-  flatpak install -y flathub io.github.kolunmi.Bazaar
+  # Install Bazaar (Flatpak-focused app store) and Flatseal
+  flatpak install -y flathub io.github.kolunmi.Bazaar com.github.tchx84.Flatseal
 
   # Launch once to initialize
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar and install: GIMP, Inkscape, Krita, Blender"
-  Search/install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop)
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1126,7 +1123,6 @@
 - Check Secure Boot Violations:
   ```bash
   journalctl -b -p 3 | grep -i secureboot
-  sbctl verify /usr/bin/astal /usr/bin/ags
   ```
 ## Step 11: Configure Power Management, Security, Network and Privacy
 
@@ -1157,7 +1153,7 @@
   LIBVA_DRIVER_NAME=radeonsi
   LIBVA_DRIVER_NAME=iHD
 
-  cat > ~/.zshrc <<'EOF'
+  cat > /home/$SUDO_USER/.zshrc <<'EOF'
   # XDG BASE DIRECTORIES (FHS COMPLIANT)
   export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
   export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
@@ -1172,7 +1168,7 @@
   EOF
 
   # Add to ~/.profile (sourced by login shells & display managers)
-  cat > ~/.profile <<'EOF'
+  cat > /home/$SUDO_USER/.profile <<'EOF'
   # XDG Base Dirs
   export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
   export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
@@ -1231,8 +1227,9 @@
   ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
-  nmcli connection modify <connection_name> ipv4.dns "127.0.0.1" ipv4.ignore-auto-dns yes # Replace <connection_name> with actual network connection (e.g., nmcli connection show to find it)
-  nmcli connection modify <connection_name> ipv6.dns "::1" ipv6.ignore-auto-dns yes
+  CONN=$(nmcli -t -f NAME,TYPE connection show --active | grep wifi | cut -d: -f1)
+  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv4.dns "127.0.0.1"
+  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv6.dns "::1" ipv6.ignore-auto-dns yes
   cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml
   server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock']
   listen_addresses = ['127.0.0.1:53', '[::1]:53']
