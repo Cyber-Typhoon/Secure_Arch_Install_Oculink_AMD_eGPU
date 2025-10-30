@@ -2516,7 +2516,7 @@
   rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
   ```
-- **i) Adopt AppArmor.d for Full-System Policy and Automation**:
+- **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
   ```bash
   # Enable early policy caching (required for boot-time FSP)
   sudo mkdir -p /etc/apparmor.d/cache
