@@ -898,9 +898,6 @@
 
 - Install the **GNOME desktop environment**:
   ```bash
-  # Ensure SUDO_USER is defined. This step uses $SUDO_USER extensively (e.g., in Paru configuration, Firejail profiles for Astal/AGS, and aliases).
-  SUDO_USER=${SUDO_USER:-$(logname || getent passwd 1000 | cut -d: -f1)}
-  id "$SUDO_USER" >/dev/null 2>&1 || { echo "Error: User $SUDO_USER does not exist"; exit 1; }
   # Install Gnome
   pacman -Sy --needed gnome
   ```
@@ -908,13 +905,13 @@
   ```bash   
   # Clone & build in a clean temp dir
   TMP_PARU=$(mktemp -d)
-  sudo -u "$SUDO_USER" git clone https://aur.archlinux.org/paru.git "$TMP_PARU"
-  (cd "$TMP_PARU" && sudo -u "$SUDO_USER" makepkg -si)
+  git clone https://aur.archlinux.org/paru.git "$TMP_PARU"
+  (cd "$TMP_PARU" && makepkg -si)
   rm -rf "$TMP_PARU"
 
   # Configure to show PKGBUILD diffs (edit the Paru config file):
-  sudo -u $SUDO_USER mkdir -p /home/$SUDO_USER/.config/paru
-  cat << 'EOF' | sudo -u $SUDO_USER tee /home/$SUDO_USER/.config/paru/paru.conf
+  mkdir -p /home/arch/.config/paru
+  cat << 'EOF' > /home/arch/.config/paru/paru.conf
   [options]
   PgpFetch
   BottomUp
@@ -927,15 +924,15 @@
   DiffMenu = true
   UseAsk = true
   EOF
-  chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.config/paru
+  chown -R arch:arch /home/arch/.config/paru
   
   # Verify if paru shows the PKGBUILD diffs
-  sudo -u $SUDO_USER paru -Pg | grep -E 'diffmenu|combinedupgrade|editmenu' # Should show: combinedupgrade: Off diffmenu: Edit editmenu: Edit
+  paru -Pg | grep -E 'diffmenu|combinedupgrade|editmenu' # Should show: combinedupgrade: Off diffmenu: Edit editmenu: Edit
 
   # Set build directory
-  echo 'BUILDDIR = /home/$SUDO_USER/.cache/paru-build' >> /etc/makepkg.conf
-  sudo -u $SUDO_USER mkdir -p /home/$SUDO_USER/.cache/paru-build
-  chown $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.cache/paru-build
+  echo 'BUILDDIR = /home/arch/.cache/paru-build' >> /etc/makepkg.conf
+  sudo -p /home/arch/.cache/paru-build
+  chown arch:arch /home/arch/.cache/paru-build
   ```
 - Install Pacman applications:
   ```bash
@@ -980,7 +977,7 @@
 - Install the AUR applications:
   ```bash
   # AUR applications:
-  sudo -u $SUDO_USER paru -S --needed \
+  paru -S --needed \
     apparmor.d-git \
     alacritty-graphics \
     astal-git \
@@ -1079,7 +1076,7 @@
   ```
 - Add Aliases to ~/.zshrc
   ```bash
-  cat >> /home/$SUDO_USER/.zshrc << 'EOF'
+  cat >> ~/.zshrc << 'EOF'
   # HIGH-RISK: Always sandboxed with AppArmor:
   alias brave="firejail --apparmor --private-tmp brave-browser"
   alias mullvad="firejail --apparmor --private-tmp mullvad-browser"
@@ -1153,7 +1150,7 @@
   LIBVA_DRIVER_NAME=radeonsi
   LIBVA_DRIVER_NAME=iHD
 
-  cat > /home/$SUDO_USER/.zshrc <<'EOF'
+  cat >> ~/.zshrc <<'EOF'
   # XDG BASE DIRECTORIES (FHS COMPLIANT)
   export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
   export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
@@ -1168,7 +1165,7 @@
   EOF
 
   # Add to ~/.profile (sourced by login shells & display managers)
-  cat > /home/$SUDO_USER/.profile <<'EOF'
+  cat >> ~/.profile <<'EOF'
   # XDG Base Dirs
   export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
   export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
@@ -1769,19 +1766,16 @@
 
 - Install `chezmoi` for dotfile management:
   ```bash
-  # Ensure SUDO_USER is defined
-  SUDO_USER=${SUDO_USER:-$(logname || getent passwd 1000 | cut -d: -f1)}
-  id "$SUDO_USER" >/dev/null 2>&1 || { echo "Error: User $SUDO_USER does not exist"; exit 1; }
   # Install chezmoi
   pacman -S --noconfirm chezmoi
   ```
 - Initialize and apply dotfiles from a repository:
   ```bash
-  sudo -u "$SUDO_USER" chezmoi init --apply https://github.com/yourusername/dotfiles.git
+  chezmoi init --apply https://github.com/yourusername/dotfiles.git
   ```
 - Run doctor as user
   ```bash
-  sudo -u "$SUDO_USER" chezmoi doctor || echo "chezmoi OK"
+  chezmoi doctor || echo "chezmoi OK"
   ```
 - Verify dotfile application:
   ```bash
