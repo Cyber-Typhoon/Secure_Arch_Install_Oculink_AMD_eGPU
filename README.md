@@ -247,6 +247,12 @@
     mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
     mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
     ```
+  - Apply No_COW (chattr +C) to the home directory
+    ```bash
+    # This disables Copy-on-Write for *new* files, ideal for VMs and games.
+    # This must be done *before* any user data is created (i.e., before Step 6).
+    chattr +C /mnt/home
+    ```
   - **Why These Subvolumes?**:
     - **@**: Isolates the root filesystem for snapshotting and rollback.
     - **@home**: Separates user data for independent snapshots and backups.
@@ -365,7 +371,7 @@
   ```bash
   pacstrap /mnt \
   # Core
-  base base-devel linux linux-firmware mkinitcpio archlinux-keyring \
+  base base-devel linux linux-lts linux-firmware mkinitcpio archlinux-keyring \
   \
   # Boot / Encryption
   intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools systemd-boot\
@@ -415,6 +421,7 @@
   ```bash
   ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime
   hwclock --systohc
+  timedatectl set-local-rtc 1 --adjust-system-clock
   echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
   locale-gen
   echo 'LANG=en_US.UTF-8' > /etc/locale.conf
@@ -613,6 +620,7 @@
   sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
   sbctl sign -s /boot/EFI/Linux/arch.efi
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
   sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
   ```
 - Check Plymouth and GDM compatibility with Secure Boot:
@@ -647,6 +655,7 @@
     /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
     /boot/EFI/Linux/arch.efi \
     /boot/EFI/Linux/arch-fallback.efi \
+    /boot/EFI/Linux/arch-lts.efi \
     /boot/EFI/BOOT/BOOTX64.EFI \
     /efi/EFI/arch/fwupdx64.efi \
     /usr/lib/plymouth/plymouthd \
@@ -763,10 +772,36 @@
     tpm2-measure=yes \
     amdgpu.dc=1 amdgpu.dpm=1"
   EOF
+  # DO NOT add nomodeset. This parameter disables all kernel mode setting (KMS) and graphics drivers, which will break GNOME, Wayland, and all hardware acceleration.
   # Update mkinitcpio.conf HOOKS (critical order)
   sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
   # Generate UKI
   mkinitcpio -P
+  ```
+- Create /etc/mkinitcpio.d/linux-lts.preset
+  ```bash
+  cp /etc/mkinitcpio.d/linux.preset /etc/mkinitcpio.d/linux-lts.preset
+
+  # Edit the new LTS preset
+  sudo tee /etc/mkinitcpio.d/linux-lts.preset > /dev/null <<'EOF'
+  # UKI output path
+  default_uki="/boot/EFI/Linux/arch-lts.efi"
+  # Use main mkinitcpio config
+  all_config="/etc/mkinitcpio.conf"
+  # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.  
+  default_options="rd.luks.uuid=$LUKS_UUID \
+    root=UUID=$ROOT_UUID \
+    resume_offset=$SWAP_OFFSET \
+    rw quiet splash \
+    intel_iommu=on amd_iommu=on iommu=pt \
+    pci=pcie_bus_perf,realloc \
+    mitigations=auto,nosmt \
+    slab_nomerge slub_debug=FZ \
+    init_on_alloc=1 init_on_free=1 \
+    rd.emergency=poweroff \
+    tpm2-measure=yes \
+    amdgpu.dc=1 amdgpu.dpm=1"
+  EOF
   ```
 - Verify configuration:
   ```bash
@@ -789,6 +824,7 @@
   mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
   # Sign it
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
+  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
   # Fallback entry
   cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
   title Arch Linux (Fallback)
@@ -798,6 +834,13 @@
   # Verify resume_offset is numeric (not $SWAP_OFFSET)
   grep resume_offset /etc/fstab
   grep resume_offset /boot/loader/entries/arch.conf
+  ```
+- Create /boot/loader/entries/arch-lts.conf
+  ```bash
+  cat << 'EOF' > /boot/loader/entries/arch-lts.conf
+  title Arch Linux (LTS Kernel)
+  efi /EFI/Linux/arch-lts.efi
+  EOF
   ```
 - Set Boot Order (Arch first)
   ```bash
@@ -822,6 +865,11 @@
   chmod 600 /mnt/usb/luks-keyfile
   cp /boot/vmlinuz-linux /mnt/usb/
   cp /boot/initramfs-linux.img /mnt/usb/initramfs-linux.img
+
+  # Copy AMD firmware for offline recovery
+  echo "Copying AMD firmware to recovery USB..."
+  mkdir -p /mnt/usb/firmware
+  cp -r /lib/firmware/amdgpu /mnt/usb/firmware/
 
   # Generate minimal rescue initramfs (no plymouth, resume)
   cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
@@ -1490,7 +1538,7 @@
   ```bash
   echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
   ```
-- (SKIP AT FIRST) Create a udev rule for eGPU hotplug support:
+- (DEPRECATED - Fallback Only) Create a udev rule for eGPU hotplug support:
   ```bash
   # Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
   # Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
@@ -1517,7 +1565,7 @@
   sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
   systemctl restart systemd-logind
   ```
-- (SKIP AT FIRST) Install all-ways-egpu if eGPU isn’t primary
+- (DEPRECATED - Fallback Only) Install all-ways-egpu if eGPU isn’t primary
   ```bash
   # If supergfxctl do not handle the hotplug try to install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland -- this is a plan b, should not be used at first. First test the setup without, in other words skip to the switcheroo-control
   if ! DRI_PRIME=1 glxinfo | grep -i radeon; then
@@ -1648,7 +1696,7 @@
 
   # (Optional) Check OCuLink dock firmware - Firmware Update may be better performed in Step 18
   fwupdmgr get-devices | grep -i "oculink\|redriver"
-  fwupdmgr update - echo "fwupd upgrade moved to Step 18 for BIOS/firmware updates."
+  (DO NOT EXEXECUTE) fwupdmgr update - echo "fwupd upgrade moved to Step 18 for BIOS/firmware updates."
   ```
 - **eGPU Troubleshooting Matrix**:
   | Issue | Possible Cause | Solution |
@@ -1998,6 +2046,12 @@
   ```bash
   lspci | grep -i amd
   dmesg | grep -i amdgpu
+  # Manually test module loading
+  modprobe -r amdgpu
+  modprobe amdgpu
+  echo $?  # Should return 0
+  # Check Wayland/Mutter logs for graphics errors (Wayland equivalent of glamor)
+  journalctl -b | grep -i -E "mutter|gnome-shell|amdgpu" | grep -i -E "fail|error"
   ls /sys/class/drm/card*
   DRI_PRIME=1 glxinfo | grep "OpenGL renderer" || echo "Warning: GLX test failed, trying Vulkan"
   DRI_PRIME=1 vulkaninfo --summary | grep deviceName
@@ -2509,6 +2563,16 @@
   fwupdmgr refresh --force
   fwupdmgr get-updates
   fwupdmgr update
+  # After fwupdmgr update
+  echo "WARNING: Firmware updates (BIOS, eGPU dock) will change TPM PCR values."
+  echo "TPM auto-unlock will fail on next boot. You MUST enter your LUKS passphrase."
+  echo "After booting, re-enroll the TPM:"
+  echo "  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2"
+  echo "  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2"
+
+  # Future-Proofing Note:
+  echo "Keep an eye on 'systemd-pcrlock' development. By 2025, it may offer a more"
+  echo "stable way to bind to PCRs that are less affected by firmware updates."
   ```
 - **h) Security Audit**:
   ```bash
