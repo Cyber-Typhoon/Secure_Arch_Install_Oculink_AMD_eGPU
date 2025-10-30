@@ -131,7 +131,11 @@
   nmcli device wifi list
   nmcli device wifi connect <SSID> password <password>
   ```
-
+- Console Font and Keyboard Setup
+  ```bash
+  setfont ter-132b; loadkeys us
+  # Improves ISO usability
+  ```
 ## Step 4: Pre-Arch Installation Steps
 
 - Boot from the **Arch Live USB**.
@@ -181,6 +185,12 @@
     ```bash
     lsblk -f /dev/nvme0n1 /dev/nvme1n1  # Confirm /dev/nvme0n1p1 (Windows ESP) and /dev/nvme1n1p1 (Arch ESP)
     efibootmgr  # Check if UEFI recognizes both ESPs
+    ```
+  - NVMe Sanitize:
+    ```bash
+    nvme sanitize /dev/nvme1 --sanact=0x02  # Block erase (quick, no overwrite)
+    nvme sanitize-log /dev/nvme1  # Monitor progress
+    partprobe  # Reload partition table (clears old Windows remnants)
     ```
 - **b) Format ESP**:
   - Format the Arch ESP as FAT32:
@@ -1521,6 +1531,8 @@
   "hotplug_type": "Std" # Use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
   EOF
   systemctl enable --now supergfxd
+  # If probe error -22: Try kernel param 'amdgpu.noretry=0' in /etc/mkinitcpio.d/linux.preset, then mkinitcpio -P
+  supergfxctl -m Integrated  # Fallback to iGPU if eGPU fails
   sbctl sign -s /usr/bin/supergfxctl
   sbctl sign -s /usr/lib/supergfxctl/supergfxd
   ```
@@ -1727,7 +1739,7 @@
 - Create global filter
   ```bash
   mkdir -p /etc/snapper/filters
-  echo -e "/home/.cache\n/tmp\n/run\n/.snapshots" | sudo tee /etc/snapper/filters/global-filter.txt
+  echo -e "/home/.cache\n/tmp\n/run\n/.snapshots\n.nobackup" | sudo tee /etc/snapper/filters/global-filter.txt
   ```
 - Create Snapper configurations for root, home and data:
   ```bash
@@ -2574,9 +2586,11 @@
   # After fwupdmgr update
   echo "WARNING: Firmware updates (BIOS, eGPU dock) will change TPM PCR values."
   echo "TPM auto-unlock will fail on next boot. You MUST enter your LUKS passphrase."
+  echo "Firmware updated—TPM PCRs changed. Re-enrolling TPM..."
   echo "After booting, re-enroll the TPM:"
   echo "  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2"
   echo "  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2"
+  tpm2_pcrread sha256:0,4,7 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
 
   # Future-Proofing Note:
   echo "Keep an eye on 'systemd-pcrlock' development. By 2025, it may offer a more"
