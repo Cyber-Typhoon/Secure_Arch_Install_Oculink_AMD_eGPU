@@ -268,12 +268,6 @@
     mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
     mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
     ```
-  - Apply No_COW (chattr +C) to the home directory
-    ```bash
-    # This disables Copy-on-Write for *new* files, ideal for VMs and games.
-    # This must be done *before* any user data is created (i.e., before Step 6).
-    chattr +C /mnt/home
-    ```
   - **Why These Subvolumes?**:
     - **@**: Isolates the root filesystem for snapshotting and rollback.
     - **@home**: Separates user data for independent snapshots and backups.
