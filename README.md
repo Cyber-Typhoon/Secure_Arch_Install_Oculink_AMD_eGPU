@@ -575,15 +575,8 @@
   ```
 - Enroll the LUKS key to TPM2 for automatic unlocking:
   ```bash
-  (DEPRECATED - Fallback Only) systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
   # Enroll the key using pcrlock. This binds the key slot to be managed by the systemd-pcrlock service.
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/mapper/luks_crypt
   systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/mapper/luks_crypt
-  ```
-- Enable systemd-pcrlock service to automatically re-enroll the TPM key
-  ```bash
-  # This service is responsible for automatically updating PCRs (like PCR 0), if PCRs change (e.g., after a BIOS/firmware update).
-  systemctl enable systemd-pcrlock.service
   ```
 - Test TPM unlocking and back up PCR values:
   ```bash
@@ -595,6 +588,7 @@
   tpm2_pcrread sha256:4 | grep -v "0x00\{64\}"
   # Confirm TPM keyslot exists
   cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
+  tpm2_getcap pcrs
   echo "WARNING: Store /mnt/usb/tpm-pcr-initial.txt in Bitwarden."
   echo "WARNING: Store /mnt/usb/tpm-pcr-backup.txt in Bitwarden."
   echo "WARNING: PCR values are critical for TPM unlocking; back them up securely."
@@ -1018,6 +1012,8 @@
   ```bash
   cp /var/lib/systemd/pcrlock.json /mnt/usb/pcrlock.json
   echo "WARNING: Store /mnt/usb/pcrlock.json and recovery PIN in Bitwarden."
+  # Backup the predicted state (essential for policy debugging):
+  systemd-pcrlock predict > /mnt/usb/pcrlock-predict.txt
   ```
 - (Optional) Enable systemd-homed with LUKS-encrypted homes
   ```bash
