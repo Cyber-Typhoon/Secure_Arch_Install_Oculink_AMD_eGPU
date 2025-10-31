@@ -568,9 +568,21 @@
   ```bash
   tpm2_getcap properties-fixed
   ```
+- Check if TPM supports pcrlock
+  ```bash
+  systemd-pcrlock is-supported && echo "pcrlock supported" || echo "WARNING: pcrlock not fully supported; skip integration if 'no' or 'obsolete'."
+  # Note: We'll switch to pcrlock policy later (after Secure Boot/UKI) for resilience.
+  ```
 - Enroll the LUKS key to TPM2 for automatic unlocking:
   ```bash
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+  (DEPRECATED - Fallback Only) systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+  # Enroll the key using pcrlock. This binds the key slot to be managed by the systemd-pcrlock service.
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/mapper/luks_crypt
+  ```
+- Enable systemd-pcrlock service to automatically re-enroll the TPM key
+  ```bash
+  # if PCRs change (e.g., after a BIOS/firmware update).
+  systemctl enable systemd-pcrlock.service
   ```
 - Test TPM unlocking and back up PCR values:
   ```bash
@@ -753,9 +765,64 @@
   efi /EFI/Linux/arch.efi
   EOF
   ```
-- Final reboot into encrypted system:
+- Exit chroot:
   ```bash
   exit
+  ```
+- Verify pcrlock readiness (full boot required for event logs):
+  ```bash
+  systemd-pcrlock is-supported  # Must output "yes"
+  tpm2_pcrread sha256:0-15  # Confirm PCRs populated
+  ```
+- Create directories for custom pcrlock files:
+  ```bash
+  mkdir -p /var/lib/pcrlock.d
+  ```
+- Generate .pcrlock for firmware code/config (PCRs 0-3; auto-updates via service):
+  ```bash
+  systemd-pcrlock lock-firmware-code
+  systemd-pcrlock lock-firmware-config  # Use cautiously; skip if firmware measures unstable data (e.g., voltages)
+  systemctl enable --now systemd-pcrlock-firmware-code.service systemd-pcrlock-firmware-config.service
+  ```
+- Generate .pcrlock for Secure Boot policy/authority (PCR 7):
+  ```bash
+  systemd-pcrlock lock-secureboot-policy
+  systemd-pcrlock lock-secureboot-authority
+  systemctl enable --now systemd-pcrlock-secureboot-policy.service systemd-pcrlock-secureboot-authority.service
+  ```
+- Generate .pcrlock for GPT (PCR 5; your dual-NVMe setup):
+  ```bash
+  systemd-pcrlock lock-gpt /dev/nvme1n1  # Arch disk
+  ```
+- Generate .pcrlock for machine ID and file systems (PCR 15):
+  ```bash
+  systemd-pcrlock lock-machine-id
+  systemd-pcrlock lock-file-system /  # Root FS
+  systemd-pcrlock lock-file-system /var  # Var FS (if separate)
+  systemctl enable --now systemd-pcrlock-machine-id.service systemd-pcrlock-file-system.service
+  ```
+- List components to verify:
+  ```bash
+  systemd-pcrlock list-components
+  ```
+- Generate initial policy (predicts for PCRs 0-5,7,11-15; uses --location=760-:940- by default for OS runtime)
+  ```bash
+  systemd-pcrlock make-policy --recovery-pin=query  # Query for PIN (store in Bitwarden); or 'hide' for auto-gen
+  systemctl enable --now systemd-pcrlock-make-policy.service  # Auto-updates policy after changes
+  ```
+- Switch LUKS to pcrlock policy (wipes static slot):
+  ```bash
+  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/nvme1n1p2
+  systemd-cryptenroll --test /dev/nvme1n1p2  # Verify
+  ```
+- Backup policy and PIN:
+  ```bash
+  cp /var/lib/systemd/pcrlock.json /mnt/usb/pcrlock.json
+  echo "WARNING: Store /mnt/usb/pcrlock.json and recovery PIN in Bitwarden."
+  ```
+- Final reboot into encrypted system:
+  ```bash
   umount -R /mnt
   reboot
   ```
@@ -797,7 +864,10 @@
   sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
   # Generate UKI
   mkinitcpio -P
-
+  # For arch.efi (in 650-kernel.pcrlock.d/ drop-in)
+  mkdir -p /var/lib/pcrlock.d/650-kernel.pcrlock.d
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch.pcrlock
+  
   #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
   #To debug:
   # Reboot into your UEFI/BIOS (F1).
@@ -830,6 +900,9 @@
     tpm2-measure=yes \
     amdgpu.dc=1 amdgpu.dpm=1"
   EOF
+  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
+  # For arch-lts.efi (in 650-kernel.pcrlock.d/ drop-in)
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-lts.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch-lts.pcrlock
   ```
 - Verify configuration:
   ```bash
@@ -852,16 +925,22 @@
   mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
   # Sign it
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
   # Fallback entry
   cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
   title Arch Linux (Fallback)
   efi /EFI/Linux/arch-fallback.efi
   EOF
+  # For arch-fallback.efi (in 650-kernel.pcrlock.d/ drop-in)
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-fallback.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch-fallback.pcrlock
   
   # Verify resume_offset is numeric (not $SWAP_OFFSET)
   grep resume_offset /etc/fstab
   grep resume_offset /boot/loader/entries/arch.conf
+  ```
+- Add for PCR 9
+  ```bash
+  systemd-pcrlock lock-kernel-cmdline --pcrlock=/var/lib/pcrlock.d/710-kernel-cmdline.pcrlock
+  systemd-pcrlock make-policy  # Refresh policy with new UKIs
   ```
 - Create /boot/loader/entries/arch-lts.conf
   ```bash
@@ -946,6 +1025,7 @@
   Description = Regenerating UKI after kernel update
   When = PostTransaction
   Exec = /usr/bin/mkinitcpio -P
+  Exec = /usr/bin/systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch.pcrlock && /usr/bin/systemd-pcrlock make-policy
   EOF
   ```
 - Disable Hibernation Resume Service
@@ -1944,6 +2024,7 @@
   sudo chezmoi add -r /etc/dnscrypt-proxy/
   sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
   sudo chezmoi add -r /etc/apparmor.d/local/
+  sudo chezmoi add /var/lib/systemd/pcrlock.json /var/lib/pcrlock.d
   ```
 - Add Firejail configuration files
   ```bash
@@ -2065,7 +2146,15 @@
   # Clean up
   umount /mnt/usb
   rmdir /mnt/usb
-  ```  
+  ```
+- Check systemd-pcrlock
+  ```bash
+  systemd-pcrlock predict  # Check predictions
+  systemd-pcrlock log --json=pretty  # Validate event log
+  systemctl status systemd-pcrlock.service
+  journalctl -b -u systemd-pcrlock.service --no-pager
+  # You should look for a message indicating the service ran successfully and measured the current PCRs.
+  ```
 - Check Secure Boot status:
   ```bash
   sbctl verify /boot/EFI/Linux/arch.efi
@@ -2280,6 +2369,9 @@
    - If TPM unlocking fails, use the LUKS passphrase or keyfile.
    - Re-enroll TPM:
      systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+   - pcrlock Recovery
+     # If policy outdated: systemd-pcrlock make-policy --recovery-pin=query (use PIN)
+     # Restore .pcrlock files from chezmoi/dotfiles if corrupted.
 
   f. **Rollback Snapshot**:
    - List snapshots:
@@ -2590,6 +2682,11 @@
   ```
 - **g) Firmware Updates**:
   ```bash
+  # Before fwupdmgr update (relax policy for change)
+  systemd-pcrlock unlock-firmware-code
+  systemd-pcrlock unlock-firmware-config  # If using config lock
+  systemd-pcrlock unlock-secureboot-policy  # If DB updates
+
   fwupdmgr refresh --force
   fwupdmgr get-updates
   fwupdmgr update
@@ -2600,19 +2697,28 @@
   echo "After booting, re-enroll the TPM:"
   echo "  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2"
   echo "  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2"
+  echo "WARNING: Firmware updates change PCRs. TPM auto-unlock fails once; enter passphrase."
+  echo "systemd-pcrlock services (enabled) will auto-re-lock and run make-policy after boot."
+  echo "If fails: Manually run 'systemd-pcrlock make-policy --recovery-pin=query' (use PIN from Bitwarden)."
   tpm2_pcrread sha256:0,4,7 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
-
-  # Future-Proofing Note:
-  echo "Keep an eye on 'systemd-pcrlock' development. By 2025, it may offer a more"
-  echo "stable way to bind to PCRs that are less affected by firmware updates."
+  reboot
   ```
-- **h) Security Audit**:
+- **h) pcrlock Maintenance**:
+  ```bash
+  # Refresh policy after major changes (e.g., new UKI)
+  systemd-pcrlock make-policy
+  # Remove if reverting
+  systemd-pcrlock remove-policy
+  # Check support/status
+  systemd-pcrlock is-supported
+  ```
+- **i) Security Audit**:
   ```bash
   lynis audit system > /root/lynis-report-$(date +%F).txt
   rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
   ```
-- **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
+- **j) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
   ```bash
   # Enable early policy caching (required for boot-time FSP)
   sudo mkdir -p /etc/apparmor.d/cache
@@ -2663,7 +2769,7 @@
   sleep 10
   reboot
   ```
-- **j) Create sandboxed (FireJail) desktop launchers (menu only)**:
+- **k) Create sandboxed (FireJail) desktop launchers (menu only)**:
   ```bash
   for app in brave-browser mullvad-browser tor-browser obs-studio alacritty; do
   desktop-file-install --dir="$HOME/.local/share/applications" \
@@ -2677,7 +2783,7 @@
   # Update menu
   update-desktop-database ~/.local/share/applications
   ```
-- **k) Final Reboot & Lock**:
+- **l) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
