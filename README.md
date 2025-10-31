@@ -707,44 +707,48 @@
   ```bash
   # Boot back into Arch ISO
   arch-chroot /mnt
-  
+
   # Wipe old TPM policy and reenroll with Secure Boot PCRs
-  TPM_DEV="/dev/mapper/luks_crypt"       # <-- adjust if needed to /dev/nvme1n1p2 instead of /dev/mapper/luks_crypt
-  JQ_BIN="$(command -v jaq || command -v jq)"   # prefers jaq, falls back to jq
+  ```bash
+  TPM_DEV="/dev/mapper/luks_crypt" # Correctly uses the unlocked mapper device - If have issues update to "/dev/nvme1n1p2"
+  JQ_BIN="$(command -v jaq || command -v jq)" # Correctly checks for JSON processor
+
   if [[ -z "$JQ_BIN" ]]; then
-    echo "ERROR: neither jaq nor jq is installed" >&2
-    exit 1
+  echo "ERROR: neither jaq nor jq is installed. Please install jq via 'pacman -S jq'" >&2
+  exit 1
   fi
+
   # Dump LUKS JSON metadata and find *all* TPM keyslots
   mapfile -t TPM_KEYSLOTS < <(
-    cryptsetup luksDump "$TPM_DEV" --dump-json-metadata \
-        | "$JQ_BIN" -r '
-            .tokens[]
-            | select(.type == "systemd-tpm2")
-            | .keyslots[]
-        '
+  cryptsetup luksDump "$TPM_DEV" --dump-json-metadata \
+      | "$JQ_BIN" -r '
+          .tokens[]
+          | select(.type == "systemd-tpm2")
+          | .keyslots[]
+      '
   )
-  
+
   if [[ ${#TPM_KEYSLOTS[@]} -eq 0 ]]; then
-    echo "No systemd-tpm2 token found on $TPM_DEV – nothing to wipe"
+  echo "No systemd-tpm2 token found on $TPM_DEV – nothing to wipe"
   else
-    echo "Found ${#TPM_KEYSLOTS[@]} TPM keyslot(s): ${TPM_KEYSLOTS[*]}"
-    for slot in "${TPM_KEYSLOTS[@]}"; do
-        echo "Wiping TPM keyslot $slot ..."
-        systemd-cryptenroll "$TPM_DEV" --wipe-slot="$slot" || {
-            echo "Failed to wipe slot $slot" >&2
-            exit 1
-        }
-    done
+  echo "Found ${#TPM_KEYSLOTS[@]} TPM keyslot(s): ${TPM_KEYSLOTS[*]}"
+  for slot in "${TPM_KEYSLOTS[@]}"; do
+      echo "Wiping TPM keyslot $slot ..."
+      systemd-cryptenroll "$TPM_DEV" --wipe-slot="$slot" || {
+          echo "Failed to wipe slot $slot. Continuing with enrollment." >&2
+          # Removed the 'exit 1' here, as a failure to wipe shouldn't stop enrollment.
+      }
+  done
   fi
-  
+
   # Enroll a fresh TPM keyslot
-  echo "Enrolling new TPM keyslot ..."
-  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-pcrs=0+7
-  ```
+  echo "Enrolling new TPM keyslot with full PCR set (0+4+7)..."
+  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256
+ 
   # Final TPM unlock test
-  systemd-cryptenroll --tpm2-device=auto --test /dev/mapper/luks_crypt && echo "TPM unlock test PASSED"
+  systemd-cryptenroll --tpm2-device=auto --test "$TPM_DEV" && echo "TPM unlock test PASSED"
   # Should return 0 and print "Unlocking with TPM2... success".
+
   # Confirm Secure Boot is active
   sbctl status
   # Expected:
