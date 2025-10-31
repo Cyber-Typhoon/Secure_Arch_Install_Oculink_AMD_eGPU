@@ -189,7 +189,8 @@
       set 1 esp on \
       mkpart crypt btrfs 1GiB 100% \
       align-check optimal 1 \
-      quit
+    quit
+    parted /dev/nvme1n1 print
     ```
   - Verify partitions:
     ```bash
@@ -210,7 +211,7 @@
 - **c) Set Up LUKS2 Encryption for the BTRFS File System**:
   - Format `/dev/nvme1n1p2` with LUKS2, using `pbkdf2` for compatibility with `systemd-cryptenroll`:
     ```bash
-    cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 1000000
+    cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 500000
     ```
   - Open the LUKS partition:
     ```bash
@@ -413,7 +414,7 @@
   networkmanager openssh rsync reflector arch-install-scripts \
   \
   # User / DE
-  zsh git flatpak gdm pacman-contrib
+  zsh git jq flatpak gdm pacman-contrib
   ```
 - Chroot into the installed system:
   ```bash
@@ -462,7 +463,8 @@
   ```
 - Enable sudo
   ```bash
-  sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
+  echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/wheel
+  chmod 440 /etc/sudoers.d/wheel   # optional but good practice
   ```
 - Enable NetworkManager
   ```bash
@@ -638,7 +640,7 @@
 
   # Create and enroll sbctl keys
   sbctl create-keys
-  sbctl enroll-keys --tpm-eventlog
+  sbctl enroll-keys --microsoft --tpm-eventlog --ignore-immutable
 
   # Regenerate UKI (required before signing)
   mkinitcpio -P
@@ -705,9 +707,41 @@
   ```bash
   # Boot back into Arch ISO
   arch-chroot /mnt
+  
   # Wipe old TPM policy and reenroll with Secure Boot PCRs
-  systemd-cryptenroll --wipe-slot=tpm2 /dev/mapper/luks_crypt
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/mapper/luks_crypt
+  TPM_DEV="/dev/mapper/luks_crypt"       # <-- adjust if needed to /dev/nvme1n1p2 instead of /dev/mapper/luks_crypt
+  JQ_BIN="$(command -v jaq || command -v jq)"   # prefers jaq, falls back to jq
+  if [[ -z "$JQ_BIN" ]]; then
+    echo "ERROR: neither jaq nor jq is installed" >&2
+    exit 1
+  fi
+  # Dump LUKS JSON metadata and find *all* TPM keyslots
+  mapfile -t TPM_KEYSLOTS < <(
+    cryptsetup luksDump "$TPM_DEV" --dump-json-metadata \
+        | "$JQ_BIN" -r '
+            .tokens[]
+            | select(.type == "systemd-tpm2")
+            | .keyslots[]
+        '
+  )
+  
+  if [[ ${#TPM_KEYSLOTS[@]} -eq 0 ]]; then
+    echo "No systemd-tpm2 token found on $TPM_DEV – nothing to wipe"
+  else
+    echo "Found ${#TPM_KEYSLOTS[@]} TPM keyslot(s): ${TPM_KEYSLOTS[*]}"
+    for slot in "${TPM_KEYSLOTS[@]}"; do
+        echo "Wiping TPM keyslot $slot ..."
+        systemd-cryptenroll "$TPM_DEV" --wipe-slot="$slot" || {
+            echo "Failed to wipe slot $slot" >&2
+            exit 1
+        }
+    done
+  fi
+  
+  # Enroll a fresh TPM keyslot
+  echo "Enrolling new TPM keyslot ..."
+  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-pcrs=0+7
+  ```
   # Final TPM unlock test
   systemd-cryptenroll --tpm2-device=auto --test /dev/mapper/luks_crypt && echo "TPM unlock test PASSED"
   # Should return 0 and print "Unlocking with TPM2... success".
@@ -921,7 +955,7 @@
 
   # Sign GRUB bootloader
   sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
-  shred -u /crypto_keyfile
+  shred -u /crypto_keyfile # This may fail and you will need to enter the chroot, mount everything, then wipe
   umount /mnt/usb
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
@@ -1045,8 +1079,11 @@
   ```bash   
   # Clone & build in a clean temp dir
   TMP_PARU=$(mktemp -d)
-  git clone https://aur.archlinux.org/paru.git "$TMP_PARU"
-  (cd "$TMP_PARU" && makepkg -si)
+  git clone --depth 1 https://aur.archlinux.org/paru.git "$TMP_PARU"
+  (
+    cd "$TMP_PARU" || exit 1
+    makepkg -si --noconfirm   # non-interactive
+  )
   rm -rf "$TMP_PARU"
 
   # Configure to show PKGBUILD diffs (edit the Paru config file):
@@ -1079,7 +1116,7 @@
   # System packages (CLI + system-level)
   pacman -S --needed \
   # Security & Hardening
-  aide apparmor auditd chkrootkit lynis rkhunter sshguard ufw usbguard firejail\
+  aide apparmor auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard firejail\
   \
   # System Monitoring
   baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
@@ -1092,7 +1129,7 @@
   \
   # CLI Tools
   atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
-  helix httpie hyfetch jaq procs python-pygobject rage ripgrep rustup starship tealdeer \
+  helix httpie hyfetch procs python-pygobject rage ripgrep rustup starship tealdeer \
   tokei xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
@@ -1495,10 +1532,21 @@
   ```
 - Audit SUID binaries:
   ```bash
-  find / -perm -4000 -type f -exec ls -l {} ; > /data/suid_audit.txt
-  cat /data/suid_audit.txt # Remove SUID from non-essential binaries
-  chmod u-s /usr/bin/ping
-  setcap cap_net_raw+ep /usr/bin/ping
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  AUDIT_FILE="/data/suid_audit.txt"
+  mkdir -p "$(dirname "$AUDIT_FILE")"
+
+  # Find SUID files, skip special filesystems
+  find / -xdev -type f -perm -u+s 2>/dev/null > "$AUDIT_FILE"
+
+  # Example: remove SUID from ping and give capability instead
+  PING_BIN="/usr/bin/ping"
+  if [[ -f "$PING_BIN" ]]; then
+    chmod u-s "$PING_BIN"
+    setcap cap_net_raw+ep "$PING_BIN"
+  fi
   ```
 - Configure zram:
   ```bash
