@@ -578,17 +578,18 @@
   (DEPRECATED - Fallback Only) systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
   # Enroll the key using pcrlock. This binds the key slot to be managed by the systemd-pcrlock service.
   systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/mapper/luks_crypt
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/mapper/luks_crypt
   ```
 - Enable systemd-pcrlock service to automatically re-enroll the TPM key
   ```bash
-  # if PCRs change (e.g., after a BIOS/firmware update).
+  # This service is responsible for automatically updating PCRs (like PCR 0), if PCRs change (e.g., after a BIOS/firmware update).
   systemctl enable systemd-pcrlock.service
   ```
 - Test TPM unlocking and back up PCR values:
   ```bash
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --test /dev/mapper/luks_crypt
   # If test fails: tpm2_pcrread sha256:0,4,7  and compare with expected values
-  systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt
+  systemd-cryptenroll --dump-pcrs /dev/mapper/luks_crypt > /mnt/usb/tpm-pcr-initial.txt
   tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt
   # Verify PCR 4 is measured by systemd-boot (non-zero)
   tpm2_pcrread sha256:4 | grep -v "0x00\{64\}"
@@ -711,10 +712,10 @@
   # Boot back into Arch ISO
   arch-chroot /mnt
   # Wipe old TPM policy and reenroll with Secure Boot PCRs
-  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/nvme1n1p2
+  systemd-cryptenroll --wipe-slot=tpm2 /dev/mapper/luks_crypt
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/mapper/luks_crypt
   # Final TPM unlock test
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  systemd-cryptenroll --tpm2-device=auto --test /dev/mapper/luks_crypt && echo "TPM unlock test PASSED"
   # Should return 0 and print "Unlocking with TPM2... success".
   # Confirm Secure Boot is active
   sbctl status
@@ -765,73 +766,6 @@
   efi /EFI/Linux/arch.efi
   EOF
   ```
-- Exit chroot:
-  ```bash
-  exit
-  ```
-- Verify pcrlock readiness (full boot required for event logs):
-  ```bash
-  systemd-pcrlock is-supported  # Must output "yes"
-  tpm2_pcrread sha256:0-15  # Confirm PCRs populated
-  ```
-- Create directories for custom pcrlock files:
-  ```bash
-  mkdir -p /var/lib/pcrlock.d
-  ```
-- Generate .pcrlock for firmware code/config (PCRs 0-3; auto-updates via service):
-  ```bash
-  systemd-pcrlock lock-firmware-code
-  systemd-pcrlock lock-firmware-config  # Use cautiously; skip if firmware measures unstable data (e.g., voltages)
-  systemctl enable --now systemd-pcrlock-firmware-code.service systemd-pcrlock-firmware-config.service
-  ```
-- Generate .pcrlock for Secure Boot policy/authority (PCR 7):
-  ```bash
-  systemd-pcrlock lock-secureboot-policy
-  systemd-pcrlock lock-secureboot-authority
-  systemctl enable --now systemd-pcrlock-secureboot-policy.service systemd-pcrlock-secureboot-authority.service
-  ```
-- Generate .pcrlock for GPT (PCR 5; your dual-NVMe setup):
-  ```bash
-  systemd-pcrlock lock-gpt /dev/nvme1n1  # Arch disk
-  ```
-- Generate .pcrlock for machine ID and file systems (PCR 15):
-  ```bash
-  systemd-pcrlock lock-machine-id
-  systemd-pcrlock lock-file-system /  # Root FS
-  systemd-pcrlock lock-file-system /var  # Var FS (if separate)
-  systemctl enable --now systemd-pcrlock-machine-id.service systemd-pcrlock-file-system.service
-  ```
-- List components to verify:
-  ```bash
-  systemd-pcrlock list-components
-  ```
-- Generate initial policy (predicts for PCRs 0-5,7,11-15; uses --location=760-:940- by default for OS runtime)
-  ```bash
-  systemd-pcrlock make-policy --recovery-pin=query  # Query for PIN (store in Bitwarden); or 'hide' for auto-gen
-  systemctl enable --now systemd-pcrlock-make-policy.service  # Auto-updates policy after changes
-  ```
-- Switch LUKS to pcrlock policy (wipes static slot):
-  ```bash
-  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/nvme1n1p2
-  systemd-cryptenroll --test /dev/nvme1n1p2  # Verify
-  ```
-- Backup policy and PIN:
-  ```bash
-  cp /var/lib/systemd/pcrlock.json /mnt/usb/pcrlock.json
-  echo "WARNING: Store /mnt/usb/pcrlock.json and recovery PIN in Bitwarden."
-  ```
-- Final reboot into encrypted system:
-  ```bash
-  umount -R /mnt
-  reboot
-  ```
-## Step 9: Configure systemd-boot with UKI
-
-- Mount ESP (EFI System Partition)
-  ```bash
-  mount /dev/nvme1n1p1 /boot
-  ```
 - Install `systemd-boot`:
   ```bash
   # Creates /boot/loader/, installs systemd-bootx64.efi.
@@ -864,9 +798,7 @@
   sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
   # Generate UKI
   mkinitcpio -P
-  # For arch.efi (in 650-kernel.pcrlock.d/ drop-in)
   mkdir -p /var/lib/pcrlock.d/650-kernel.pcrlock.d
-  systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch.pcrlock
   
   #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
   #To debug:
@@ -901,8 +833,6 @@
     amdgpu.dc=1 amdgpu.dpm=1"
   EOF
   sbctl sign -s /boot/EFI/Linux/arch-lts.efi
-  # For arch-lts.efi (in 650-kernel.pcrlock.d/ drop-in)
-  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-lts.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch-lts.pcrlock
   ```
 - Verify configuration:
   ```bash
@@ -930,17 +860,10 @@
   title Arch Linux (Fallback)
   efi /EFI/Linux/arch-fallback.efi
   EOF
-  # For arch-fallback.efi (in 650-kernel.pcrlock.d/ drop-in)
-  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-fallback.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch-fallback.pcrlock
-  
+
   # Verify resume_offset is numeric (not $SWAP_OFFSET)
   grep resume_offset /etc/fstab
   grep resume_offset /boot/loader/entries/arch.conf
-  ```
-- Add for PCR 9
-  ```bash
-  systemd-pcrlock lock-kernel-cmdline --pcrlock=/var/lib/pcrlock.d/710-kernel-cmdline.pcrlock
-  systemd-pcrlock make-policy  # Refresh policy with new UKIs
   ```
 - Create /boot/loader/entries/arch-lts.conf
   ```bash
@@ -1028,9 +951,73 @@
   Exec = /usr/bin/systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch.pcrlock && /usr/bin/systemd-pcrlock make-policy
   EOF
   ```
-- Disable Hibernation Resume Service
+- Exit chroot:
   ```bash
+  exit
+  ```
+- Final reboot into encrypted system:
+  ```bash
+  umount -R /mnt
+  reboot
+  ```
+## Step 9: Final Policy Sealing and Activation (Run on Installed Arch System)
+
+- Mount ESP (EFI System Partition)
+  ```bash
+  mount /dev/nvme1n1p1 /boot
+  ```
+- Verify pcrlock readiness (full boot required for event logs):
+  ```bash
+  systemd-pcrlock is-supported  # Must output "yes"
+  tpm2_pcrread sha256:0-15  # Confirm PCRs populated
+  journalctl -b -o verbose | grep "tpm2-measure.service" # Check for measurements from boot
+  ```
+- Policy Locking
+  ```bash
+  # System/Firmware Integrity (PCRs 0-3, 5, 7)
+  systemd-pcrlock lock-firmware-code
+  systemd-pcrlock lock-firmware-config  # Use cautiously; skip if firmware measures unstable data (e.g., voltages)
+  systemd-pcrlock lock-secureboot-policy
+  systemd-pcrlock lock-secureboot-authority
+  systemd-pcrlock lock-gpt /dev/nvme1n1  # Arch disk
+  
+  # Boot Chain Integrity (PCR 9, 11)
+  systemd-pcrlock lock-kernel-cmdline
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-lts.efi
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-fallback.efi
+
+  # OS State (PCR 15)
+  systemd-pcrlock lock-machine-id
+  systemd-pcrlock lock-file-system /  # Root FS
+  systemd-pcrlock lock-file-system /var  # Var FS (if separate)
+
+  # List components to verify the policy is complete
+  systemd-pcrlock list-components
+  ```
+- Generate initial policy (predicts for PCRs 0-5,7,11-15; uses --location=760-:940- by default for OS runtime)
+  ```bash
+  # Final LUKS Activation (Switch from static to policy seal)
+  systemd-pcrlock make-policy --recovery-pin=query  # Query for PIN (store in Bitwarden); or 'hide' for auto-gen
+  systemctl enable --now systemd-pcrlock-make-policy.service  # Auto-updates policy after changes
+  ```
+- Switch LUKS to pcrlock policy (wipes static slot):
+  ```bash
+  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/nvme1n1p2
+  systemd-cryptenroll --test /dev/nvme1n1p2  # Verify
+  ```
+- Service Enablement and Configuration Cleanup
+  ```bash
+  systemctl enable --now systemd-pcrlock-secureboot-policy.service systemd-pcrlock-secureboot-authority.service
+  systemctl enable --now systemd-pcrlock-machine-id.service systemd-pcrlock-file-system.service
+  systemctl enable --now systemd-pcrlock-firmware-code.service systemd-pcrlock-firmware-config.service
   systemctl disable systemd-hibernate-resume.service
+  ```
+- Backup policy and PIN:
+  ```bash
+  cp /var/lib/systemd/pcrlock.json /mnt/usb/pcrlock.json
+  echo "WARNING: Store /mnt/usb/pcrlock.json and recovery PIN in Bitwarden."
   ```
 - (Optional) Enable systemd-homed with LUKS-encrypted homes
   ```bash
