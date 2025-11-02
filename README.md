@@ -1951,7 +1951,8 @@
   [Action]
   Description=Regenerate Rebos manifest after updates
   When=PostTransaction
-  Exec=/bin/sh -c '/home/$(logname)/.cargo/bin/rebos gen base'
+  # NOTE: Replace 'your_username' with the actual username that installed Rebos via Cargo.
+  Exec=/usr/bin/runuser -u your_username -- /home/your_username/.cargo/bin/rebos gen base
   EOF
   ```
   - Set permissions for hooks:
@@ -2576,42 +2577,9 @@
   WantedBy=timers.target
   EOF
   ```
-- Rebos backup timer (rebos-backup.timer):
-  sudo tee /etc/systemd/system/rebos-backup.service > /dev/null <<'EOF'
-  [Unit]
-  Description=Weekly Rebos configuration snapshot
-  Wants=network-online.target
-  After=network-online.target
-
-  [Service]
-  Type=oneshot
-  ExecStart=/usr/local/bin/rebos-backup.sh
-  User=%U
-  Nice=19
-  IOSchedulingClass=best-effort
-  ProtectSystem=strict
-  PrivateTmp=true
-  EOF
-
-  sudo tee /etc/systemd/system/rebos-backup.timer > /dev/null <<'EOF'
-  [Unit]
-  Description=Run Rebos weekly backup
-  Requires=rebos-backup.service
-
-  [Timer]
-  OnCalendar=Sun *-*-* 02:00:00
-  RandomizedDelaySec=30m
-  Persistent=true
-  Unit=rebos-backup.service
-
-  [Install]
-  WantedBy=timers.target
-  EOF
-  ```
 - Enable Timers Services
   ```bash
   sudo systemctl enable --now restic-backup.timer
-  sudo systemctl enable --now rebos-backup.timer
   ```
 - Weekly full repo check
   ```bash
