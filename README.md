@@ -1940,7 +1940,7 @@
   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
-  - Create Rebos pacmon hook for updates
+  - Create Rebos pacman hook for updates
   ```bash
   cat > /etc/pacman.d/hooks/99-rebos-gen.hook << 'EOF'
   [Trigger]
