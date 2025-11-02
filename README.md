@@ -2,7 +2,7 @@
 
 ## Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
 
-- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0**, **Firejail** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
+- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
 - The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
 - **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup and performance penalties. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. In the future linux-hardened and hardened-malloc can be explored.
 - **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
@@ -1114,7 +1114,7 @@
   # System packages (CLI + system-level)
   pacman -S --needed \
   # Security & Hardening
-  aide apparmor auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard firejail\
+  aide apparmor auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
   baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
@@ -1190,74 +1190,6 @@
   
   # Test the hook after installation:
   sbctl verify /usr/bin/astal  #Should show "signed"
-  ```
-- Enable AppArmor integration for Firejail
-  ```bash
-  # Check if Apparmor service is active:
-  systemctl is-active apparmor || { echo "Error: AppArmor service not active"; exit 1; }
-  # Activate the integration if Apparmor is active
-  sed -i 's/# apparmor/apparmor/' /etc/firejail/firejail.config
-  ```
-- Verify AppArmor is enabled
-  ```bash
-  grep apparmor /etc/firejail/firejail.config | grep -v '^#' || echo "Warning: Firejail AppArmor not enabled"
-  ```
-- Sign Firejail binary for Secure Boot
-  ```bash
-  sbctl verify /usr/bin/firejail || { echo "Signing Firejail binary"; sbctl sign -s /usr/bin/firejail; }
-  ```
-- Append Firejail to existing 91-sbctl-sign.hook
-  ```bash
-  if ! grep -q "Target = firejail" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
-  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = firejail
-
-  [Action]
-  Description = Signing Firejail binary with sbctl
-  When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/firejail
-  EOF
-  ```
-- Create .local Overrides for High-Risk Apps
-  ```bash
-  # DO NOT edit default profiles. Use .local to *add* GPU/Wayland access.
-  # --- Browsers ---
-  for app in brave-browser mullvad-browser tor-browser; do
-  sudo tee /etc/firejail/$app.local > /dev/null << 'EOF'
-  # Local override: Add eGPU + Wayland + Audio
-  protocol wayland
-  whitelist /dev/dri
-  whitelist /dev/snd
-  whitelist ${HOME}/.config/pulse
-  whitelist ${HOME}/.config/pipewire
-  EOF
-  done
-
-  # --- OBS Studio ---
-  sudo tee /etc/firejail/obs-studio.local > /dev/null << 'EOF'
-  # Local override: eGPU + Wayland + Audio + Capture
-  protocol wayland
-  whitelist /dev/dri
-  whitelist /dev/snd
-  whitelist /dev/video*
-  whitelist ${HOME}/.config/obs-studio
-  whitelist ${HOME}/Videos
-  include /etc/firejail/disable-common.inc
-  EOF
-  ```
-- Add Aliases to ~/.zshrc
-  ```bash
-  cat >> ~/.zshrc << 'EOF'
-  # HIGH-RISK: Always sandboxed with AppArmor:
-  alias brave="firejail --apparmor --private-tmp brave-browser"
-  alias mullvad="firejail --apparmor --private-tmp mullvad-browser"
-  alias tor="firejail --apparmor --private-tmp tor-browser"
-  alias obs="firejail --apparmor --private-tmp obs-studio"
-  EOF
   ```
 - Configure GDM for Wayland:
   ```bash
@@ -2055,18 +1987,6 @@
   sudo chezmoi add -r /etc/apparmor.d/local/
   sudo chezmoi add /var/lib/systemd/pcrlock.json /var/lib/pcrlock.d
   ```
-- Add Firejail configuration files
-  ```bash
-  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile; do
-    [ -f /etc/firejail/$profile ] || { echo "Error: /etc/firejail/$profile not found"; exit 1; }
-    sudo chezmoi add /etc/firejail/$profile
-  done
-  sudo chezmoi add /etc/firejail/firejail.config
-  sudo chezmoi add /etc/firejail/brave-browser.profile
-  sudo chezmoi add /etc/firejail/mullvad-browser.profile
-  sudo chezmoi add /etc/firejail/tor-browser.profile
-  sudo chezmoi add /etc/firejail/obs-studio.profile
-  ```
 - Export package lists for reproducibility
   ```bash
   pacman -Qqe > ~/explicitly-installed-packages.txt
@@ -2098,8 +2018,6 @@
   ```bash
   chezmoi apply
   sudo chmod 640 /etc/snapper/configs/*
-  sudo chezmoi chown root:root /etc/firejail/*
-  sudo chezmoi chmod 644 /etc/firejail/*
   ```
 - Test and validate
   ```bash
@@ -2112,13 +2030,6 @@
   cat ~/explicitly-installed-packages.txt # Check for expected packages
   cat ~/aur-packages.txt # Check for AUR packages
   cat ~/flatpak-packages.txt # Check for Flatpak apps
-  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio}.profile || echo "Error: Firejail profiles not restored by chezmoi"
-  # Test to ensure Firejail profiles are functional post-restore
-  echo "Testing Firejail profiles after chezmoi restore"
-  for profile in brave-browser mullvad-browser tor-browser obs-studio; do
-    [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
-    firejail --apparmor --profile=/etc/firejail/$profile.profile --dry-run || echo "Warning: $profile.profile failed"
-  done
   ```
 - Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
   ```bash
@@ -2291,17 +2202,6 @@
   # The paru command succeeding is the test. No need to sign the binary.
   paru -S --builddir ~/.cache/paru_build --noconfirm hello-world-bin
   ```
-- Test Firejail sandboxing
-  ```bash
-  echo "Verifying Firejail sandboxing"
-  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
-  firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
-  firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
-  firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
-  firejail --list || echo "No Firejail sandboxes running"
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs" || echo "No AppArmor denials for Firejail"
-  firejail --list || echo "No Firejail sandboxes running (expected if tests passed)"
-  ```
 - AppArmor Tuning Milestone (Run After Normal Use)
   ```bash
   echo "=== APARMOR TUNING ==="
@@ -2415,39 +2315,24 @@
    snapper --config data rollback <snapshot-number>
    reboot
 
-  g. **Firejail Troubleshooting**:
-   - Check AppArmor logs for denials:
-   journalctl -u apparmor | grep -i firejail
-   - Debug Firejail profile:
-   firejail --debug <application> (e.g., `firejail --debug brave-browser`)
-   - Rebuild profile:
-   Edit `/etc/firejail/<application>.profile` (e.g., add `whitelist /dev/dri/` for eGPU)
-   - Re-sign Firejail binary:
-   sbctl sign -s /usr/bin/firejail
-  EOF
-  ```
-  - Verify and unmount USB
-  ```bash
+  g. **Verify and unmount USB**
   [ -f /mnt/usb/recovery.md ] || { echo "Error: Failed to create /mnt/usb/recovery.md"; exit 1; }
   [ -d /mnt/usb/sbctl-keys ] || { echo "Error: /mnt/usb/sbctl-keys not found"; exit 1; }
   sha256sum /mnt/usb/recovery.md > /mnt/usb/recovery.md.sha256
   cat /mnt/usb/recovery.md
-  firejail --noprofile --profile=/etc/firejail/<application>.profile --dry-run || echo "Error: Invalid profile syntax for <application>"
   sudo umount /mnt/usb
   echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
   echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
-  ```
+
   - Check USB contents
-  ```bash
   lsblk | grep $usb_dev
   sudo mount /dev/$usb_dev /mnt/usb
   ls /mnt/usb/recovery.md /mnt/usb/recovery.md.sha256 /mnt/usb/luks-keyfile /mnt/usb/luks-header-backup /mnt/usb/sbctl-keys
   sha256sum -c /mnt/usb/recovery.md.sha256
   sha256sum -c /mnt/usb/luks-header-backup.sha256
   sudo umount /mnt/usb
-  ```
+
   - Verify Bitwarden storage (manual)
-  ```bash
   echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud. Keep the recovery USB secure."
   read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
   [ "$confirm" = "y" ] || { echo "Error: Please store all data in Bitwarden."; exit 1; }
@@ -2695,21 +2580,7 @@
     supergfxctl -g
     DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
     ```
-- **f) Verify Firejail profiles**:
-  ```bash
-  echo "Checking Firejail profiles..."
-  for app in brave-browser mullvad-browser tor-browser obs-studio; do
-    [ -f "/etc/firejail/$app.profile" ] && echo "✓ $app.profile" || echo "✗ $app.profile missing"
-  done
-
-  for browser in brave-browser mullvad-browser tor-browser; do
-    firejail --apparmor "$browser" --version >/dev/null 2>&1 && echo "✓ $browser sandbox OK" || echo "✗ $browser sandbox failed"
-  done
-
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor" || echo "No AppArmor denials"
-  firejail --version
-  ```
-- **g) Firmware Updates**:
+- **f) Firmware Updates**:
   ```bash
   # Before fwupdmgr update (relax policy for change)
   systemd-pcrlock unlock-firmware-code
@@ -2732,7 +2603,7 @@
   tpm2_pcrread sha256:0,4,7 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
-- **h) pcrlock Maintenance**:
+- **g) pcrlock Maintenance**:
   ```bash
   # Refresh policy after major changes (e.g., new UKI)
   systemd-pcrlock make-policy
@@ -2741,13 +2612,13 @@
   # Check support/status
   systemd-pcrlock is-supported
   ```
-- **i) Security Audit**:
+- **h) Security Audit**:
   ```bash
   lynis audit system > /root/lynis-report-$(date +%F).txt
   rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
   ```
-- **j) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
+- **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
   ```bash
   # Enable early policy caching (required for boot-time FSP)
   sudo mkdir -p /etc/apparmor.d/cache
@@ -2789,30 +2660,12 @@
   echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf
   sudo apparmor_parser -r /etc/apparmor.d/tunables/*
 
-  # Verify Firejail integration (unchanged from Step 10)
-  firejail --apparmor --list
-  journalctl -u apparmor | grep -i firejail || echo "No Firejail denials"
-
   # Reboot to apply cache & early load
   echo "Rebooting in 10 seconds to apply AppArmor.d cache..."
   sleep 10
   reboot
   ```
-- **k) Create sandboxed (FireJail) desktop launchers (menu only)**:
-  ```bash
-  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty; do
-  desktop-file-install --dir="$HOME/.local/share/applications" \
-    --set-key=Name --set-value="$app (Sandboxed)" \
-    --set-key=Exec --set-value="firejail --apparmor $app %U" \
-    --set-key=Icon --set-value="$app" \
-    --set-key=NoDisplay --set-value="false" \
-    /usr/share/applications/$app.desktop
-  done
-
-  # Update menu
-  update-desktop-database ~/.local/share/applications
-  ```
-- **l) Final Reboot & Lock**:
+- **j) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
@@ -2888,10 +2741,6 @@
         label: Utils.execAsync(["journalctl", "-p", "err", "-n", "1", "--no-pager"])
           .then(out => out.trim() || "No errors")
           .catch(() => "Error"),
-      }),
-      Widget.Button({
-        label: "Open",
-        onClicked: () => Utils.execAsync("firejail --apparmor gnome-logs"),
       }),
     ],
   });
