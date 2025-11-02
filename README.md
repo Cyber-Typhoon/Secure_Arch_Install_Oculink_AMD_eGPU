@@ -1149,6 +1149,43 @@
   systemctl --failed  # Check for failed services
   journalctl -p 3 -xb
   ```
+- Install Rebos (NixOS-like repeatability for any Linux distro.)
+  ```bash
+  # Pre-reqs (Rust + Cargo; already in base-devel)
+  rustup default stable
+
+  # Install latest from GitLab upstream
+  cargo install --git https://gitlab.com/Oglo12/rebos.git rebos
+
+  # Verify
+  rebos --version  # Should show latest (e.g., v0.x as of 2025)
+  which rebos      # /home/$USER/.cargo/bin/rebos
+
+  # Add to PATH if needed (add to ~/.zshrc)
+  echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+  source ~/.zshrc
+
+  # Init for your system (tracks pacman/AUR history)
+  rebos init
+
+  # Generate initial manifest (from your current install)
+  rebos gen base
+  git add ~/.config/rebos/base.toml
+  git commit -m "Initial Rebos manifest"
+
+  # Optional: Custom config (BTRFS, eGPU, etc.)
+  mkdir -p ~/.config/rebos
+  cat > ~/.config/rebos/base.toml << 'EOF'
+  name = "arch-secure-egpu"
+  description = "Hardened Arch + BTRFS + LUKS2 + TPM2 + AppArmor + eGPU"
+  bootloader = "systemd-boot"
+  kernel = "linux"
+  extra_packages = ["supergfxctl", "bolt", "apparmor"]  # Your eGPU/MAC deps
+  EOF
+
+  # First backup/snapshot
+  rebos backup create --name "post-install-$(date +%Y%m%d)"
+  ```
 - Install the AUR applications:
   ```bash
   # AUR applications:
@@ -1674,6 +1711,8 @@
   echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   echo "Target = supergfxctl" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Exec = /usr/bin/sbctl sign -s /home/*/.*cargo/bin/rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
   ```
 - Enable VRR for 4K OLED
@@ -1901,10 +1940,25 @@
   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
+  - Create Rebos pacmon hook for updates
+  ```bash
+  cat > /etc/pacman.d/hooks/99-rebos-gen.hook << 'EOF'
+  [Trigger]
+  Operation=Upgrade
+  Type=Package
+  Target=rebos
+
+  [Action]
+  Description=Regenerate Rebos manifest after updates
+  When=PostTransaction
+  Exec=/bin/sh -c '/home/$(logname)/.cargo/bin/rebos gen base'
+  EOF
+  ```
   - Set permissions for hooks:
   ```bash
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
+  chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook
   ```
   - Verify configuration:
   ```bash 
@@ -1945,7 +1999,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup ~/.config/rebos
   ```
 - Add user-specific dotfiles
   ```bash
@@ -1956,6 +2010,7 @@
   chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
   chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
+  chezmoi add ~/.config/rebos
   ```
 - Add system-wide configurations
   ```bash
@@ -2450,7 +2505,44 @@
   # Quick integrity check (5 GiB subset)
   restic check --read-data-subset=5G
   EOF
-  sudo chmod +x /usr/local/bin/restic-backup.sh 
+  sudo chmod +x /usr/local/bin/restic-backup.sh
+  ```
+- Create a Rebos backup script
+  ```bash
+  sudo tee /usr/local/bin/rebos-backup.sh > /dev/null <<'EOF'
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  REBOS_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/rebos"
+  BACKUP_NAME="weekly-$(date +%Y%m%d-%H%M%S)"
+  LOG="/var/log/rebos-backup.log"
+
+  echo "[$(date)] Starting Rebos backup: $BACKUP_NAME" | tee -a "$LOG"
+
+  # Ensure rebos is in PATH
+  export PATH="$HOME/.cargo/bin:$PATH"
+
+  # Regenerate manifest from current system state
+  rebos gen base --output "$REBOS_CONFIG/base.toml" | tee -a "$LOG"
+
+  # Commit to local git (if initialized)
+  if [ -d "$REBOS_CONFIG/.git" ]; then
+    cd "$REBOS_CONFIG"
+    git add base.toml
+    git commit -m "Auto: weekly system manifest - $BACKUP_NAME" || echo "No changes to commit" | tee -a "$LOG"
+  fi
+
+  # Create named backup
+  rebos backup create --name "$BACKUP_NAME" | tee -a "$LOG"
+
+  # Prune old backups: keep last 8 weekly + 4 monthly
+  rebos backup prune --keep-last 8 --keep-tagged monthly:4 | tee -a "$LOG"
+
+  echo "[$(date)] Rebos backup completed: $BACKUP_NAME" | tee -a "$LOG"
+  EOF
+
+  sudo chmod +x /usr/local/bin/rebos-backup.sh
+  ```  
 - Systemd Service & Timer:
   ```bash
   sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
@@ -2483,8 +2575,43 @@
   [Install]
   WantedBy=timers.target
   EOF
+  ```
+- Rebos backup timer (rebos-backup.timer):
+  sudo tee /etc/systemd/system/rebos-backup.service > /dev/null <<'EOF'
+  [Unit]
+  Description=Weekly Rebos configuration snapshot
+  Wants=network-online.target
+  After=network-online.target
 
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/local/bin/rebos-backup.sh
+  User=%U
+  Nice=19
+  IOSchedulingClass=best-effort
+  ProtectSystem=strict
+  PrivateTmp=true
+  EOF
+
+  sudo tee /etc/systemd/system/rebos-backup.timer > /dev/null <<'EOF'
+  [Unit]
+  Description=Run Rebos weekly backup
+  Requires=rebos-backup.service
+
+  [Timer]
+  OnCalendar=Sun *-*-* 02:00:00
+  RandomizedDelaySec=30m
+  Persistent=true
+  Unit=rebos-backup.service
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+  ```
+- Enable Timers Services
+  ```bash
   sudo systemctl enable --now restic-backup.timer
+  sudo systemctl enable --now rebos-backup.timer
   ```
 - Weekly full repo check
   ```bash
@@ -2537,6 +2664,10 @@
   ```bash
   echo "Running a quick test backup..."
   /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
+  systemctl list-timers --all
+  journalctl -u restic-backup.timer -n 20
+  journalctl -u rebos-backup.service -n 20
+  rebos backup list
 
   # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
   # Check status any time:  restic snapshots --repo <path>
