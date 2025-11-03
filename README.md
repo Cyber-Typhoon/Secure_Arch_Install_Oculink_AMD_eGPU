@@ -689,13 +689,14 @@
   Target = mkinitcpio
   Target = fwupd
   Target = plymouth
+  Target = tpm2-tools
 
   [Action]
   Description = Rebuild UKI and sign with Secure Boot
   When = PostTransaction
   Exec = /usr/bin/bash -c '
     /usr/bin/mkinitcpio -P || true
-    /usr/bin/sbctl sign -s /boot/EFI/Linux/arch*.efi \
+    /usr/bin/sbctl sign -s /boot/EFI/Linux/arch*.efi /usr/bin/systemd-cryptenroll /usr/bin/tpm2_* 2>/dev/null || true \
       /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
       /usr/lib/plymouth/plymouthd 2>/dev/null || true
   '
@@ -728,28 +729,27 @@
   fi
 
   # Raw PCR + Public-Key Enrollment - ONE-LINER AUTO TPM REENROLL SCRIPT
-  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix > /dev/null
+  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix.sh > /dev/null
   #!/usr/bin/env bash
   set -euo pipefail
 
-  LUKS_DEV="/dev/nvme1n1p2"
-  PUBKEY="/etc/tpm2-ukey.pem"
+  # Adjust this to your encrypted partition (e.g., via blkid or static path)
+  LUKS_UUID=$(blkid -s UUID -o value /dev/nvme1n1p2)  # Replace with your root partition
+  LUKS_DEV="/dev/disk/by-uuid/$LUKS_UUID"
 
-  [[ -f "$PUBKEY" ]] || { echo "Error: TPM public key missing: $PUBKEY"; exit 1; }
+  # Test if current PCRs would allow TPM unlock
+  if ! systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" >/dev/null 2>&1; then
+    echo "TPM auto-unlock failed this boot. Re-enrolling with current PCRs..."
 
-  echo "Wiping old TPM keyslots..."
-  systemd-cryptenroll "$LUKS_DEV" --wipe-slot=tpm2 2>/dev/null || true
+    systemd-cryptenroll "$LUKS_DEV" \
+        --tpm2-device=auto \
+        --tpm2-pcrs=7+11 \
+        --tpm2-pcrs-bank=sha256
 
-  echo "Re-enrolling with current PCR 7+11 + public key..."
-  systemd-cryptenroll "$LUKS_DEV" \
-    --tpm2-device=auto \
-    --tpm2-pcrs=7+11 \
-    --tpm2-public-key="$PUBKEY" \
-    --tpm2-public-key-pcrs=7+11
-
-  echo "TPM auto-unlock restored. Next boot: no passphrase needed."
+    echo "TPM re-enrollment complete. Auto-unlock restored for next boot."
+  fi
   EOF
-  sudo chmod +x /usr/local/bin/tpm-seal-fix
+  sudo chmod +x /usr/local/bin/tpm-seal-fix.sh
 
   # Verify
   systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
@@ -857,6 +857,27 @@
   ```
 ## Step 9: Final Policy Sealing and Activation (Run on Installed Arch System)
 
+- TPM Reenroll automatic service
+  ```bash
+  # /etc/systemd/system/tpm-reenroll.service
+  cat << 'EOF' | sudo tee /etc/systemd/system/tpm-reenroll.service > /dev/null
+  [Unit]
+  Description=Automatically Re-enroll TPM2 Keyslot After PCR Drift
+  Requires=systemd-udev-settle.service
+  After=local-fs.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/local/bin/tpm-seal-fix.sh
+  RemainAfterExit=yes
+
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now tpm-reenroll.service
+  ```
 - Final TPM Policy Sealing
   ```bash
   echo "Sealing LUKS to TPM with PCR 7+11 and public key..."
@@ -1029,9 +1050,9 @@
   # Sign astal/ags for Secure Boot once
     sbctl sign -s /usr/bin/astal /usr/bin/ags
   
-  # Append Astal/AGS to existing 91-sbctl-sign.hook
-  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
-  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  # Append Astal/AGS to existing 90-uki-sign.hook
+  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
+  cat << 'EOF' >> /etc/pacman.d/hooks/90-uki-sign.hook
 
   [Trigger]
   Operation = Install
@@ -1525,12 +1546,12 @@
   # If unsigned, sign and add to the pacman hook
   sbctl sign -s /usr/bin/qemu-system-x86_64
   sbctl sign -s /usr/lib/libvirt/libvirtd
-  echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Target = supergfxctl" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Target = rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Exec = /usr/bin/sbctl sign -s /home/*/.*cargo/bin/rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = qemu" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Target = libvirt" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Target = supergfxctl" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Target = rebos" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Exec = /usr/bin/sbctl sign -s /home/*/.*cargo/bin/rebos" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/90-uki-sign.hook
   ```
 - Enable VRR for 4K OLED
   ```bash
@@ -1847,7 +1868,7 @@
   sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
   sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
   sudo chezmoi add /etc/systemd/system/astal-widgets.service
-  sudo chezmoi add /etc/pacman.d/hooks/91-sbctl-sign.hook
+  sudo chezmoi add /etc/pacman.d/hooks/90-uki-sign.hook
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
   sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
   sudo chezmoi add /etc/pacman.d/hooks/90-mkinitcpio-uki.hook
@@ -2237,8 +2258,8 @@
   ```
 - Pacman hook (auto-sign on updates)
   ```bash
-  if ! grep -q "Target = restic" /etc/pacman.d/hooks/91-sbctl-sign.hook 2>/dev/null; then
-    sudo tee -a /etc/pacman.d/hooks/91-sbctl-sign.hook >/dev/null <<'EOF'
+  if ! grep -q "Target = restic" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then
+    sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook >/dev/null <<'EOF'
 
   [Trigger]
   Operation = Install
