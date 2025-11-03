@@ -753,7 +753,7 @@
 
   # Enroll a fresh TPM keyslot
   echo "Enrolling new TPM keyslot with pcrlock..."
-  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-with-pcrlock --tpm2-pcrs-bank=sha256
+  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-with-pcrlock --tpm2-pcrs=0+4+7+11 --tpm2-pcrs-bank=sha256
  
   # Final TPM unlock test
   systemd-cryptenroll --tpm2-device=auto --test "$TPM_DEV" && echo "TPM unlock test PASSED"
