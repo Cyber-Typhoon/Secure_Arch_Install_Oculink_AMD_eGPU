@@ -2,7 +2,7 @@
 
 ## Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
 
-- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0**, **Firejail** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
+- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
 - The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
 - **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup and performance penalties. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. In the future linux-hardened and hardened-malloc can be explored.
 - **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
@@ -189,7 +189,8 @@
       set 1 esp on \
       mkpart crypt btrfs 1GiB 100% \
       align-check optimal 1 \
-      quit
+    quit
+    parted /dev/nvme1n1 print
     ```
   - Verify partitions:
     ```bash
@@ -210,7 +211,7 @@
 - **c) Set Up LUKS2 Encryption for the BTRFS File System**:
   - Format `/dev/nvme1n1p2` with LUKS2, using `pbkdf2` for compatibility with `systemd-cryptenroll`:
     ```bash
-    cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 1000000
+    cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 500000
     ```
   - Open the LUKS partition:
     ```bash
@@ -266,12 +267,6 @@
     mount -o subvol=@srv,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/srv
     mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
     mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
-    ```
-  - Apply No_COW (chattr +C) to the home directory
-    ```bash
-    # This disables Copy-on-Write for *new* files, ideal for VMs and games.
-    # This must be done *before* any user data is created (i.e., before Step 6).
-    chattr +C /mnt/home
     ```
   - **Why These Subvolumes?**:
     - **@**: Isolates the root filesystem for snapshotting and rollback.
@@ -413,7 +408,7 @@
   networkmanager openssh rsync reflector arch-install-scripts \
   \
   # User / DE
-  zsh git flatpak gdm pacman-contrib
+  zsh git jq flatpak gdm pacman-contrib
   ```
 - Chroot into the installed system:
   ```bash
@@ -462,7 +457,8 @@
   ```
 - Enable sudo
   ```bash
-  sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
+  echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/wheel
+  chmod 440 /etc/sudoers.d/wheel   # optional but good practice
   ```
 - Enable NetworkManager
   ```bash
@@ -568,20 +564,27 @@
   ```bash
   tpm2_getcap properties-fixed
   ```
+- Check if TPM supports pcrlock
+  ```bash
+  systemd-pcrlock is-supported && echo "pcrlock supported" || echo "WARNING: pcrlock not fully supported; skip integration if 'no' or 'obsolete'."
+  # Note: We'll switch to pcrlock policy later (after Secure Boot/UKI) for resilience.
+  ```
 - Enroll the LUKS key to TPM2 for automatic unlocking:
   ```bash
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+  # Enroll the key using pcrlock. This binds the key slot to be managed by the systemd-pcrlock service.
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/mapper/luks_crypt
   ```
 - Test TPM unlocking and back up PCR values:
   ```bash
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --test /dev/mapper/luks_crypt
   # If test fails: tpm2_pcrread sha256:0,4,7  and compare with expected values
-  systemd-cryptenroll --dump-pcrs /dev/nvme1n1p2 > /mnt/usb/tpm-pcr-initial.txt
+  systemd-cryptenroll --dump-pcrs /dev/mapper/luks_crypt > /mnt/usb/tpm-pcr-initial.txt
   tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt
   # Verify PCR 4 is measured by systemd-boot (non-zero)
   tpm2_pcrread sha256:4 | grep -v "0x00\{64\}"
   # Confirm TPM keyslot exists
   cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
+  tpm2_getcap pcrs
   echo "WARNING: Store /mnt/usb/tpm-pcr-initial.txt in Bitwarden."
   echo "WARNING: Store /mnt/usb/tpm-pcr-backup.txt in Bitwarden."
   echo "WARNING: PCR values are critical for TPM unlocking; back them up securely."
@@ -631,7 +634,7 @@
 
   # Create and enroll sbctl keys
   sbctl create-keys
-  sbctl enroll-keys --tpm-eventlog
+  sbctl enroll-keys --microsoft --tpm-eventlog --ignore-immutable
 
   # Regenerate UKI (required before signing)
   mkinitcpio -P
@@ -698,12 +701,48 @@
   ```bash
   # Boot back into Arch ISO
   arch-chroot /mnt
+
   # Wipe old TPM policy and reenroll with Secure Boot PCRs
-  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/nvme1n1p2
+  ```bash
+  TPM_DEV="/dev/mapper/luks_crypt" # Correctly uses the unlocked mapper device - If have issues update to "/dev/nvme1n1p2"
+  JQ_BIN="$(command -v jaq || command -v jq)" # Correctly checks for JSON processor
+
+  if [[ -z "$JQ_BIN" ]]; then
+  echo "ERROR: neither jaq nor jq is installed. Please install jq via 'pacman -S jq'" >&2
+  exit 1
+  fi
+
+  # Dump LUKS JSON metadata and find *all* TPM keyslots
+  mapfile -t TPM_KEYSLOTS < <(
+  cryptsetup luksDump "$TPM_DEV" --dump-json-metadata \
+      | "$JQ_BIN" -r '
+          .tokens[]
+          | select(.type == "systemd-tpm2")
+          | .keyslots[]
+      '
+  )
+
+  if [[ ${#TPM_KEYSLOTS[@]} -eq 0 ]]; then
+  echo "No systemd-tpm2 token found on $TPM_DEV – nothing to wipe"
+  else
+  echo "Found ${#TPM_KEYSLOTS[@]} TPM keyslot(s): ${TPM_KEYSLOTS[*]}"
+  for slot in "${TPM_KEYSLOTS[@]}"; do
+      echo "Wiping TPM keyslot $slot ..."
+      systemd-cryptenroll "$TPM_DEV" --wipe-slot="$slot" || {
+          echo "Failed to wipe slot $slot. Continuing with enrollment." >&2
+          # Removed the 'exit 1' here, as a failure to wipe shouldn't stop enrollment.
+      }
+  done
+  fi
+
+  # Enroll a fresh TPM keyslot
+  echo "Enrolling new TPM keyslot with full PCR set (0+4+7)..."
+  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256
+ 
   # Final TPM unlock test
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  systemd-cryptenroll --tpm2-device=auto --test "$TPM_DEV" && echo "TPM unlock test PASSED"
   # Should return 0 and print "Unlocking with TPM2... success".
+
   # Confirm Secure Boot is active
   sbctl status
   # Expected:
@@ -753,18 +792,6 @@
   efi /EFI/Linux/arch.efi
   EOF
   ```
-- Final reboot into encrypted system:
-  ```bash
-  exit
-  umount -R /mnt
-  reboot
-  ```
-## Step 9: Configure systemd-boot with UKI
-
-- Mount ESP (EFI System Partition)
-  ```bash
-  mount /dev/nvme1n1p1 /boot
-  ```
 - Install `systemd-boot`:
   ```bash
   # Creates /boot/loader/, installs systemd-bootx64.efi.
@@ -797,7 +824,8 @@
   sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
   # Generate UKI
   mkinitcpio -P
-
+  mkdir -p /var/lib/pcrlock.d/650-kernel.pcrlock.d
+  
   #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
   #To debug:
   # Reboot into your UEFI/BIOS (F1).
@@ -830,6 +858,7 @@
     tpm2-measure=yes \
     amdgpu.dc=1 amdgpu.dpm=1"
   EOF
+  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
   ```
 - Verify configuration:
   ```bash
@@ -852,13 +881,12 @@
   mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
   # Sign it
   sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
   # Fallback entry
   cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
   title Arch Linux (Fallback)
   efi /EFI/Linux/arch-fallback.efi
   EOF
-  
+
   # Verify resume_offset is numeric (not $SWAP_OFFSET)
   grep resume_offset /etc/fstab
   grep resume_offset /boot/loader/entries/arch.conf
@@ -925,7 +953,7 @@
 
   # Sign GRUB bootloader
   sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
-  shred -u /crypto_keyfile
+  shred -u /crypto_keyfile # This may fail and you will need to enter the chroot, mount everything, then wipe
   umount /mnt/usb
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
@@ -946,11 +974,78 @@
   Description = Regenerating UKI after kernel update
   When = PostTransaction
   Exec = /usr/bin/mkinitcpio -P
+  Exec = /usr/bin/systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch.pcrlock && /usr/bin/systemd-pcrlock make-policy
   EOF
   ```
-- Disable Hibernation Resume Service
+- Exit chroot:
   ```bash
+  exit
+  ```
+- Final reboot into encrypted system:
+  ```bash
+  umount -R /mnt
+  reboot
+  ```
+## Step 9: Final Policy Sealing and Activation (Run on Installed Arch System)
+
+- Mount ESP (EFI System Partition)
+  ```bash
+  mount /dev/nvme1n1p1 /boot
+  ```
+- Verify pcrlock readiness (full boot required for event logs):
+  ```bash
+  systemd-pcrlock is-supported  # Must output "yes"
+  tpm2_pcrread sha256:0-15  # Confirm PCRs populated
+  journalctl -b -o verbose | grep "tpm2-measure.service" # Check for measurements from boot
+  ```
+- Policy Locking
+  ```bash
+  # System/Firmware Integrity (PCRs 0-3, 5, 7)
+  systemd-pcrlock lock-firmware-code
+  systemd-pcrlock lock-firmware-config  # Use cautiously; skip if firmware measures unstable data (e.g., voltages)
+  systemd-pcrlock lock-secureboot-policy
+  systemd-pcrlock lock-secureboot-authority
+  systemd-pcrlock lock-gpt /dev/nvme1n1  # Arch disk
+  
+  # Boot Chain Integrity (PCR 9, 11)
+  systemd-pcrlock lock-kernel-cmdline
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-lts.efi
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-fallback.efi
+
+  # OS State (PCR 15)
+  systemd-pcrlock lock-machine-id
+  systemd-pcrlock lock-file-system /  # Root FS
+  systemd-pcrlock lock-file-system /var  # Var FS (if separate)
+
+  # List components to verify the policy is complete
+  systemd-pcrlock list-components
+  ```
+- Generate initial policy (predicts for PCRs 0-5,7,11-15; uses --location=760-:940- by default for OS runtime)
+  ```bash
+  # Final LUKS Activation (Switch from static to policy seal)
+  systemd-pcrlock make-policy --recovery-pin=query  # Query for PIN (store in Bitwarden); or 'hide' for auto-gen
+  systemctl enable --now systemd-pcrlock-make-policy.service  # Auto-updates policy after changes
+  ```
+- Switch LUKS to pcrlock policy (wipes static slot):
+  ```bash
+  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
+  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/nvme1n1p2
+  systemd-cryptenroll --test /dev/nvme1n1p2  # Verify
+  ```
+- Service Enablement and Configuration Cleanup
+  ```bash
+  systemctl enable --now systemd-pcrlock-secureboot-policy.service systemd-pcrlock-secureboot-authority.service
+  systemctl enable --now systemd-pcrlock-machine-id.service systemd-pcrlock-file-system.service
+  systemctl enable --now systemd-pcrlock-firmware-code.service systemd-pcrlock-firmware-config.service
   systemctl disable systemd-hibernate-resume.service
+  ```
+- Backup policy and PIN:
+  ```bash
+  cp /var/lib/systemd/pcrlock.json /mnt/usb/pcrlock.json
+  echo "WARNING: Store /mnt/usb/pcrlock.json and recovery PIN in Bitwarden."
+  # Backup the predicted state (essential for policy debugging):
+  systemd-pcrlock predict > /mnt/usb/pcrlock-predict.txt
   ```
 - (Optional) Enable systemd-homed with LUKS-encrypted homes
   ```bash
@@ -982,8 +1077,11 @@
   ```bash   
   # Clone & build in a clean temp dir
   TMP_PARU=$(mktemp -d)
-  git clone https://aur.archlinux.org/paru.git "$TMP_PARU"
-  (cd "$TMP_PARU" && makepkg -si)
+  git clone --depth 1 https://aur.archlinux.org/paru.git "$TMP_PARU"
+  (
+    cd "$TMP_PARU" || exit 1
+    makepkg -si --noconfirm   # non-interactive
+  )
   rm -rf "$TMP_PARU"
 
   # Configure to show PKGBUILD diffs (edit the Paru config file):
@@ -1016,7 +1114,7 @@
   # System packages (CLI + system-level)
   pacman -S --needed \
   # Security & Hardening
-  aide apparmor auditd chkrootkit lynis rkhunter sshguard ufw usbguard firejail\
+  aide apparmor auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
   baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
@@ -1029,7 +1127,7 @@
   \
   # CLI Tools
   atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
-  helix httpie hyfetch jaq procs python-pygobject rage ripgrep rustup starship tealdeer \
+  helix httpie hyfetch procs python-pygobject rage ripgrep rustup starship tealdeer \
   tokei xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
@@ -1050,6 +1148,43 @@
   systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
   systemctl --failed  # Check for failed services
   journalctl -p 3 -xb
+  ```
+- Install Rebos (NixOS-like repeatability for any Linux distro.)
+  ```bash
+  # Pre-reqs (Rust + Cargo; already in base-devel)
+  rustup default stable
+
+  # Install latest from GitLab upstream
+  cargo install --git https://gitlab.com/Oglo12/rebos.git rebos
+
+  # Verify
+  rebos --version  # Should show latest (e.g., v0.x as of 2025)
+  which rebos      # /home/$USER/.cargo/bin/rebos
+
+  # Add to PATH if needed (add to ~/.zshrc)
+  echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+  source ~/.zshrc
+
+  # Init for your system (tracks pacman/AUR history)
+  rebos init
+
+  # Generate initial manifest (from your current install)
+  rebos gen base
+  git add ~/.config/rebos/base.toml
+  git commit -m "Initial Rebos manifest"
+
+  # Optional: Custom config (BTRFS, eGPU, etc.)
+  mkdir -p ~/.config/rebos
+  cat > ~/.config/rebos/base.toml << 'EOF'
+  name = "arch-secure-egpu"
+  description = "Hardened Arch + BTRFS + LUKS2 + TPM2 + AppArmor + eGPU"
+  bootloader = "systemd-boot"
+  kernel = "linux"
+  extra_packages = ["supergfxctl", "bolt", "apparmor"]  # Your eGPU/MAC deps
+  EOF
+
+  # First backup/snapshot
+  rebos backup create --name "post-install-$(date +%Y%m%d)"
   ```
 - Install the AUR applications:
   ```bash
@@ -1092,74 +1227,6 @@
   
   # Test the hook after installation:
   sbctl verify /usr/bin/astal  #Should show "signed"
-  ```
-- Enable AppArmor integration for Firejail
-  ```bash
-  # Check if Apparmor service is active:
-  systemctl is-active apparmor || { echo "Error: AppArmor service not active"; exit 1; }
-  # Activate the integration if Apparmor is active
-  sed -i 's/# apparmor/apparmor/' /etc/firejail/firejail.config
-  ```
-- Verify AppArmor is enabled
-  ```bash
-  grep apparmor /etc/firejail/firejail.config | grep -v '^#' || echo "Warning: Firejail AppArmor not enabled"
-  ```
-- Sign Firejail binary for Secure Boot
-  ```bash
-  sbctl verify /usr/bin/firejail || { echo "Signing Firejail binary"; sbctl sign -s /usr/bin/firejail; }
-  ```
-- Append Firejail to existing 91-sbctl-sign.hook
-  ```bash
-  if ! grep -q "Target = firejail" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
-  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = firejail
-
-  [Action]
-  Description = Signing Firejail binary with sbctl
-  When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/firejail
-  EOF
-  ```
-- Create .local Overrides for High-Risk Apps
-  ```bash
-  # DO NOT edit default profiles. Use .local to *add* GPU/Wayland access.
-  # --- Browsers ---
-  for app in brave-browser mullvad-browser tor-browser; do
-  sudo tee /etc/firejail/$app.local > /dev/null << 'EOF'
-  # Local override: Add eGPU + Wayland + Audio
-  protocol wayland
-  whitelist /dev/dri
-  whitelist /dev/snd
-  whitelist ${HOME}/.config/pulse
-  whitelist ${HOME}/.config/pipewire
-  EOF
-  done
-
-  # --- OBS Studio ---
-  sudo tee /etc/firejail/obs-studio.local > /dev/null << 'EOF'
-  # Local override: eGPU + Wayland + Audio + Capture
-  protocol wayland
-  whitelist /dev/dri
-  whitelist /dev/snd
-  whitelist /dev/video*
-  whitelist ${HOME}/.config/obs-studio
-  whitelist ${HOME}/Videos
-  include /etc/firejail/disable-common.inc
-  EOF
-  ```
-- Add Aliases to ~/.zshrc
-  ```bash
-  cat >> ~/.zshrc << 'EOF'
-  # HIGH-RISK: Always sandboxed with AppArmor:
-  alias brave="firejail --apparmor --private-tmp brave-browser"
-  alias mullvad="firejail --apparmor --private-tmp mullvad-browser"
-  alias tor="firejail --apparmor --private-tmp tor-browser"
-  alias obs="firejail --apparmor --private-tmp obs-studio"
-  EOF
   ```
 - Configure GDM for Wayland:
   ```bash
@@ -1432,10 +1499,21 @@
   ```
 - Audit SUID binaries:
   ```bash
-  find / -perm -4000 -type f -exec ls -l {} ; > /data/suid_audit.txt
-  cat /data/suid_audit.txt # Remove SUID from non-essential binaries
-  chmod u-s /usr/bin/ping
-  setcap cap_net_raw+ep /usr/bin/ping
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  AUDIT_FILE="/data/suid_audit.txt"
+  mkdir -p "$(dirname "$AUDIT_FILE")"
+
+  # Find SUID files, skip special filesystems
+  find / -xdev -type f -perm -u+s 2>/dev/null > "$AUDIT_FILE"
+
+  # Example: remove SUID from ping and give capability instead
+  PING_BIN="/usr/bin/ping"
+  if [[ -f "$PING_BIN" ]]; then
+    chmod u-s "$PING_BIN"
+    setcap cap_net_raw+ep "$PING_BIN"
+  fi
   ```
 - Configure zram:
   ```bash
@@ -1633,6 +1711,8 @@
   echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   echo "Target = supergfxctl" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Exec = /usr/bin/sbctl sign -s /home/*/.*cargo/bin/rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
   sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
   ```
 - Enable VRR for 4K OLED
@@ -1860,10 +1940,26 @@
   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
+  - Create Rebos pacman hook for updates
+  ```bash
+  cat > /etc/pacman.d/hooks/99-rebos-gen.hook << 'EOF'
+  [Trigger]
+  Operation=Upgrade
+  Type=Package
+  Target=rebos
+
+  [Action]
+  Description=Regenerate Rebos manifest after updates
+  When=PostTransaction
+  # NOTE: Replace 'your_username' with the actual username that installed Rebos via Cargo.
+  Exec=/usr/bin/runuser -u your_username -- /home/your_username/.cargo/bin/rebos gen base
+  EOF
+  ```
   - Set permissions for hooks:
   ```bash
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
+  chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook
   ```
   - Verify configuration:
   ```bash 
@@ -1904,7 +2000,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup ~/.config/rebos
   ```
 - Add user-specific dotfiles
   ```bash
@@ -1915,6 +2011,7 @@
   chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
   chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
+  chezmoi add ~/.config/rebos
   ```
 - Add system-wide configurations
   ```bash
@@ -1944,18 +2041,7 @@
   sudo chezmoi add -r /etc/dnscrypt-proxy/
   sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
   sudo chezmoi add -r /etc/apparmor.d/local/
-  ```
-- Add Firejail configuration files
-  ```bash
-  for profile in firejail.config brave-browser.profile mullvad-browser.profile tor-browser.profile obs-studio.profile; do
-    [ -f /etc/firejail/$profile ] || { echo "Error: /etc/firejail/$profile not found"; exit 1; }
-    sudo chezmoi add /etc/firejail/$profile
-  done
-  sudo chezmoi add /etc/firejail/firejail.config
-  sudo chezmoi add /etc/firejail/brave-browser.profile
-  sudo chezmoi add /etc/firejail/mullvad-browser.profile
-  sudo chezmoi add /etc/firejail/tor-browser.profile
-  sudo chezmoi add /etc/firejail/obs-studio.profile
+  sudo chezmoi add /var/lib/systemd/pcrlock.json /var/lib/pcrlock.d
   ```
 - Export package lists for reproducibility
   ```bash
@@ -1988,8 +2074,6 @@
   ```bash
   chezmoi apply
   sudo chmod 640 /etc/snapper/configs/*
-  sudo chezmoi chown root:root /etc/firejail/*
-  sudo chezmoi chmod 644 /etc/firejail/*
   ```
 - Test and validate
   ```bash
@@ -2002,13 +2086,6 @@
   cat ~/explicitly-installed-packages.txt # Check for expected packages
   cat ~/aur-packages.txt # Check for AUR packages
   cat ~/flatpak-packages.txt # Check for Flatpak apps
-  ls /etc/firejail/{brave-browser,mullvad-browser,tor-browser,obs-studio}.profile || echo "Error: Firejail profiles not restored by chezmoi"
-  # Test to ensure Firejail profiles are functional post-restore
-  echo "Testing Firejail profiles after chezmoi restore"
-  for profile in brave-browser mullvad-browser tor-browser obs-studio; do
-    [ -f /etc/firejail/$profile.profile ] && firejail --noprofile --profile=/etc/firejail/$profile.profile --dry-run || echo "Error: Firejail profile $profile.profile not functional"
-    firejail --apparmor --profile=/etc/firejail/$profile.profile --dry-run || echo "Warning: $profile.profile failed"
-  done
   ```
 - Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
   ```bash
@@ -2065,7 +2142,15 @@
   # Clean up
   umount /mnt/usb
   rmdir /mnt/usb
-  ```  
+  ```
+- Check systemd-pcrlock
+  ```bash
+  systemd-pcrlock predict  # Check predictions
+  systemd-pcrlock log --json=pretty  # Validate event log
+  systemctl status systemd-pcrlock.service
+  journalctl -b -u systemd-pcrlock.service --no-pager
+  # You should look for a message indicating the service ran successfully and measured the current PCRs.
+  ```
 - Check Secure Boot status:
   ```bash
   sbctl verify /boot/EFI/Linux/arch.efi
@@ -2173,17 +2258,6 @@
   # The paru command succeeding is the test. No need to sign the binary.
   paru -S --builddir ~/.cache/paru_build --noconfirm hello-world-bin
   ```
-- Test Firejail sandboxing
-  ```bash
-  echo "Verifying Firejail sandboxing"
-  firejail --apparmor brave-browser --version || echo "Warning: Brave browser sandbox test failed"
-  firejail --apparmor mullvad-browser --version || echo "Warning: Mullvad browser sandbox test failed"
-  firejail --apparmor tor-browser --version || echo "Warning: Tor browser sandbox test failed"
-  firejail --apparmor obs-studio --version || echo "Warning: OBS Studio sandbox test failed"
-  firejail --list || echo "No Firejail sandboxes running"
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor-browser\|obs" || echo "No AppArmor denials for Firejail"
-  firejail --list || echo "No Firejail sandboxes running (expected if tests passed)"
-  ```
 - AppArmor Tuning Milestone (Run After Normal Use)
   ```bash
   echo "=== APARMOR TUNING ==="
@@ -2280,6 +2354,9 @@
    - If TPM unlocking fails, use the LUKS passphrase or keyfile.
    - Re-enroll TPM:
      systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+   - pcrlock Recovery
+     # If policy outdated: systemd-pcrlock make-policy --recovery-pin=query (use PIN)
+     # Restore .pcrlock files from chezmoi/dotfiles if corrupted.
 
   f. **Rollback Snapshot**:
    - List snapshots:
@@ -2294,39 +2371,24 @@
    snapper --config data rollback <snapshot-number>
    reboot
 
-  g. **Firejail Troubleshooting**:
-   - Check AppArmor logs for denials:
-   journalctl -u apparmor | grep -i firejail
-   - Debug Firejail profile:
-   firejail --debug <application> (e.g., `firejail --debug brave-browser`)
-   - Rebuild profile:
-   Edit `/etc/firejail/<application>.profile` (e.g., add `whitelist /dev/dri/` for eGPU)
-   - Re-sign Firejail binary:
-   sbctl sign -s /usr/bin/firejail
-  EOF
-  ```
-  - Verify and unmount USB
-  ```bash
+  g. **Verify and unmount USB**
   [ -f /mnt/usb/recovery.md ] || { echo "Error: Failed to create /mnt/usb/recovery.md"; exit 1; }
   [ -d /mnt/usb/sbctl-keys ] || { echo "Error: /mnt/usb/sbctl-keys not found"; exit 1; }
   sha256sum /mnt/usb/recovery.md > /mnt/usb/recovery.md.sha256
   cat /mnt/usb/recovery.md
-  firejail --noprofile --profile=/etc/firejail/<application>.profile --dry-run || echo "Error: Invalid profile syntax for <application>"
   sudo umount /mnt/usb
   echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
   echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
-  ```
+
   - Check USB contents
-  ```bash
   lsblk | grep $usb_dev
   sudo mount /dev/$usb_dev /mnt/usb
   ls /mnt/usb/recovery.md /mnt/usb/recovery.md.sha256 /mnt/usb/luks-keyfile /mnt/usb/luks-header-backup /mnt/usb/sbctl-keys
   sha256sum -c /mnt/usb/recovery.md.sha256
   sha256sum -c /mnt/usb/luks-header-backup.sha256
   sudo umount /mnt/usb
-  ```
+
   - Verify Bitwarden storage (manual)
-  ```bash
   echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud. Keep the recovery USB secure."
   read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
   [ "$confirm" = "y" ] || { echo "Error: Please store all data in Bitwarden."; exit 1; }
@@ -2444,7 +2506,44 @@
   # Quick integrity check (5 GiB subset)
   restic check --read-data-subset=5G
   EOF
-  sudo chmod +x /usr/local/bin/restic-backup.sh 
+  sudo chmod +x /usr/local/bin/restic-backup.sh
+  ```
+- Create a Rebos backup script
+  ```bash
+  sudo tee /usr/local/bin/rebos-backup.sh > /dev/null <<'EOF'
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  REBOS_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/rebos"
+  BACKUP_NAME="weekly-$(date +%Y%m%d-%H%M%S)"
+  LOG="/var/log/rebos-backup.log"
+
+  echo "[$(date)] Starting Rebos backup: $BACKUP_NAME" | tee -a "$LOG"
+
+  # Ensure rebos is in PATH
+  export PATH="$HOME/.cargo/bin:$PATH"
+
+  # Regenerate manifest from current system state
+  rebos gen base --output "$REBOS_CONFIG/base.toml" | tee -a "$LOG"
+
+  # Commit to local git (if initialized)
+  if [ -d "$REBOS_CONFIG/.git" ]; then
+    cd "$REBOS_CONFIG"
+    git add base.toml
+    git commit -m "Auto: weekly system manifest - $BACKUP_NAME" || echo "No changes to commit" | tee -a "$LOG"
+  fi
+
+  # Create named backup
+  rebos backup create --name "$BACKUP_NAME" | tee -a "$LOG"
+
+  # Prune old backups: keep last 8 weekly + 4 monthly
+  rebos backup prune --keep-last 8 --keep-tagged monthly:4 | tee -a "$LOG"
+
+  echo "[$(date)] Rebos backup completed: $BACKUP_NAME" | tee -a "$LOG"
+  EOF
+
+  sudo chmod +x /usr/local/bin/rebos-backup.sh
+  ```  
 - Systemd Service & Timer:
   ```bash
   sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
@@ -2477,7 +2576,9 @@
   [Install]
   WantedBy=timers.target
   EOF
-
+  ```
+- Enable Timers Services
+  ```bash
   sudo systemctl enable --now restic-backup.timer
   ```
 - Weekly full repo check
@@ -2531,6 +2632,10 @@
   ```bash
   echo "Running a quick test backup..."
   /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
+  systemctl list-timers --all
+  journalctl -u restic-backup.timer -n 20
+  journalctl -u rebos-backup.service -n 20
+  rebos backup list
 
   # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
   # Check status any time:  restic snapshots --repo <path>
@@ -2574,22 +2679,13 @@
     supergfxctl -g
     DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
     ```
-- **f) Verify Firejail profiles**:
+- **f) Firmware Updates**:
   ```bash
-  echo "Checking Firejail profiles..."
-  for app in brave-browser mullvad-browser tor-browser obs-studio; do
-    [ -f "/etc/firejail/$app.profile" ] && echo "✓ $app.profile" || echo "✗ $app.profile missing"
-  done
+  # Before fwupdmgr update (relax policy for change)
+  systemd-pcrlock unlock-firmware-code
+  systemd-pcrlock unlock-firmware-config  # If using config lock
+  systemd-pcrlock unlock-secureboot-policy  # If DB updates
 
-  for browser in brave-browser mullvad-browser tor-browser; do
-    firejail --apparmor "$browser" --version >/dev/null 2>&1 && echo "✓ $browser sandbox OK" || echo "✗ $browser sandbox failed"
-  done
-
-  journalctl -u apparmor | grep -i "firejail\|brave\|mullvad\|tor" || echo "No AppArmor denials"
-  firejail --version
-  ```
-- **g) Firmware Updates**:
-  ```bash
   fwupdmgr refresh --force
   fwupdmgr get-updates
   fwupdmgr update
@@ -2600,11 +2696,20 @@
   echo "After booting, re-enroll the TPM:"
   echo "  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2"
   echo "  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2"
+  echo "WARNING: Firmware updates change PCRs. TPM auto-unlock fails once; enter passphrase."
+  echo "systemd-pcrlock services (enabled) will auto-re-lock and run make-policy after boot."
+  echo "If fails: Manually run 'systemd-pcrlock make-policy --recovery-pin=query' (use PIN from Bitwarden)."
   tpm2_pcrread sha256:0,4,7 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
-
-  # Future-Proofing Note:
-  echo "Keep an eye on 'systemd-pcrlock' development. By 2025, it may offer a more"
-  echo "stable way to bind to PCRs that are less affected by firmware updates."
+  reboot
+  ```
+- **g) pcrlock Maintenance**:
+  ```bash
+  # Refresh policy after major changes (e.g., new UKI)
+  systemd-pcrlock make-policy
+  # Remove if reverting
+  systemd-pcrlock remove-policy
+  # Check support/status
+  systemd-pcrlock is-supported
   ```
 - **h) Security Audit**:
   ```bash
@@ -2654,30 +2759,12 @@
   echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf
   sudo apparmor_parser -r /etc/apparmor.d/tunables/*
 
-  # Verify Firejail integration (unchanged from Step 10)
-  firejail --apparmor --list
-  journalctl -u apparmor | grep -i firejail || echo "No Firejail denials"
-
   # Reboot to apply cache & early load
   echo "Rebooting in 10 seconds to apply AppArmor.d cache..."
   sleep 10
   reboot
   ```
-- **j) Create sandboxed (FireJail) desktop launchers (menu only)**:
-  ```bash
-  for app in brave-browser mullvad-browser tor-browser obs-studio alacritty; do
-  desktop-file-install --dir="$HOME/.local/share/applications" \
-    --set-key=Name --set-value="$app (Sandboxed)" \
-    --set-key=Exec --set-value="firejail --apparmor $app %U" \
-    --set-key=Icon --set-value="$app" \
-    --set-key=NoDisplay --set-value="false" \
-    /usr/share/applications/$app.desktop
-  done
-
-  # Update menu
-  update-desktop-database ~/.local/share/applications
-  ```
-- **k) Final Reboot & Lock**:
+- **j) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
@@ -2753,10 +2840,6 @@
         label: Utils.execAsync(["journalctl", "-p", "err", "-n", "1", "--no-pager"])
           .then(out => out.trim() || "No errors")
           .catch(() => "Error"),
-      }),
-      Widget.Button({
-        label: "Open",
-        onClicked: () => Utils.execAsync("firejail --apparmor gnome-logs"),
       }),
     ],
   });
