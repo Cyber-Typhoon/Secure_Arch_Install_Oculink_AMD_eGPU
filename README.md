@@ -389,7 +389,7 @@
   base base-devel linux linux-lts linux-firmware mkinitcpio archlinux-keyring \
   \
   # Boot / Encryption
-  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools systemd-boot\
+  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools systemd-boot \
   \
   # Hardware / Firmware
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
@@ -554,55 +554,8 @@
   ```
 ## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
-## Step 7: Set Up TPM and LUKS2
+## Step 7: Back up the LUKS header for recovery
 
-- Install TPM tools:
-  ```bash
-  pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
-  ```
-- Verify TPM device is detected:
-  ```bash
-  tpm2_getcap properties-fixed
-  ```
-- Check if TPM supports pcrlock
-  ```bash
-  systemd-pcrlock is-supported && echo "pcrlock supported" || echo "WARNING: pcrlock not fully supported; skip integration if 'no' or 'obsolete'."
-  # Note: We'll switch to pcrlock policy later (after Secure Boot/UKI) for resilience.
-  ```
-- Enroll the LUKS key to TPM2 for automatic unlocking:
-  ```bash
-  # Enroll the key using pcrlock. This binds the key slot to be managed by the systemd-pcrlock service.
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256 /dev/mapper/luks_crypt
-  ```
-- Test TPM unlocking and back up PCR values:
-  ```bash
-  systemd-cryptenroll --tpm2-device=auto --test /dev/mapper/luks_crypt
-  # If test fails: tpm2_pcrread sha256:0,4,7  and compare with expected values
-  systemd-cryptenroll --dump-pcrs /dev/mapper/luks_crypt > /mnt/usb/tpm-pcr-initial.txt
-  tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-backup.txt
-  # Verify PCR 4 is measured by systemd-boot (non-zero)
-  tpm2_pcrread sha256:4 | grep -v "0x00\{64\}"
-  # Confirm TPM keyslot exists
-  cryptsetup luksDump /dev/nvme1n1p2 | grep -i tpm
-  tpm2_getcap pcrs
-  echo "WARNING: Store /mnt/usb/tpm-pcr-initial.txt in Bitwarden."
-  echo "WARNING: Store /mnt/usb/tpm-pcr-backup.txt in Bitwarden."
-  echo "WARNING: PCR values are critical for TPM unlocking; back them up securely."
-  ```
-  WARNING: Store both /mnt/usb/tpm-pcr-initial.txt and /mnt/usb/tpm-pcr-backup.txt in Bitwarden. Firmware or Secure Boot changes will alter PCRs and break auto-unlock.
-- Configure `mkinitcpio` for TPM and encryption support:
-  ```bash
-  # HOOKS order is critical: plymouth BEFORE sd-encrypt
-  sed -i 's/HOOKS=(.*)/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt resume filesystems keyboard)/' /etc/mkinitcpio.conf
-  # Ensure btrfs binary is available in initramfs (replace any existing line)
-  sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
-  mkinitcpio -P
-  ```
-- Enable Plymouth for a graphical boot splash:
-  ```bash
-  pacman -S --noconfirm plymouth
-  plymouth-set-default-theme -R bgrt
-  ```
 - Back up the LUKS header for recovery:
   ```bash
   mkdir -p /mnt/usb
@@ -616,51 +569,105 @@
   echo "WARNING: TPM unlocking may fail after firmware updates; keep the LUKS passphrase in Bitwarden."
   echo "WARNING: Verify the LUKS header backup integrity with sha256sum before storing."
   ```
-- Test TPM boot:
+
+## Milestone 4: After Step 7 (Back up the LUKS header for recovery) - Can pause at this point
+
+## Step 8: Configure Boot, UKI, Secure Boot, and Hooks (Inside chroot)
+
+- Install TPM tools:
   ```bash
-  exit
-  umount -R /mnt
-  reboot
+  pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
   ```
-
-## Milestone 4: After Step 7 (TPM and LUKS2 Setup) - Can pause at this point
-
-## Step 8: Configure Secure Boot
-
-- Create and enroll Secure Boot keys:
+- Install `systemd-boot`:
   ```bash
-  # Enter chroot
-  arch-chroot /mnt
+  # Creates /boot/loader/, installs systemd-bootx64.efi.
+  bootctl --esp-path=/boot install
+  ```
+- Configure `mkinitcpio` for TPM and encryption support:
+  ```bash
+  sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
+  ```
+- Install Plymouth for a graphical boot splash:
+  ```bash
+  pacman -S --noconfirm plymouth
+  plymouth-set-default-theme -R bgrt
+  ```
+- Configure Unified Kernel Image (UKI):
+  ```bash
+  # Note: Along the step 9 we have multiple ($LUKS_UUID, $ROOT_UUID, $SWAP_OFFSET) that needs to be replaced by pre computed values.
+  # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.
+  # /etc/mkinitcpio.d/linux.preset (main kernel)  
+  cat > /etc/mkinitcpio.d/linux.preset << EOF
+  default_uki="/boot/EFI/Linux/arch.efi"
+  all_config="/etc/mkinitcpio.conf"
+  default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
+  mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 \
+  rd.emergency=poweroff tpm2-measure=yes amdgpu.dc=1 amdgpu.dpm=1"
+  EOF
+  # DO NOT add nomodeset. This parameter disables all kernel mode setting (KMS) and graphics drivers, which will break GNOME, Wayland, and all hardware acceleration.
+  # /etc/mkinitcpio.d/linux-lts.preset (LTS kernel – atomic copy)
+  sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
+  # mkinitcpio.conf – ONE edit, correct HOOK order
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
+  echo 'BINARIES=("/usr/bin/btrfs")' >> /etc/mkinitcpio.conf
+  # Generate UKI
+  mkinitcpio -P
+  mkdir -p /var/lib/pcrlock.d/650-kernel.pcrlock.d
+  
+  #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
+  #To debug:
+  # Reboot into your UEFI/BIOS (F1).
+  # Temporarily disable Secure Boot (set it to "Setup Mode").
+  # Reboot. You can now press e in the systemd-boot menu to edit the kernel parameters.
+  # Try removing splash or adding amdgpu.dc=0 to test.
+  # Once fixed, re-enable Secure Boot in the UEFI/BIOS.
+  ```
+- Verify configuration:
+  ```bash
+  # Check HOOKS order
+  grep HOOKS /etc/mkinitcpio.conf
 
+  # List boot entries
+  bootctl list
+  ```
+- Create a fallback UKI:
+  ```bash
+  # Minimal config (same hooks, different output)
+  cp /etc/mkinitcpio.conf /etc/mkinitcpio-fallback.conf
+  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio-fallback.conf
+  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-fallback.conf
+  # Generate fallback UKI
+  mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
+  # Fallback entry
+  cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
+  title Arch Linux (Fallback)
+  efi /EFI/Linux/arch-fallback.efi
+  EOF
+
+  # Verify resume_offset is numeric (not $SWAP_OFFSET)
+  grep resume_offset /etc/fstab
+  grep resume_offset /boot/loader/entries/arch.conf
+  ```
+- Create /boot/loader/entries/arch-lts.conf
+  ```bash
+  cat << 'EOF' > /boot/loader/entries/arch-lts.conf
+  title Arch Linux (LTS Kernel)
+  efi /EFI/Linux/arch-lts.efi
+  EOF
+  ```
+- Set Boot Order (Arch first)
+  ```bash
+  BOOT_ARCH=$(efibootmgr | grep 'Arch Linux' | awk '{print $1}' | cut -c5-)
+  BOOT_WIN=$(efibootmgr | grep 'Windows' | awk '{print $1}' | cut -c5-)
+  efibootmgr --bootorder ${BOOT_ARCH},${BOOT_WIN}
+  ```
   # Create and enroll sbctl keys
   sbctl create-keys
-  sbctl enroll-keys --microsoft --tpm-eventlog --ignore-immutable
-
-  # Regenerate UKI (required before signing)
-  mkinitcpio -P
-
-  # Sign all EFI binaries
-  sbctl sign -s /usr/lib/systemd/boot/efi/systemd-bootx64.efi
-  sbctl sign -s /boot/EFI/Linux/arch.efi
-  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
-  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
   ```
-- Check Plymouth and GDM compatibility with Secure Boot:
+- Create Pacman hooks to automatically sign EFI binaries after updates:
   ```bash
-  # Plymouth
-  if [[ -f /usr/lib/plymouth/plymouthd ]]; then
-    sbctl verify /usr/lib/plymouth/plymouthd || sbctl sign -s /usr/lib/plymouth/plymouthd
-  fi
-
-  # GDM (or other display manager)
-  if [[ -f /usr/lib/gdm/gdm ]]; then
-    sbctl verify /usr/lib/gdm/gdm || sbctl sign -s /usr/lib/gdm/gdm
-  fi
-  ```
-- Create a Pacman hook to automatically sign EFI binaries after updates:
-  ```bash
-  cat << 'EOF' > /etc/pacman.d/hooks/91-sbctl-sign.hook
+  cat << 'EOF' > /etc/pacman.d/hooks/90-uki-rebuild.hook
   [Trigger]
   Operation = Install
   Operation = Upgrade
@@ -670,25 +677,34 @@
   Target = linux-lts
   Target = fwupd
   Target = plymouth
+  Target = mkinitcpio
   
   [Action]
-  Description = Signing EFI binaries with sbctl after updates
+  Description = Rebuild UKI
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s \
-    /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
-    /boot/EFI/Linux/arch.efi \
-    /boot/EFI/Linux/arch-fallback.efi \
-    /boot/EFI/Linux/arch-lts.efi \
-    /boot/EFI/BOOT/BOOTX64.EFI \
-    /efi/EFI/arch/fwupdx64.efi \
-    /usr/lib/plymouth/plymouthd \
-    /usr/lib/gdm/gdm
+  Exec = /usr/bin/mkinitcpio -P
+  EOF
+
+  cat << 'EOF' > /etc/pacman.d/hooks/99-secureboot-uki.hook
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = linux
+  Target = linux-lts
+  Target = systemd
+  Target = fwupd
+  Target = plymouth
+
+  [Action]
+  Description = Sign UKI
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /boot/efi/EFI/Linux/arch*.efi /usr/lib/systemd/boot/efi/systemd-bootx64.efi /usr/lib/plymouth/plymouthd 2>/dev/null || true
   EOF
   ```
-- Verify MOK enrollment before reboot:
+- Enable paccache.timer
   ```bash
-  mokutil --list-enrolled
-  # You should see the sbctl key listed. If not, re-run sbctl enroll-keys --tpm-eventlog.
+  systemctl enable paccache.timer
   ```
 - Reboot to enroll keys and enable Secure Boot in UEFI:
   ```bash
@@ -704,7 +720,7 @@
 
   # Wipe old TPM policy and reenroll with Secure Boot PCRs
   ```bash
-  TPM_DEV="/dev/mapper/luks_crypt" # Correctly uses the unlocked mapper device - If have issues update to "/dev/nvme1n1p2"
+  TPM_DEV="/dev/mapper/cryptroot" # Correctly uses the unlocked mapper device - If have issues update to "/dev/nvme1n1p2"
   JQ_BIN="$(command -v jaq || command -v jq)" # Correctly checks for JSON processor
 
   if [[ -z "$JQ_BIN" ]]; then
@@ -736,8 +752,8 @@
   fi
 
   # Enroll a fresh TPM keyslot
-  echo "Enrolling new TPM keyslot with full PCR set (0+4+7)..."
-  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-pcrs=0+4+7 --tpm2-pcrs-bank=sha256
+  echo "Enrolling new TPM keyslot with pcrlock..."
+  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-with-pcrlock --tpm2-pcrs-bank=sha256
  
   # Final TPM unlock test
   systemd-cryptenroll --tpm2-device=auto --test "$TPM_DEV" && echo "TPM unlock test PASSED"
@@ -750,21 +766,6 @@
   ✓ Setup Mode: Disabled
   ✓ Signed: all files
   sbctl verify /boot/EFI/Linux/arch.efi | grep -q "signed" && echo "UKI signed"
-  ```
-- Verify Secure Boot is fully enabled:
-  ```bash
-  # Check SetupMode: 0 = Secure Boot active, 1 = Setup Mode
-  efivar -p -n 8be4df61-93ca-11d2-aa0d-00e098032b8c-SetupMode
-
-  # Check SecureBoot state: 1 = enabled
-  efivar -p -n 8be4df61-93ca-11d2-aa0d-00e098032b8c-SecureBoot
-
-  # Expected output:
-  SetupMode: 0
-  SecureBoot: 1
-
-  # If SetupMode=1:
-  → Reboot into UEFI, complete MOK enrollment, save keys, then reboot again.
   ```
 - Back up PCR values post-Secure Boot:
   ```bash
@@ -791,118 +792,6 @@
   title Arch Linux
   efi /EFI/Linux/arch.efi
   EOF
-  ```
-- Install `systemd-boot`:
-  ```bash
-  # Creates /boot/loader/, installs systemd-bootx64.efi.
-  bootctl --esp-path=/boot install
-  ```
-- Configure Unified Kernel Image (UKI):
-  ```bash
-  # Note: Along the step 9 we have multiple ($LUKS_UUID, $ROOT_UUID, $SWAP_OFFSET) that needs to be replaced by pre computed values.
-  cat << 'EOF' > /etc/mkinitcpio.d/linux.preset
-  # UKI output path
-  default_uki="/boot/EFI/Linux/arch.efi"
-  # Use main mkinitcpio config
-  all_config="/etc/mkinitcpio.conf"
-  # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.  
-  default_options="rd.luks.uuid=$LUKS_UUID \
-    root=UUID=$ROOT_UUID \
-    resume_offset=$SWAP_OFFSET \
-    rw quiet splash \
-    intel_iommu=on amd_iommu=on iommu=pt \
-    pci=pcie_bus_perf,realloc \
-    mitigations=auto,nosmt \
-    slab_nomerge slub_debug=FZ \
-    init_on_alloc=1 init_on_free=1 \
-    rd.emergency=poweroff \
-    tpm2-measure=yes \
-    amdgpu.dc=1 amdgpu.dpm=1"
-  EOF
-  # DO NOT add nomodeset. This parameter disables all kernel mode setting (KMS) and graphics drivers, which will break GNOME, Wayland, and all hardware acceleration.
-  # Update mkinitcpio.conf HOOKS (critical order)
-  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
-  # Generate UKI
-  mkinitcpio -P
-  mkdir -p /var/lib/pcrlock.d/650-kernel.pcrlock.d
-  
-  #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
-  #To debug:
-  # Reboot into your UEFI/BIOS (F1).
-  # Temporarily disable Secure Boot (set it to "Setup Mode").
-  # Reboot. You can now press e in the systemd-boot menu to edit the kernel parameters.
-  # Try removing splash or adding amdgpu.dc=0 to test.
-  # Once fixed, re-enable Secure Boot in the UEFI/BIOS.
-  ```
-- Create /etc/mkinitcpio.d/linux-lts.preset
-  ```bash
-  cp /etc/mkinitcpio.d/linux.preset /etc/mkinitcpio.d/linux-lts.preset
-
-  # Edit the new LTS preset
-  sudo tee /etc/mkinitcpio.d/linux-lts.preset > /dev/null <<'EOF'
-  # UKI output path
-  default_uki="/boot/EFI/Linux/arch-lts.efi"
-  # Use main mkinitcpio config
-  all_config="/etc/mkinitcpio.conf"
-  # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.  
-  default_options="rd.luks.uuid=$LUKS_UUID \
-    root=UUID=$ROOT_UUID \
-    resume_offset=$SWAP_OFFSET \
-    rw quiet splash \
-    intel_iommu=on amd_iommu=on iommu=pt \
-    pci=pcie_bus_perf,realloc \
-    mitigations=auto,nosmt \
-    slab_nomerge slub_debug=FZ \
-    init_on_alloc=1 init_on_free=1 \
-    rd.emergency=poweroff \
-    tpm2-measure=yes \
-    amdgpu.dc=1 amdgpu.dpm=1"
-  EOF
-  sbctl sign -s /boot/EFI/Linux/arch-lts.efi
-  ```
-- Verify configuration:
-  ```bash
-  # Check HOOKS order
-  grep HOOKS /etc/mkinitcpio.conf
-
-  # List boot entries
-  bootctl list
-
-  # Verify UKI is signed
-  sbctl verify /boot/EFI/Linux/arch.efi
-  ```
-- Create a fallback UKI:
-  ```bash
-  # Minimal config (same hooks, different output)
-  cp /etc/mkinitcpio.conf /etc/mkinitcpio-fallback.conf
-  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio-fallback.conf
-  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-fallback.conf
-  # Generate fallback UKI
-  mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
-  # Sign it
-  sbctl sign -s /boot/EFI/Linux/arch-fallback.efi
-  # Fallback entry
-  cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
-  title Arch Linux (Fallback)
-  efi /EFI/Linux/arch-fallback.efi
-  EOF
-
-  # Verify resume_offset is numeric (not $SWAP_OFFSET)
-  grep resume_offset /etc/fstab
-  grep resume_offset /boot/loader/entries/arch.conf
-  ```
-- Create /boot/loader/entries/arch-lts.conf
-  ```bash
-  cat << 'EOF' > /boot/loader/entries/arch-lts.conf
-  title Arch Linux (LTS Kernel)
-  efi /EFI/Linux/arch-lts.efi
-  EOF
-  ```
-- Set Boot Order (Arch first)
-  ```bash
-  BOOT_ARCH=$(efibootmgr | grep 'Arch Linux' | awk '{print $1}' | cut -c5-)
-  BOOT_WIN=$(efibootmgr | grep 'Windows' | awk '{print $1}' | cut -c5-)
-  efibootmgr --bootorder ${BOOT_ARCH},${BOOT_WIN}
   ```
 - Create a GRUB USB for recovery:
   ```bash
@@ -958,25 +847,6 @@
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
   ```
-- Pacman Hook: Auto-Regenerate UKI on Kernel Update
-  ```bash
-  mkdir -p /etc/pacman.d/hooks
-  cat << 'EOF' > /etc/pacman.d/hooks/90-mkinitcpio.hook
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = linux
-  Target = linux-firmware
-  Target = linux-lts
-
-  [Action]
-  Description = Regenerating UKI after kernel update
-  When = PostTransaction
-  Exec = /usr/bin/mkinitcpio -P
-  Exec = /usr/bin/systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi --pcrlock=/var/lib/pcrlock.d/650-kernel.pcrlock.d/arch.pcrlock && /usr/bin/systemd-pcrlock make-policy
-  EOF
-  ```
 - Exit chroot:
   ```bash
   exit
@@ -992,6 +862,32 @@
   ```bash
   mount /dev/nvme1n1p1 /boot
   ```
+- pcrlock + LUKS (ON FIRST ARCH BOOT)
+  ```bash
+  # Get the LUKS UUID
+  LUKS_UUID=$(blkid -s UUID -o value /dev/disk/by-partlabel/cryptroot)
+
+  sudo mkdir -p /etc/pcrlock
+
+  # Generating adaptive pcrlock policy (PCR 7 = Secure Boot ON)...
+  sudo systemd-pcrlock generate \
+  --path=/etc/pcrlock \
+  --pcrs=0+4+7+11 \
+  --tpm2-device=auto
+
+  sudo systemd-pcrlock install --path=/etc/pcrlock
+
+  # Enrolling LUKS slot with pcrlock policy...
+  # Wipe the old slot and enroll the new, adaptive policy
+  systemd-cryptenroll /dev/disk/by-uuid/$LUKS_UUID \
+    --wipe-slot=tpm2 \
+    --tpm2-device=auto \
+    --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
+
+  # Testing TPM unlock...
+  systemd-cryptenroll --tpm2-device=auto --test /dev/disk/by-uuid/$LUKS_UUID && \
+  echo "TPM UNLOCK: PASSED"
+
 - Verify pcrlock readiness (full boot required for event logs):
   ```bash
   systemd-pcrlock is-supported  # Must output "yes"
@@ -1026,12 +922,6 @@
   # Final LUKS Activation (Switch from static to policy seal)
   systemd-pcrlock make-policy --recovery-pin=query  # Query for PIN (store in Bitwarden); or 'hide' for auto-gen
   systemctl enable --now systemd-pcrlock-make-policy.service  # Auto-updates policy after changes
-  ```
-- Switch LUKS to pcrlock policy (wipes static slot):
-  ```bash
-  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=pcrlock /dev/nvme1n1p2
-  systemd-cryptenroll --test /dev/nvme1n1p2  # Verify
   ```
 - Service Enablement and Configuration Cleanup
   ```bash
@@ -1139,7 +1029,7 @@
   brave-browser mullvad-browser tor-browser obs-studio \
   \
   # Utilities
-  bandwhich pacman-contrib pacman-notifier \
+  bandwhich pacman-notifier \
   \
   # GNOME
   gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks
@@ -1258,12 +1148,7 @@
   ```
 - Setup Automated System/AUR Updates
   ```bash
-  # Install pacman-contrib for the essential paccache timer
-  paru -S --noconfirm pacman-contrib
-
-  # Enable Pacman Cache Cleanup Timer
-  sudo systemctl enable --now paccache.timer
-
+  
   # Create a service and timer for automated paru (AUR/System) updates
   cat << EOF | sudo tee /etc/systemd/system/paru-update.service
   [Unit]
@@ -2154,7 +2039,6 @@
   ```
 - Check Secure Boot status:
   ```bash
-  sbctl verify /boot/EFI/Linux/arch.efi
   sbctl status
   mokutil --sb-state
   ```
@@ -2331,7 +2215,12 @@
    - Insert the GRUB USB created in Step 9 or an Arch Linux ISO USB.
    - For GRUB USB: Select "Arch Linux Rescue" from the GRUB menu.
    - For Arch ISO: Boot into the Arch environment.
-   - Enter the LUKS passphrase or use the keyfile: /mnt/usb/luks-keyfile
+   - Enter the LUKS passphrase or use the keyfile: /mnt/usb/luks-keyfile # OR use recovery keyfile from USB/Bitwarden
+  # LUKS passphrase
+  cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+
+  # OR use recovery keyfile from USB/Bitwarden
+  cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /path/to/crypto_keyfile
 
   b. **Mount Filesystems**:
    cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
@@ -2353,11 +2242,43 @@
 
   e. **TPM Recovery**:
    - If TPM unlocking fails, use the LUKS passphrase or keyfile.
-   - Re-enroll TPM:
-     systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
-   - pcrlock Recovery
-     # If policy outdated: systemd-pcrlock make-policy --recovery-pin=query (use PIN)
-     # Restore .pcrlock files from chezmoi/dotfiles if corrupted.
+   - Wipe old TPM keyslot(s)
+  ```bash
+  mapfile -t TPM_SLOTS < <(cryptsetup luksDump /dev/nvme1n1p2 --dump-json-metadata \
+    | jq -r '.tokens[] | select(.type == "systemd-tpm2") | .keyslots[]')
+
+  for slot in "${TPM_SLOTS[@]}"; do
+    echo "Wiping TPM keyslot $slot..."
+    systemd-cryptenroll /dev/nvme1n1p2 --wipe-slot="$slot" || true
+  done
+
+  # Re-enroll using **same PCRs** as Step 9
+  systemd-cryptenroll /dev/nvme1n1p2 \
+    --tpm2-device=auto \
+    --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
+
+  # Backup current (if exists)
+  cp -r /etc/pcrlock /etc/pcrlock.bak
+
+  # Regenerate from current boot state
+  systemd-pcrlock generate --path=/etc/pcrlock --pcrs=0+4+7+11 --tpm2-device=auto
+  systemd-pcrlock install --path=/etc/pcrlock
+
+  # Re-lock components (skip if unchanged)
+  systemd-pcrlock lock-uki /boot/EFI/Linux/arch*.efi
+  systemd-pcrlock lock-gpt /dev/nvme1n1
+
+  # If you have a PIN from Bitwarden:
+  systemd-pcrlock make-policy --recovery-pin=123456
+
+  # OR generate new one:
+  systemd-pcrlock make-policy --recovery-pin=hide
+  # → Save output PIN securely in Bitwarden
+
+  # Verify
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM OK"
+  sbctl status | grep -q "Enabled" && echo "Secure Boot OK"
+  systemd-pcrlock predict | grep -q "current" && echo "Policy OK"
 
   f. **Rollback Snapshot**:
    - List snapshots:
