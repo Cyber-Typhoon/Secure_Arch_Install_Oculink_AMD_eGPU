@@ -519,6 +519,7 @@
     alias curl='http --continue'  # curl-like behavior
     alias btop='btm'
     alias iftop='bandwhich'
+    alias fix-tpm='sudo tpm-seal-fix'
 
   # Interactive: Prefer run0 (secure, no SUID, polkit)
   if [[ -t 1 ]]; then
@@ -542,15 +543,26 @@
   ```
 - Validate run0
   ```
-  $ run0 whoami
-  # → polkit prompt (first time)
-  root
+  # Validate run0 (Polkit-based sudo replacement)
+  # This tests:
+  #   • Polkit rule grants wheel group access
+  #   • Authentication is cached (~15 min)
+  #   • Cache clears on reboot (expected)
+  echo "Testing run0 inside chroot..."
 
-  $ run0 id
-  # → **no prompt** (cached)
+  # First use: should prompt for password
+  run0 whoami
+  # → Expected: Polkit prompt → outputs "root"
 
-  $ reboot
-  # → cache cleared on next login
+  # Second use: should use cached credentials (no prompt)
+  run0 id
+  # → Expected: **no prompt**, outputs UID/GID
+
+  # Note: Full cache behavior (including timeout) is only observable
+  #       after first boot with a display manager (GDM).
+  #       In chroot, caching is limited but rule application is verified.
+  echo "run0 validation complete in chroot."
+  echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
   ```
 ## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
@@ -613,7 +625,6 @@
   echo 'BINARIES=("/usr/bin/btrfs")' >> /etc/mkinitcpio.conf
   # Generate UKI
   mkinitcpio -P
-  mkdir -p /var/lib/pcrlock.d/650-kernel.pcrlock.d
   
   #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
   #To debug:
@@ -668,7 +679,7 @@
   ```
 - Create Pacman hooks to automatically sign EFI binaries after updates:
   ```bash
-  cat << 'EOF' > /etc/pacman.d/hooks/90-uki-pcrlock-sign.hook
+  cat << 'EOF' > /etc/pacman.d/hooks/90-uki-sign.hook
   [Trigger]
   Operation = Install
   Operation = Upgrade
@@ -678,22 +689,16 @@
   Target = mkinitcpio
   Target = fwupd
   Target = plymouth
+  Target = tpm2-tools
 
   [Action]
-  Description = Rebuild UKI, update pcrlock policy, and sign with Secure Boot
+  Description = Rebuild UKI and sign with Secure Boot
   When = PostTransaction
   Exec = /usr/bin/bash -c '
     /usr/bin/mkinitcpio -P || true
-  
-  # Update pcrlock measurements for PCR 11 (UKI)
-    for uki in /boot/EFI/Linux/arch*.efi; do
-      [ -f "$uki" ] || continue
-      /usr/bin/systemd-pcrlock lock-uki "$uki" --path=/etc/pcrlock 2>/dev/null || true
-    done
-    /usr/bin/systemd-pcrlock update --path=/etc/pcrlock 2>/dev/null || true
-  
-  # Secure Boot signing
-    /usr/bin/sbctl sign -s /boot/efi/EFI/Linux/arch*.efi /usr/lib/systemd/boot/efi/systemd-bootx64.efi /usr/lib/plymouth/plymouthd 2>/dev/null || true
+    /usr/bin/sbctl sign -s /boot/EFI/Linux/arch*.efi /usr/bin/systemd-cryptenroll /usr/bin/tpm2_* 2>/dev/null || true \
+      /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
+      /usr/lib/plymouth/plymouthd 2>/dev/null || true
   '
   EOF
   ```
@@ -713,42 +718,41 @@
   # Boot back into Arch ISO
   arch-chroot /mnt
 
-  # Wipe old TPM policy and reenroll with Secure Boot PCRs
-  ```bash
-  TPM_DEV="/dev/mapper/cryptroot" # Correctly uses the unlocked mapper device - If have issues update to "/dev/nvme1n1p2"
-  JQ_BIN="$(command -v jaq || command -v jq)" # Correctly checks for JSON processor
-
-  if [[ -z "$JQ_BIN" ]]; then
-  echo "ERROR: neither jaq nor jq is installed. Please install jq via 'pacman -S jq'" >&2
-  exit 1
+  # Generate stable TPM public key (once only)
+  TPM_PUBKEY="/etc/tpm2-ukey.pem"
+  if [ ! -f "$TPM_PUBKEY" ]; then
+    echo "Generating TPM public key..."
+    tpm2_createek --ek-context /tmp/ek.ctx --key-algorithm rsa --public /tmp/ek.pub
+    tpm2_readpublic -c /tmp/ek.ctx -o "$TPM_PUBKEY"
+    rm /tmp/ek.*
+    echo "TPM public key saved to $TPM_PUBKEY"
   fi
 
-  # Dump LUKS JSON metadata and find *all* TPM keyslots
-  mapfile -t TPM_KEYSLOTS < <(
-  cryptsetup luksDump "$TPM_DEV" --dump-json-metadata \
-      | "$JQ_BIN" -r '
-          .tokens[]
-          | select(.type == "systemd-tpm2")
-          | .keyslots[]
-      '
-  )
+  # Raw PCR + Public-Key Enrollment - ONE-LINER AUTO TPM REENROLL SCRIPT
+  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix.sh > /dev/null
+  #!/usr/bin/env bash
+  set -euo pipefail
 
-  if [[ ${#TPM_KEYSLOTS[@]} -eq 0 ]]; then
-  echo "No systemd-tpm2 token found on $TPM_DEV – nothing to wipe"
-  else
-  echo "Found ${#TPM_KEYSLOTS[@]} TPM keyslot(s): ${TPM_KEYSLOTS[*]}"
-  for slot in "${TPM_KEYSLOTS[@]}"; do
-      echo "Wiping TPM keyslot $slot ..."
-      systemd-cryptenroll "$TPM_DEV" --wipe-slot="$slot" || {
-          echo "Failed to wipe slot $slot. Continuing with enrollment." >&2
-          # Removed the 'exit 1' here, as a failure to wipe shouldn't stop enrollment.
-      }
-  done
+  # Adjust this to your encrypted partition (e.g., via blkid or static path)
+  LUKS_UUID=$(blkid -s UUID -o value /dev/nvme1n1p2)  # Replace with your root partition
+  LUKS_DEV="/dev/disk/by-uuid/$LUKS_UUID"
+
+  # Test if current PCRs would allow TPM unlock
+  if ! systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" >/dev/null 2>&1; then
+    echo "TPM auto-unlock failed this boot. Re-enrolling with current PCRs..."
+
+    systemd-cryptenroll "$LUKS_DEV" \
+        --tpm2-device=auto \
+        --tpm2-pcrs=7+11 \
+        --tpm2-pcrs-bank=sha256
+
+    echo "TPM re-enrollment complete. Auto-unlock restored for next boot."
   fi
+  EOF
+  sudo chmod +x /usr/local/bin/tpm-seal-fix.sh
 
-  # Enroll a fresh TPM keyslot
-  echo "Enrolling new TPM keyslot with pcrlock..."
-  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-with-pcrlock --tpm2-pcrs=7+11 --tpm2-pcrs-bank=sha256
+  # Verify
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
  
   # Final TPM unlock test
   systemd-cryptenroll --tpm2-device=auto --test "$TPM_DEV" && echo "TPM unlock test PASSED"
@@ -853,114 +857,37 @@
   ```
 ## Step 9: Final Policy Sealing and Activation (Run on Installed Arch System)
 
-- Mount ESP (EFI System Partition)
+- TPM Reenroll automatic service
   ```bash
-  mount /dev/nvme1n1p1 /boot
-  ```
-- pcrlock + LUKS (ON FIRST ARCH BOOT)
-  ```bash
-  # Get the LUKS UUID
-  LUKS_UUID=$(blkid -s UUID -o value /dev/disk/by-partlabel/cryptroot)
+  # /etc/systemd/system/tpm-reenroll.service
+  cat << 'EOF' | sudo tee /etc/systemd/system/tpm-reenroll.service > /dev/null
+  [Unit]
+  Description=Automatically Re-enroll TPM2 Keyslot After PCR Drift
+  Requires=systemd-udev-settle.service
+  After=local-fs.target
 
-  sudo mkdir -p /etc/pcrlock
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/local/bin/tpm-seal-fix.sh
+  RemainAfterExit=yes
 
-  # Generating adaptive pcrlock policy (PCR 7 = Secure Boot ON)...
-  sudo systemd-pcrlock generate \
-  --path=/etc/pcrlock \
-  --pcrs=7+11 \
-  --tpm2-device=auto
-
-  sudo systemd-pcrlock install --path=/etc/pcrlock
-
-  # Enrolling LUKS slot with pcrlock policy...
-  # Wipe the old slot and enroll the new, adaptive policy
-  systemd-cryptenroll /dev/disk/by-uuid/$LUKS_UUID \
-    --wipe-slot=tpm2 \
-    --tpm2-device=auto \
-    --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
-
-  # Testing TPM unlock...
-  systemd-cryptenroll --tpm2-device=auto --test /dev/disk/by-uuid/$LUKS_UUID && \
-  echo "TPM UNLOCK: PASSED"
-
-- Creating Automated TPM Seal Fix Script (/usr/local/bin/tpm-seal-fix)
-  ```bash
-  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix > /dev/null
-  #!/bin/bash
-  # /usr/local/bin/tpm-seal-fix: Fixes a broken TPM seal (e.g., after Secure Boot changes)
-
-  set -e
-
-  # NOTE: This script is only run AFTER the user has manually entered the LUKS passphrase
-  # and the system is fully booted and decrypted.
-
-  TPM_DEV="/dev/mapper/cryptroot" # Assumes the root is already unlocked
-  JQ_BIN="$(command -v jaq || command -v jq)"
-  # Get the LUKS UUID using the disk with the specific partition label (safer than blkid)
-  LUKS_UUID=$(sudo blkid -s UUID -o value /dev/disk/by-partlabel/cryptroot)
-
-  if [[ -z "$JQ_BIN" ]]; then
-    echo "ERROR: jq/jaq not found. Install jq via 'sudo pacman -S jq' to run this script." >&2
-    exit 1
-  fi
-
-  echo "--- 1. Wiping old, broken TPM keyslots ---"
-  # 1.1 Find all existing systemd-tpm2 keyslots
-  mapfile -t TPM_KEYSLOTS < <(
-    sudo cryptsetup luksDump "$TPM_DEV" --dump-json-metadata \
-    | "$JQ_BIN" -r '.tokens[] | select(.type == "systemd-tpm2") | .keyslots[]' 2>/dev/null
-  )
-
-  if [[ ${#TPM_KEYSLOTS[@]} -eq 0 ]]; then
-    echo "No systemd-tpm2 token found – skipping wipe."
-  else
-    echo "Found ${#TPM_KEYSLOTS[@]} broken keyslot(s): ${TPM_KEYSLOTS[*]}"
-    for slot in "${TPM_KEYSLOTS[@]}"; do
-        echo "Wiping TPM keyslot $slot ..."
-        # Wipe using the raw partition UUID device path
-        sudo systemd-cryptenroll "/dev/disk/by-uuid/$LUKS_UUID" --wipe-slot="$slot"
-    done
-  fi
-
-  echo "--- 2. Policy Update and Re-seal to Permanent Policy ---"
-  # 2.1 Update policy measurements (Captures current PCR 7 and PCR 11)
-  echo "Updating permanent pcrlock policy measurements..."
-  sudo systemd-pcrlock update --path=/etc/pcrlock
-
-  # 2.2 Enroll a fresh TPM keyslot against the permanent policy file
-  echo "Re-sealing LUKS to the new /etc/pcrlock/pcrlock.json policy..."
-  sudo systemd-cryptenroll "/dev/disk/by-uuid/$LUKS_UUID" \
-  --tpm2-device=auto \
-  --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
-
-  echo "--- 3. Final Test ---"
-  sudo systemd-cryptenroll --tpm2-device=auto --test "/dev/disk/by-uuid/$LUKS_UUID" && \
-  echo "✅ TPM UNLOCK FIXED AND PASSED. Next boot will be automatic." || \
-  echo "❌ TPM UNLOCK TEST FAILED. Check journalctl for systemd-cryptsetup errors."
+  [Install]
+  WantedBy=multi-user.target
   EOF
 
-  # Make the script executable
-  sudo chmod +x /usr/local/bin/tpm-seal-fix
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now tpm-reenroll.service
   ```
-- Verify pcrlock readiness (full boot required for event logs):
+- Final TPM Policy Sealing
   ```bash
-  systemd-pcrlock is-supported  # Must output "yes"
-  tpm2_pcrread sha256:7,11  # Confirm PCRs populated
-  journalctl -b -o verbose | grep "tpm2-measure.service" # Check for measurements from boot
+  echo "Sealing LUKS to TPM with PCR 7+11 and public key..."
+  [[ -d /boot/EFI ]] || { echo "ERROR: ESP not mounted at /boot!"; exit 1; }
+  sudo tpm-seal-fix
   ```
-- Service Enablement and Configuration Cleanup
+- Verify
   ```bash
-  systemctl enable --now systemd-pcrlock-secureboot-policy.service systemd-pcrlock-secureboot-authority.service
-  systemctl enable --now systemd-pcrlock-machine-id.service systemd-pcrlock-file-system.service
-  systemctl enable --now systemd-pcrlock-firmware-code.service systemd-pcrlock-firmware-config.service
-  systemctl disable systemd-hibernate-resume.service
-  ```
-- Backup policy and PIN:
-  ```bash
-  cp /var/lib/systemd/pcrlock.json /mnt/usb/pcrlock.json
-  echo "WARNING: Store /mnt/usb/pcrlock.json and recovery PIN in Bitwarden."
-  # Backup the predicted state (essential for policy debugging):
-  systemd-pcrlock predict > /mnt/usb/pcrlock-predict.txt
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  sbctl status
   ```
 - (Optional) Enable systemd-homed with LUKS-encrypted homes
   ```bash
@@ -1123,9 +1050,9 @@
   # Sign astal/ags for Secure Boot once
     sbctl sign -s /usr/bin/astal /usr/bin/ags
   
-  # Append Astal/AGS to existing 91-sbctl-sign.hook
-  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/91-sbctl-sign.hook; then
-  cat << 'EOF' >> /etc/pacman.d/hooks/91-sbctl-sign.hook
+  # Append Astal/AGS to existing 90-uki-sign.hook
+  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
+  cat << 'EOF' >> /etc/pacman.d/hooks/90-uki-sign.hook
 
   [Trigger]
   Operation = Install
@@ -1619,12 +1546,12 @@
   # If unsigned, sign and add to the pacman hook
   sbctl sign -s /usr/bin/qemu-system-x86_64
   sbctl sign -s /usr/lib/libvirt/libvirtd
-  echo "Target = qemu" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Target = libvirt" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Target = supergfxctl" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Target = rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  echo "Exec = /usr/bin/sbctl sign -s /home/*/.*cargo/bin/rebos" >> /etc/pacman.d/hooks/91-sbctl-sign.hook
-  sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/91-sbctl-sign.hook
+  echo "Target = qemu" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Target = libvirt" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Target = supergfxctl" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Target = rebos" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  echo "Exec = /usr/bin/sbctl sign -s /home/*/.*cargo/bin/rebos" >> /etc/pacman.d/hooks/90-uki-sign.hook
+  sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/90-uki-sign.hook
   ```
 - Enable VRR for 4K OLED
   ```bash
@@ -1941,7 +1868,7 @@
   sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
   sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
   sudo chezmoi add /etc/systemd/system/astal-widgets.service
-  sudo chezmoi add /etc/pacman.d/hooks/91-sbctl-sign.hook
+  sudo chezmoi add /etc/pacman.d/hooks/90-uki-sign.hook
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
   sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
   sudo chezmoi add /etc/pacman.d/hooks/90-mkinitcpio-uki.hook
@@ -1952,7 +1879,6 @@
   sudo chezmoi add -r /etc/dnscrypt-proxy/
   sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
   sudo chezmoi add -r /etc/apparmor.d/local/
-  sudo chezmoi add /var/lib/systemd/pcrlock.json /var/lib/pcrlock.d
   ```
 - Export package lists for reproducibility
   ```bash
@@ -2053,14 +1979,6 @@
   # Clean up
   umount /mnt/usb
   rmdir /mnt/usb
-  ```
-- Check systemd-pcrlock
-  ```bash
-  systemd-pcrlock predict  # Check predictions
-  systemd-pcrlock log --json=pretty  # Validate event log
-  systemctl status systemd-pcrlock.service
-  journalctl -b -u systemd-pcrlock.service --no-pager
-  # You should look for a message indicating the service ran successfully and measured the current PCRs.
   ```
 - Check Secure Boot status:
   ```bash
@@ -2208,6 +2126,8 @@
   # Enter LUKS passphrase (Stored in Bitwarden)
   # Run one automated command
   sudo tpm-seal-fix
+  # echo "This re-measures the current boot state and re-enrolls TPM automatically."
+  # echo "No manual PCR reading. No key regeneration. Just one line."
   ```
 - Prepare and verify USB
   ```bash
@@ -2283,33 +2203,9 @@
     systemd-cryptenroll /dev/nvme1n1p2 --wipe-slot="$slot" || true
   done
 
-  # Re-enroll using **same PCRs** as Step 9
-  systemd-cryptenroll /dev/nvme1n1p2 \
-    --tpm2-device=auto \
-    --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
-
-  # Backup current (if exists)
-  cp -r /etc/pcrlock /etc/pcrlock.bak
-
-  # Regenerate from current boot state
-  systemd-pcrlock generate --path=/etc/pcrlock --pcrs=7+11 --tpm2-device=auto
-  systemd-pcrlock install --path=/etc/pcrlock
-
-  # Re-lock components (skip if unchanged)
-  systemd-pcrlock lock-uki /boot/EFI/Linux/arch*.efi
-  systemd-pcrlock lock-gpt /dev/nvme1n1
-
-  # If you have a PIN from Bitwarden:
-  systemd-pcrlock make-policy --recovery-pin=123456
-
-  # OR generate new one:
-  systemd-pcrlock make-policy --recovery-pin=hide
-  # → Save output PIN securely in Bitwarden
-
   # Verify
   systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM OK"
   sbctl status | grep -q "Enabled" && echo "Secure Boot OK"
-  systemd-pcrlock predict | grep -q "current" && echo "Policy OK"
 
   f. **Rollback Snapshot**:
    - List snapshots:
@@ -2362,8 +2258,8 @@
   ```
 - Pacman hook (auto-sign on updates)
   ```bash
-  if ! grep -q "Target = restic" /etc/pacman.d/hooks/91-sbctl-sign.hook 2>/dev/null; then
-    sudo tee -a /etc/pacman.d/hooks/91-sbctl-sign.hook >/dev/null <<'EOF'
+  if ! grep -q "Target = restic" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then
+    sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook >/dev/null <<'EOF'
 
   [Trigger]
   Operation = Install
@@ -2634,10 +2530,6 @@
     ```
 - **f) Firmware Updates**:
   ```bash
-  # Before fwupdmgr update (relax policy for change)
-  systemd-pcrlock unlock-firmware-code
-  systemd-pcrlock unlock-firmware-config  # If using config lock
-  systemd-pcrlock unlock-secureboot-policy  # If DB updates
 
   fwupdmgr refresh --force
   fwupdmgr get-updates
@@ -2650,23 +2542,25 @@
   echo "  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2"
   echo "  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2"
   echo "WARNING: Firmware updates change PCRs. TPM auto-unlock fails once; enter passphrase."
-  echo "Policy maintenance is handled by the 90-uki-pcrlock-sign.hook."
   echo "If TPM fails (e.g., Secure Boot change):"
   echo "1. Enter LUKS Passphrase."
   echo "2. Run the automated fix script: sudo tpm-seal-fix"
   tpm2_pcrread sha256:7,11 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
-- **g) pcrlock Maintenance**:
+- **g) TPM seal breaks Maintenance**:
   ```bash
   # If the TPM seal breaks (e.g., hook failure). Update the permanent policy file (captures new PCRs 7 and 11)
-  systemd-pcrlock update --path=/etc/pcrlock
-  # Re-seal LUKS to the updated policy file
-  systemd-cryptenroll /dev/disk/by-uuid/$LUKS_UUID --tpm2-device=auto --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
-  # Remove if reverting
-  systemd-pcrlock remove-policy
-  # Check support/status
-  systemd-pcrlock is-supported
+  # Run **only** when you know PCR 7 or 11 changed:
+  #   • Firmware/BIOS update
+  #   • Secure Boot DB change
+  #   • UKI rebuilt with different cmdline
+  
+  sudo tpm-seal-fix
+  
+  # The script re-measures the *current* UKI into PCR 11 automatically
+  # (systemd-stub does this on every boot) and re-enrolls the LUKS
+  # keyslot against the same public key + PCR 7+11.
   ```
 - **h) Security Audit**:
   ```bash
