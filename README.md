@@ -882,6 +882,65 @@
   systemd-cryptenroll --tpm2-device=auto --test /dev/disk/by-uuid/$LUKS_UUID && \
   echo "TPM UNLOCK: PASSED"
 
+- Creating Automated TPM Seal Fix Script (/usr/local/bin/tpm-seal-fix)
+  ```bash
+  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix > /dev/null
+  #!/bin/bash
+  # /usr/local/bin/tpm-seal-fix: Fixes a broken TPM seal (e.g., after Secure Boot changes)
+
+  set -e
+
+  # NOTE: This script is only run AFTER the user has manually entered the LUKS passphrase
+  # and the system is fully booted and decrypted.
+
+  TPM_DEV="/dev/mapper/cryptroot" # Assumes the root is already unlocked
+  JQ_BIN="$(command -v jaq || command -v jq)"
+  # Get the LUKS UUID using the disk with the specific partition label (safer than blkid)
+  LUKS_UUID=$(sudo blkid -s UUID -o value /dev/disk/by-partlabel/cryptroot)
+
+  if [[ -z "$JQ_BIN" ]]; then
+    echo "ERROR: jq/jaq not found. Install jq via 'sudo pacman -S jq' to run this script." >&2
+    exit 1
+  fi
+
+  echo "--- 1. Wiping old, broken TPM keyslots ---"
+  # 1.1 Find all existing systemd-tpm2 keyslots
+  mapfile -t TPM_KEYSLOTS < <(
+    sudo cryptsetup luksDump "$TPM_DEV" --dump-json-metadata \
+    | "$JQ_BIN" -r '.tokens[] | select(.type == "systemd-tpm2") | .keyslots[]' 2>/dev/null
+  )
+
+  if [[ ${#TPM_KEYSLOTS[@]} -eq 0 ]]; then
+    echo "No systemd-tpm2 token found – skipping wipe."
+  else
+    echo "Found ${#TPM_KEYSLOTS[@]} broken keyslot(s): ${TPM_KEYSLOTS[*]}"
+    for slot in "${TPM_KEYSLOTS[@]}"; do
+        echo "Wiping TPM keyslot $slot ..."
+        # Wipe using the raw partition UUID device path
+        sudo systemd-cryptenroll "/dev/disk/by-uuid/$LUKS_UUID" --wipe-slot="$slot"
+    done
+  fi
+
+  echo "--- 2. Policy Update and Re-seal to Permanent Policy ---"
+  # 2.1 Update policy measurements (Captures current PCR 7 and PCR 11)
+  echo "Updating permanent pcrlock policy measurements..."
+  sudo systemd-pcrlock update --path=/etc/pcrlock
+
+  # 2.2 Enroll a fresh TPM keyslot against the permanent policy file
+  echo "Re-sealing LUKS to the new /etc/pcrlock/pcrlock.json policy..."
+  sudo systemd-cryptenroll "/dev/disk/by-uuid/$LUKS_UUID" \
+  --tpm2-device=auto \
+  --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
+
+  echo "--- 3. Final Test ---"
+  sudo systemd-cryptenroll --tpm2-device=auto --test "/dev/disk/by-uuid/$LUKS_UUID" && \
+  echo "✅ TPM UNLOCK FIXED AND PASSED. Next boot will be automatic." || \
+  echo "❌ TPM UNLOCK TEST FAILED. Check journalctl for systemd-cryptsetup errors."
+  EOF
+
+  # Make the script executable
+  sudo chmod +x /usr/local/bin/tpm-seal-fix
+  ```
 - Verify pcrlock readiness (full boot required for event logs):
   ```bash
   systemd-pcrlock is-supported  # Must output "yes"
@@ -2148,6 +2207,12 @@
   echo "Store UEFI password, LUKS passphrase, keyfile location, and MOK password in Bitwarden."
   read -p "Confirm that UEFI password, LUKS passphrase, keyfile location, and MOK password are stored in Bitwarden (y/n): " confirm
   [ "$confirm" = "y" ] || { echo "Error: Please store credentials in Bitwarden before proceeding."; exit 1; }
+  ```
+- TPM Seal breaks
+  ```bash
+  # Enter LUKS passphrase (Stored in Bitwarden)
+  # Run one automated command
+  sudo tpm-seal-fix
   ```
 - Prepare and verify USB
   ```bash
