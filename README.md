@@ -408,7 +408,7 @@
   networkmanager openssh rsync reflector arch-install-scripts \
   \
   # User / DE
-  zsh git jq flatpak gdm pacman-contrib
+  zsh git jq flatpak gdm pacman-contrib devtools
   ```
 - Chroot into the installed system:
   ```bash
@@ -1098,6 +1098,7 @@
   [bin]
   DiffMenu = true
   UseAsk = true
+  Chroot = true
   EOF
   chown -R arch:arch /home/arch/.config/paru
   
