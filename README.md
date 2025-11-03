@@ -945,14 +945,8 @@
 - Verify pcrlock readiness (full boot required for event logs):
   ```bash
   systemd-pcrlock is-supported  # Must output "yes"
-  tpm2_pcrread sha256:0-15  # Confirm PCRs populated
+  tpm2_pcrread sha256:7,11  # Confirm PCRs populated
   journalctl -b -o verbose | grep "tpm2-measure.service" # Check for measurements from boot
-  ```
-- Generate initial policy (predicts for PCRs 0-5,7,11-15; uses --location=760-:940- by default for OS runtime)
-  ```bash
-  # Final LUKS Activation (Switch from static to policy seal)
-  systemd-pcrlock make-policy --recovery-pin=query  # Query for PIN (store in Bitwarden); or 'hide' for auto-gen
-  systemctl enable --now systemd-pcrlock-make-policy.service  # Auto-updates policy after changes
   ```
 - Service Enablement and Configuration Cleanup
   ```bash
@@ -2656,15 +2650,19 @@
   echo "  systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2"
   echo "  systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2"
   echo "WARNING: Firmware updates change PCRs. TPM auto-unlock fails once; enter passphrase."
-  echo "systemd-pcrlock services (enabled) will auto-re-lock and run make-policy after boot."
-  echo "If fails: Manually run 'systemd-pcrlock make-policy --recovery-pin=query' (use PIN from Bitwarden)."
+  echo "Policy maintenance is handled by the 90-uki-pcrlock-sign.hook."
+  echo "If TPM fails (e.g., Secure Boot change):"
+  echo "1. Enter LUKS Passphrase."
+  echo "2. Run the automated fix script: sudo tpm-seal-fix"
   tpm2_pcrread sha256:7,11 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
 - **g) pcrlock Maintenance**:
   ```bash
-  # Refresh policy after major changes (e.g., new UKI)
-  systemd-pcrlock make-policy
+  # If the TPM seal breaks (e.g., hook failure). Update the permanent policy file (captures new PCRs 7 and 11)
+  systemd-pcrlock update --path=/etc/pcrlock
+  # Re-seal LUKS to the updated policy file
+  systemd-cryptenroll /dev/disk/by-uuid/$LUKS_UUID --tpm2-device=auto --tpm2-with-pcrlock=/etc/pcrlock/pcrlock.json
   # Remove if reverting
   systemd-pcrlock remove-policy
   # Check support/status
