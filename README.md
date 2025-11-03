@@ -519,6 +519,7 @@
     alias curl='http --continue'  # curl-like behavior
     alias btop='btm'
     alias iftop='bandwhich'
+    alias fix-tpm='sudo tpm-seal-fix'
 
   # Interactive: Prefer run0 (secure, no SUID, polkit)
   if [[ -t 1 ]]; then
@@ -716,22 +717,39 @@
   # Boot back into Arch ISO
   arch-chroot /mnt
 
-  # Raw PCR + Public-Key Enrollment
-  # Generate a stable TPM public key (once)
+  # Generate stable TPM public key (once only)
   TPM_PUBKEY="/etc/tpm2-ukey.pem"
   if [ ! -f "$TPM_PUBKEY" ]; then
+    echo "Generating TPM public key..."
     tpm2_createek --ek-context /tmp/ek.ctx --key-algorithm rsa --public /tmp/ek.pub
     tpm2_readpublic -c /tmp/ek.ctx -o "$TPM_PUBKEY"
     rm /tmp/ek.*
+    echo "TPM public key saved to $TPM_PUBKEY"
   fi
 
-  # Enroll LUKS keyslot bound to PCR 7+11 **and** the public key
-  systemd-cryptenroll /dev/nvme1n1p2 \
-   --wipe-slot=tpm2 \
-   --tpm2-device=auto \
-   --tpm2-pcrs=7+11 \
-   --tpm2-public-key="$TPM_PUBKEY" \
-   --tpm2-public-key-pcrs=7+11
+  # Raw PCR + Public-Key Enrollment - ONE-LINER AUTO TPM REENROLL SCRIPT
+  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix > /dev/null
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  LUKS_DEV="/dev/nvme1n1p2"
+  PUBKEY="/etc/tpm2-ukey.pem"
+
+  [[ -f "$PUBKEY" ]] || { echo "Error: TPM public key missing: $PUBKEY"; exit 1; }
+
+  echo "Wiping old TPM keyslots..."
+  systemd-cryptenroll "$LUKS_DEV" --wipe-slot=tpm2 2>/dev/null || true
+
+  echo "Re-enrolling with current PCR 7+11 + public key..."
+  systemd-cryptenroll "$LUKS_DEV" \
+    --tpm2-device=auto \
+    --tpm2-pcrs=7+11 \
+    --tpm2-public-key="$PUBKEY" \
+    --tpm2-public-key-pcrs=7+11
+
+  echo "TPM auto-unlock restored. Next boot: no passphrase needed."
+  EOF
+  sudo chmod +x /usr/local/bin/tpm-seal-fix
 
   # Verify
   systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
@@ -839,40 +857,16 @@
   ```
 ## Step 9: Final Policy Sealing and Activation (Run on Installed Arch System)
 
-- Mount ESP (EFI System Partition)
+- Final TPM Policy Sealing
   ```bash
-  mount /dev/nvme1n1p1 /boot
+  echo "Sealing LUKS to TPM with PCR 7+11 and public key..."
+  [[ -d /boot/EFI ]] || { echo "ERROR: ESP not mounted at /boot!"; exit 1; }
+  sudo tpm-seal-fix
   ```
-- LUKS (ON FIRST ARCH BOOT)
+- Verify
   ```bash
-  # Get the LUKS UUID
-  LUKS_UUID=$(blkid -s UUID -o value /dev/disk/by-partlabel/cryptroot)
-
-  # The public key is stored in /etc/tpm2-ukey.pem (created in Step 8).
-
-  # Simple re-measure script (run **after** you know PCRs changed)
-  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix > /dev/null
-  #!/usr/bin/env bash
-  set -euo pipefail
-
-  LUKS_DEV="/dev/nvme1n1p2"
-  PUBKEY="/etc/tpm2-ukey.pem"
-
-  echo "Wiping old TPM keyslot(s)..."
-  mapfile -t SLOTS < <(systemd-cryptenroll "$LUKS_DEV" --tpm2-device=auto --wipe-slot=tpm2 2>/dev/null || true)
-
-  echo "Re-enrolling with PCR 7+11 and public key..."
-  systemd-cryptenroll "$LUKS_DEV" \
-    --tpm2-device=auto \
-    --tpm2-pcrs=7+11 \
-    --tpm2-public-key="$PUBKEY" \
-    --tpm2-public-key-pcrs=7+11
-
-  echo "Testing..."
-  systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" && echo "TPM UNLOCK FIXED"
-  EOF
-
-  sudo chmod +x /usr/local/bin/tpm-seal-fix
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  sbctl status
   ```
 - (Optional) Enable systemd-homed with LUKS-encrypted homes
   ```bash
@@ -2111,6 +2105,8 @@
   # Enter LUKS passphrase (Stored in Bitwarden)
   # Run one automated command
   sudo tpm-seal-fix
+  # echo "This re-measures the current boot state and re-enrolls TPM automatically."
+  # echo "No manual PCR reading. No key regeneration. Just one line."
   ```
 - Prepare and verify USB
   ```bash
