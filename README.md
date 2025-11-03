@@ -765,7 +765,7 @@
 - Back up PCR values post-Secure Boot:
   ```bash
   mount /dev/sdX1 /mnt/usb  # Replace with your USB
-  tpm2_pcrread sha256:0,4,7 > /mnt/usb/tpm-pcr-post-secureboot.txt
+  tpm2_pcrread sha256:7,11 > /mnt/usb/tpm-pcr-post-secureboot.txt
   diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt || echo "PCR 7 changed (expected)"
   echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
   echo "WARNING: Compare PCR values to ensure TPM policy consistency."
@@ -2040,7 +2040,7 @@
   journalctl -b | grep -i "systemd-cryptsetup.*tpm2" || echo "Warning: TPM unlock not confirmed"
 
   # Check the PCRs you actually enrolled (0, 4, 7)
-  tpm2_pcrread sha256:0,4,7 > /tmp/tpm-pcr-current.txt
+  tpm2_pcrread sha256:7,11 > /tmp/tpm-pcr-current.txt
 
   # Mount USB to read the backup file
   echo "Please insert your backup USB drive..."
@@ -2658,7 +2658,7 @@
   echo "WARNING: Firmware updates change PCRs. TPM auto-unlock fails once; enter passphrase."
   echo "systemd-pcrlock services (enabled) will auto-re-lock and run make-policy after boot."
   echo "If fails: Manually run 'systemd-pcrlock make-policy --recovery-pin=query' (use PIN from Bitwarden)."
-  tpm2_pcrread sha256:0,4,7 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
+  tpm2_pcrread sha256:7,11 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
 - **g) pcrlock Maintenance**:
