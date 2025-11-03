@@ -747,7 +747,7 @@
 
   # Enroll a fresh TPM keyslot
   echo "Enrolling new TPM keyslot with pcrlock..."
-  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-with-pcrlock --tpm2-pcrs=0+4+7+11 --tpm2-pcrs-bank=sha256
+  systemd-cryptenroll "$TPM_DEV" --tpm2-device=auto --tpm2-with-pcrlock --tpm2-pcrs=7+11 --tpm2-pcrs-bank=sha256
  
   # Final TPM unlock test
   systemd-cryptenroll --tpm2-device=auto --test "$TPM_DEV" && echo "TPM unlock test PASSED"
@@ -866,7 +866,7 @@
   # Generating adaptive pcrlock policy (PCR 7 = Secure Boot ON)...
   sudo systemd-pcrlock generate \
   --path=/etc/pcrlock \
-  --pcrs=0+4+7+11 \
+  --pcrs=7+11 \
   --tpm2-device=auto
 
   sudo systemd-pcrlock install --path=/etc/pcrlock
@@ -2255,7 +2255,7 @@
   cp -r /etc/pcrlock /etc/pcrlock.bak
 
   # Regenerate from current boot state
-  systemd-pcrlock generate --path=/etc/pcrlock --pcrs=0+4+7+11 --tpm2-device=auto
+  systemd-pcrlock generate --path=/etc/pcrlock --pcrs=7+11 --tpm2-device=auto
   systemd-pcrlock install --path=/etc/pcrlock
 
   # Re-lock components (skip if unchanged)
