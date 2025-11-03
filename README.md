@@ -888,29 +888,6 @@
   tpm2_pcrread sha256:0-15  # Confirm PCRs populated
   journalctl -b -o verbose | grep "tpm2-measure.service" # Check for measurements from boot
   ```
-- Policy Locking
-  ```bash
-  # System/Firmware Integrity (PCRs 0-3, 5, 7)
-  systemd-pcrlock lock-firmware-code
-  systemd-pcrlock lock-firmware-config  # Use cautiously; skip if firmware measures unstable data (e.g., voltages)
-  systemd-pcrlock lock-secureboot-policy
-  systemd-pcrlock lock-secureboot-authority
-  systemd-pcrlock lock-gpt /dev/nvme1n1  # Arch disk
-  
-  # Boot Chain Integrity (PCR 9, 11)
-  systemd-pcrlock lock-kernel-cmdline
-  systemd-pcrlock lock-uki /boot/EFI/Linux/arch.efi
-  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-lts.efi
-  systemd-pcrlock lock-uki /boot/EFI/Linux/arch-fallback.efi
-
-  # OS State (PCR 15)
-  systemd-pcrlock lock-machine-id
-  systemd-pcrlock lock-file-system /  # Root FS
-  systemd-pcrlock lock-file-system /var  # Var FS (if separate)
-
-  # List components to verify the policy is complete
-  systemd-pcrlock list-components
-  ```
 - Generate initial policy (predicts for PCRs 0-5,7,11-15; uses --location=760-:940- by default for OS runtime)
   ```bash
   # Final LUKS Activation (Switch from static to policy seal)
