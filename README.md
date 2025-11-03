@@ -667,39 +667,33 @@
   ```
 - Create Pacman hooks to automatically sign EFI binaries after updates:
   ```bash
-  cat << 'EOF' > /etc/pacman.d/hooks/90-uki-rebuild.hook
+  cat << 'EOF' > /etc/pacman.d/hooks/90-uki-pcrlock-sign.hook
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
+  Target = linux*
   Target = systemd
-  Target = linux
-  Target = linux-lts
-  Target = fwupd
-  Target = plymouth
   Target = mkinitcpio
-  
-  [Action]
-  Description = Rebuild UKI
-  When = PostTransaction
-  Exec = /usr/bin/mkinitcpio -P
-  EOF
-
-  cat << 'EOF' > /etc/pacman.d/hooks/99-secureboot-uki.hook
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = linux
-  Target = linux-lts
-  Target = systemd
   Target = fwupd
   Target = plymouth
 
   [Action]
-  Description = Sign UKI
+  Description = Rebuild UKI, update pcrlock policy, and sign with Secure Boot
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /boot/efi/EFI/Linux/arch*.efi /usr/lib/systemd/boot/efi/systemd-bootx64.efi /usr/lib/plymouth/plymouthd 2>/dev/null || true
+  Exec = /usr/bin/bash -c '
+    /usr/bin/mkinitcpio -P || true
+  
+  # Update pcrlock measurements for PCR 11 (UKI)
+    for uki in /boot/EFI/Linux/arch*.efi; do
+      [ -f "$uki" ] || continue
+      /usr/bin/systemd-pcrlock lock-uki "$uki" --path=/etc/pcrlock 2>/dev/null || true
+    done
+    /usr/bin/systemd-pcrlock update --path=/etc/pcrlock 2>/dev/null || true
+  
+  # Secure Boot signing
+    /usr/bin/sbctl sign -s /boot/efi/EFI/Linux/arch*.efi /usr/lib/systemd/boot/efi/systemd-bootx64.efi /usr/lib/plymouth/plymouthd 2>/dev/null || true
+  '
   EOF
   ```
 - Enable paccache.timer
