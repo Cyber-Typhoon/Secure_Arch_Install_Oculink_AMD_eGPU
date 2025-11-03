@@ -662,7 +662,8 @@
   BOOT_WIN=$(efibootmgr | grep 'Windows' | awk '{print $1}' | cut -c5-)
   efibootmgr --bootorder ${BOOT_ARCH},${BOOT_WIN}
   ```
-  # Create and enroll sbctl keys
+- Create and enroll sbctl keys
+  ```bash
   sbctl create-keys
   ```
 - Create Pacman hooks to automatically sign EFI binaries after updates:
