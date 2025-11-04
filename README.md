@@ -612,7 +612,7 @@
   cat > /etc/mkinitcpio.d/linux.preset << EOF
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
-  default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw quiet splash \
+  default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$SWAP_OFFSET rw quiet splash \
   intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
   mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 \
   rd.emergency=poweroff tpm2-measure=yes amdgpu.dc=1 amdgpu.dpm=1"
