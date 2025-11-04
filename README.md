@@ -1390,6 +1390,9 @@
   
   # Enable service
   sudo systemctl enable --now apparmor
+
+  # Enable the upstream-sync timer (weekly profile updates)
+  sudo systemctl enable --now apparmor.d-update.timer
   
   # Load Full System Policy in COMPLAIN mode
   sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
@@ -2575,8 +2578,15 @@
   sudo sed -i '/^#.*cache-loc/s/^#//' /etc/apparmor/parser.conf
   sudo sed -i 's|.*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
 
-  # Enable the upstream-sync timer (weekly profile updates)
-  sudo systemctl enable --now apparmor.d-update.timer
+  # Check timer status
+  systemctl status apparmor.d-update.timer
+
+  # Check timer last run
+  journalctl -u apparmor.d-update.service -n 20
+
+  # Confirm profiles are cached
+  ls /etc/apparmor.d/cache/ | wc -l   # Should show 1000+ files
+  aa-status | grep "profiles are loaded" | head -1
 
   # Tune from logs (run after normal usage)
   echo "Use the system for a while, then run:"
