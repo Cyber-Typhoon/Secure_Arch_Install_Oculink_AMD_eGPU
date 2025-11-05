@@ -402,7 +402,7 @@
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack \
   \
   # System
-  sudo polkit udisks2 thermald acpi acpid ethtool \
+  sudo polkit udisks2 thermald acpi acpid ethtool namcap \
   \
   # Network / Install
   networkmanager openssh rsync reflector arch-install-scripts \
@@ -922,7 +922,17 @@
   git clone --depth 1 https://aur.archlinux.org/paru.git "$TMP_PARU"
   (
     cd "$TMP_PARU" || exit 1
-    makepkg -si --noconfirm   # non-interactive
+  
+  # Build the package (creates the .pkg.tar.zst file)
+  makepkg -s
+  
+  # NAMCAP AUDIT (Insert Check Here)
+  echo "--- Running namcap audit on the built paru package ---"
+  # Audits the built package. The || true allows the script to continue on warnings.
+  namcap paru-*.pkg.tar.zst || true
+  
+  # Install the audited package
+  pacman -U paru-*.pkg.tar.zst --noconfirm
   )
   rm -rf "$TMP_PARU"
 
