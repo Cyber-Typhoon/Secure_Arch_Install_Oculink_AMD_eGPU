@@ -457,7 +457,7 @@
   ```
 - Enable sudo
   ```bash
-  echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/wheel
+  echo "%wheel ALL=(ALL:ALL)" | tee /etc/sudoers.d/wheel
   chmod 440 /etc/sudoers.d/wheel   # optional but good practice
   ```
 - Enable NetworkManager
@@ -493,7 +493,7 @@
   if command -v paru >/dev/null 2>&1; then
     alias yay='paru'
   else
-    alias yay='echo -e "\nERROR: paru not installed. Run: sudo pacman -S --needed paru\n"; false'
+    alias yay='echo -e "\nERROR: paru not installed. Run: run0 pacman -S --needed paru\n"; false'
   fi
 
   # Block 'yay' via pacman
@@ -519,7 +519,7 @@
     alias curl='http --continue'  # curl-like behavior
     alias btop='btm'
     alias iftop='bandwhich'
-    alias fix-tpm='sudo tpm-seal-fix'
+    alias fix-tpm='run0 tpm-seal-fix'
 
   # Interactive: Prefer run0 (secure, no SUID, polkit)
   if [[ -t 1 ]]; then
