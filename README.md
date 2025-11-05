@@ -121,7 +121,7 @@
 - Create a bootable USB drive:
   - Use **Rufus** in Windows, selecting **DD mode** for reliable writing.
   - **Avoid Ventoy** and **Balena Etcher** due to potential trackers and reliability issues.
-- Test the USB by rebooting and selecting it in the **BIOS boot menu** (press `F12` or similar).
+- Test the USB by rebooting and selecting it in the **BIOS boot menu** (press `F1`).
 - Verify network connectivity in the live environment:
   ```bash
   ping -c 3 archlinux.org
