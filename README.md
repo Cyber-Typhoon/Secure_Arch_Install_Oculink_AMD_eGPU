@@ -146,6 +146,17 @@
   setfont ter-132b; loadkeys us
   # Improves ISO usability
   ```
+- Verify the boot mode
+  ```bash
+  # To verify the boot mode, check the UEFI bitness:
+  cat /sys/firmware/efi/fw_platform_size
+  # If the system did not boot in the mode you desired (UEFI vs BIOS), refer to your motherboard's manual.
+  # Expected: If the command returns 64, the system is booted in UEFI mode and has a 64-bit x64 UEFI.
+  ```
+- Update the System Clock
+  ```bash
+  timedatectl
+  ```
 ## Step 4: Pre-Arch Installation Steps
 
 - Boot from the **Arch Live USB**.
@@ -181,6 +192,18 @@
       - **Record this SWAP_OFFSET value. Insert it directly into your systemd-boot kernel parameters (e.g., in /etc/mkinitcpio.d/linux.preset) and /etc/fstab (for the swapfile entry with resume_offset=).
       - **Note**: This offset is critical for hibernation support and must be accurate—recompute if the swap file changes.
 - **a) Partition the Second NVMe M.2 (/dev/nvme1n1)**:
+  - Check optimal sector size (should be 512 for most NVMe; 4096 for some)
+    ```bash
+    cat /sys/block/nvme1n1/queue/logical_block_size  # Expected: 512 or 4096
+    cat /sys/block/nvme1n1/queue/physical_block_size
+    # Review your partitioning scheme: This creates a 1GiB ESP and full-disk encrypted root. Adjust sizes if needed (e.g., for multi-partition setups).
+    ```
+  - Securely erase root partition before LUKS (fills with random data):
+    ```bash
+    cryptsetup open --type plain -d /dev/urandom /dev/nvme1n1p2 erase  # Opens as plain dm-crypt
+    dd if=/dev/zero of=/dev/mapper/erase status=progress bs=4M  # Overwrite (long, but secure)
+    cryptsetup close erase
+    ```
   - Create a GPT partition table with an ESP and a LUKS partition:
     ```bash
     parted /dev/nvme1n1 --script \
@@ -195,6 +218,7 @@
   - Verify partitions:
     ```bash
     lsblk -f /dev/nvme0n1 /dev/nvme1n1  # Confirm /dev/nvme0n1p1 (Windows ESP) and /dev/nvme1n1p1 (Arch ESP)
+    fdisk -l # This should list the partitions in case the command above didn't return any outputs
     efibootmgr  # Check if UEFI recognizes both ESPs
     ```
   - NVMe Sanitize:
