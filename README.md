@@ -676,6 +676,8 @@
 - Create and enroll sbctl keys
   ```bash
   sbctl create-keys
+  sbctl enroll-keys -m -f
+  echo "sbctl keys created and enrolled (including Microsoft 3rd-party keys)"
   ```
 - Create Pacman hooks to automatically sign EFI binaries after updates:
   ```bash
