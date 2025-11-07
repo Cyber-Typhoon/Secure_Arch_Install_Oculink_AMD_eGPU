@@ -441,6 +441,21 @@
   echo "# Arch to Gentoo Package Mapping" >> /mnt/etc/gentoo-prep/packages-mapping.md  
   echo "- base -> sys-apps/baselayout" >> /mnt/etc/gentoo-prep/packages-mapping.md  
   # Add more as you install, e.g., after pacstrap: pacman -Qeq >> /mnt/etc/gentoo-prep/arch-packages.txt
+
+  # Gentoo Preparation: Document System-Wide Build Settings for Portage
+  # Create a dedicated file for system-wide CFLAGS (optimizations)
+  echo 'CFLAGS="-march=native -O2 -pipe"' > /mnt/etc/gentoo-prep/cflags.txt
+  echo "Documented CFLAGS/CXXFLAGS for Intel Core Ultra 7 255H."
+
+  # Create a dedicated file for critical USE flags (features)
+  # These flags are based on your plan (systemd, AppArmor, Wayland, GNOME, etc.)
+  echo 'systemd btrfs luks tpm gnome wayland apparmor pipewire zstd' > /mnt/etc/gentoo-prep/desired-use-flags.txt
+  echo "Documented critical USE flags for a secure, modern Gentoo desktop."
+
+  # Gentoo Preparation: Document Detailed Hardware Profile (Highly Recommended)
+  # Capture full hardware details, especially PCI devices for the eGPU/OCuLink
+  lspci -nnk > /mnt/etc/gentoo-prep/lspci-nnk.txt
+  echo "Saved detailed PCI/eGPU hardware list."
   ```  
 - Chroot into the installed system:
   ```bash
@@ -451,7 +466,30 @@
   pacman -S --noconfirm git etckeeper  
   etckeeper init  
   etckeeper commit "Initial Arch config"
-  ```  
+  ```
+- Document Detailed Hardware Profile (Useful for Gentoo migration):  
+  ```bash
+  # Capture PCI Devices (Most Critical for eGPU/NVMe)
+  # The -nnk flags show the numerical ID, device name, and the kernel driver in use.
+  lspci -nnk > /mnt/etc/gentoo-prep/lspci-nnk.txt
+  echo "Saved detailed PCI hardware list (lspci-nnk.txt)."
+
+  # Capture USB Devices (For peripherals and controllers)
+  # The -vt flags show a detailed tree of all USB devices and drivers.
+  lsusb -vt > /mnt/etc/gentoo-prep/lsusb-vt.txt
+  echo "Saved detailed USB hardware list (lsusb-vt.txt)."
+
+  # Capture Block Devices (For all disks and partitions)
+  # The -f and -o flags are useful for documenting BTRFS/LUKS device paths.
+  lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,UUID,MODEL,ROTA > /mnt/etc/gentoo-prep/lsblk.txt
+  echo "Saved block device list (lsblk.txt)."
+  
+  # Capture CPU Details (Though CFLAGS are already noted, this is comprehensive)
+  lscpu > /mnt/etc/gentoo-prep/lscpu.txt
+  echo "Saved CPU details (lscpu.txt)."
+
+  echo "All critical hardware information for Gentoo migration has been saved to /mnt/etc/gentoo-prep/."
+  ``` 
 - Ensure multilib repository is enabled (required for 32-bit drivers):
   ```bash
   sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
