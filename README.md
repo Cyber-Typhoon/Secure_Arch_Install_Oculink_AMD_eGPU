@@ -565,7 +565,7 @@
   if command -v paru >/dev/null 2>&1; then
     alias yay='paru'
   else
-    alias yay='echo -e "\nERROR: paru not installed. Run: run0 pacman -S --needed paru\n"; false'
+    alias yay='echo -e "\nERROR: paru not installed. Run: sudo pacman -S --needed paru\n"; false'
   fi
 
   # Block 'yay' via pacman
@@ -591,12 +591,8 @@
     alias curl='http --continue'  # curl-like behavior
     alias btop='btm'
     alias iftop='bandwhich'
-    alias fix-tpm='run0 tpm-seal-fix'
-
-  # Interactive: Prefer run0 (secure, no SUID, polkit)
-  if [[ -t 1 ]]; then
-    alias sudo='run0'
-  fi
+    alias sudo=' sudo'
+    alias fix-tpm='sudo tpm-seal-fix'
 
   # zoxide: use 'z' and 'zi' (no autojump alias needed)
   if command -v zoxide >/dev/null 2>&1; then
@@ -612,29 +608,6 @@
   # Set ownership
   chown $username:$username /home/$username/.zshrc
   chmod 644 /home/$username/.zshrc
-  ```
-- Validate run0
-  ```
-  # Validate run0 (Polkit-based sudo replacement)
-  # This tests:
-  #   • Polkit rule grants wheel group access
-  #   • Authentication is cached (~15 min)
-  #   • Cache clears on reboot (expected)
-  echo "Testing run0 inside chroot..."
-
-  # First use: should prompt for password
-  run0 whoami
-  # → Expected: Polkit prompt → outputs "root"
-
-  # Second use: should use cached credentials (no prompt)
-  run0 id
-  # → Expected: **no prompt**, outputs UID/GID
-
-  # Note: Full cache behavior (including timeout) is only observable
-  #       after first boot with a display manager (GDM).
-  #       In chroot, caching is limited but rule application is verified.
-  echo "run0 validation complete in chroot."
-  echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
   ```
 - Document kernel config upfront (for potential Gentoo migration):
   ```bash
@@ -1149,7 +1122,8 @@
     ags-git \
     gdm-settings \
     thinklmi-git \
-    systeroid-git
+    systeroid-git \
+    run0-sudo-shim-git
 
   # Verify ThinkLMI for BIOS settings
   sudo thinklmi  # Check BIOS settings (e.g., Secure Boot, TPM). 
@@ -1158,7 +1132,11 @@
     [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
   
   # Sign astal/ags for Secure Boot once
-    sbctl sign -s /usr/bin/astal /usr/bin/ags
+  sbctl sign -s /usr/bin/astal /usr/bin/ags
+
+  # Sign run0-sudo-shim for sudo replacement
+  sbctl sign -s /usr/bin/sudo
+  echo "run0-sudo-shim installed and signed"
   
   # Append Astal/AGS to existing 90-uki-sign.hook
   if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
@@ -1180,6 +1158,26 @@
   
   # Test the hook after installation:
   sbctl verify /usr/bin/astal  #Should show "signed"
+
+  # Auto-re-sign hook for run0-sudo-shim
+  sudo tee /etc/pacman.d/hooks/90-run0-shim-sign.hook <<'EOF'
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = run0-sudo-shim-git
+
+  [Action]
+  Description = Sign the sudo shim for Secure Boot
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/sudo
+  EOF
+
+  # Test the run0-sudo-shim
+  sudo -v && echo "polkit cache OK"
+  fix-tpm && echo "TPM script OK"
+  sbctl verify /usr/bin/sudo && echo "Secure Boot OK"
+  type sudo && echo "shim is in place"
   ```
 - Configure GDM for Wayland:
   ```bash
