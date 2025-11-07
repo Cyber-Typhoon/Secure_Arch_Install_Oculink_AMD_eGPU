@@ -591,7 +591,7 @@
     alias curl='http --continue'  # curl-like behavior
     alias btop='btm'
     alias iftop='bandwhich'
-    alias sudo=' sudo'
+    alias sudo=' run0' # Note the leading space to avoid logging the command
     alias fix-tpm='sudo tpm-seal-fix'
 
   # zoxide: use 'z' and 'zi' (no autojump alias needed)
@@ -2215,6 +2215,29 @@
   echo "Repeat for: ags, supergfxctl, boltctl, qemu-system-x86_64"
 
   echo "After tuning: reboot and verify no denials in journalctl -u apparmor"
+  ```
+- Validate run0
+  ```
+  # Validate run0 (Polkit-based sudo replacement)
+  # This tests:
+  #   • Polkit rule grants wheel group access
+  #   • Authentication is cached (~15 min)
+  #   • Cache clears on reboot (expected)
+  echo "Testing run0 inside chroot..."
+
+  # First use: should prompt for password
+  run0 whoami
+  # → Expected: Polkit prompt → outputs "root"
+
+  # Second use: should use cached credentials (no prompt)
+  run0 id
+  # → Expected: **no prompt**, outputs UID/GID
+
+  # Note: Full cache behavior (including timeout) is only observable
+  #       after first boot with a display manager (GDM).
+  #       In chroot, caching is limited but rule application is verified.
+  echo "run0 validation complete in chroot."
+  echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
   ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
   ```bash
