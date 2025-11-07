@@ -604,8 +604,28 @@
   ```
 - Document kernel config upfront (for potential Gentoo migration):
   ```bash
-  cp /usr/src/linux/.config /etc/kernel/config-$(uname -r)  
-  echo "Saved kernel .config for Gentoo migration"
+  # Ensure we're capturing the *running* kernel's config reliably
+  KERNEL_VERSION=$(uname -r)
+
+  # Primary method: Extract from /proc (works if CONFIG_IKCONFIG_PROC=y – default in Arch)
+  if zcat /proc/config.gz > /etc/kernel/config-${KERNEL_VERSION} 2>/dev/null; then
+    echo "Kernel config saved from /proc/config.gz to /etc/kernel/config-${KERNEL_VERSION}"
+  else
+    echo "Warning: /proc/config.gz not available. Falling back to module build config..."
+
+    # Fallback: Use config from kernel build directory (present if linux-headers installed)
+    if cp /usr/lib/modules/${KERNEL_VERSION}/build/.config /etc/kernel/config-${KERNEL_VERSION} 2>/dev/null; then
+        echo "Kernel config copied from /usr/lib/modules/${KERNEL_VERSION}/build/.config"
+    else
+        echo "Error: Could not locate kernel config. Install 'linux-headers' and retry, or manually extract from running kernel."
+        echo "   Run: sudo modprobe configs && zcat /proc/config.gz > /etc/kernel/config-${KERNEL_VERSION}"
+        exit 1
+    fi
+  fi
+
+  # Optional: Verify key modules are present in config
+  echo "Verifying critical config options..."
+  grep -E 'CONFIG_BTRFS_FS|CONFIG_DM_CRYPT|CONFIG_NVME' /etc/kernel/config-${KERNEL_VERSION} && echo "Key drivers found."
   ```  
 ## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
