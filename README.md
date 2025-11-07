@@ -454,7 +454,6 @@
 
   # Gentoo Preparation: Document Detailed Hardware Profile (Highly Recommended)
   # Capture full hardware details, especially PCI devices for the eGPU/OCuLink
-  lspci -nnk > /mnt/etc/gentoo-prep/lspci-nnk.txt
   echo "Saved detailed PCI/eGPU hardware list."
   ```  
 - Chroot into the installed system:
@@ -471,24 +470,24 @@
   ```bash
   # Capture PCI Devices (Most Critical for eGPU/NVMe)
   # The -nnk flags show the numerical ID, device name, and the kernel driver in use.
-  lspci -nnk > /mnt/etc/gentoo-prep/lspci-nnk.txt
+  lspci -nnk > /etc/gentoo-prep/lspci-nnk.txt
   echo "Saved detailed PCI hardware list (lspci-nnk.txt)."
 
   # Capture USB Devices (For peripherals and controllers)
   # The -vt flags show a detailed tree of all USB devices and drivers.
-  lsusb -vt > /mnt/etc/gentoo-prep/lsusb-vt.txt
+  lsusb -vt > /etc/gentoo-prep/lsusb-vt.txt
   echo "Saved detailed USB hardware list (lsusb-vt.txt)."
 
   # Capture Block Devices (For all disks and partitions)
   # The -f and -o flags are useful for documenting BTRFS/LUKS device paths.
-  lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,UUID,MODEL,ROTA > /mnt/etc/gentoo-prep/lsblk.txt
+  lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,UUID,MODEL,ROTA > /etc/gentoo-prep/lsblk.txt
   echo "Saved block device list (lsblk.txt)."
   
   # Capture CPU Details (Though CFLAGS are already noted, this is comprehensive)
-  lscpu > /mnt/etc/gentoo-prep/lscpu.txt
+  lscpu > /etc/gentoo-prep/lscpu.txt
   echo "Saved CPU details (lscpu.txt)."
 
-  echo "All critical hardware information for Gentoo migration has been saved to /mnt/etc/gentoo-prep/."
+  echo "All critical hardware information for Gentoo migration has been saved to /etc/gentoo-prep/."
   ``` 
 - Ensure multilib repository is enabled (required for 32-bit drivers):
   ```bash
