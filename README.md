@@ -181,15 +181,6 @@
       echo $ROOT_UUID  # Should output a UUID like 48d0e960-1b5e-4f2c-8caa-...
       ```
       - **Record this UUID** for the bootloader (`root=UUID=...`) and `/etc/fstab`.
-  - **Swap File/Partition Offset (for Hibernation)**:
-    - If using a swap file on a BTRFS subvolume for hibernation, compute the physical offset for the resume_offset kernel parameter. Ensure the swap file is created with chattr +C to disable Copy-on-Write (done in Step 4e). Get the resume_offset:
-      ```bash
-      SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
-      # Alternatively, after Step 4e: SWAP_OFFSET=$(cat /etc/swap_offset)
-      echo $SWAP_OFFSET  # Should output a numerical offset like 12345678
-      ```
-      - **Record this SWAP_OFFSET value. Insert it directly into your systemd-boot kernel parameters (e.g., in /etc/mkinitcpio.d/linux.preset) and /etc/fstab (for the swapfile entry with resume_offset=).
-      - **Note**: This offset is critical for hibernation support and must be accurate—recompute if the swap file changes.
 - **a) Partition the Second NVMe M.2 (/dev/nvme1n1)**:
   - Check optimal sector size (should be 512 for most NVMe; 4096 for some)
     ```bash
@@ -313,9 +304,10 @@
     ```bash
     SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
     echo $SWAP_OFFSET > /mnt/etc/swap_offset # Save for later use
-    echo "SWAP_OFFSET: $SWAP_OFFSET"  # Should output a numerical offset like 12345678
+    echo "SWAP_OFFSET: $SWAP_OFFSET"  # Record this number. Should output a numerical offset like 12345678
     ```
-    - **Record this SWAP_OFFSET** for `/etc/fstab` and kernel parameters.
+    - **Record this SWAP_OFFSET value. Insert it directly into your systemd-boot kernel parameters (e.g., in /etc/mkinitcpio.d/linux.preset) and /etc/fstab (for the swapfile entry with resume_offset=).
+    - **Note**: This offset is critical for hibernation support and must be accurate—recompute if the swap file changes.
   - Unmount the swap subvolume:
     ```bash
     umount /mnt/swap
