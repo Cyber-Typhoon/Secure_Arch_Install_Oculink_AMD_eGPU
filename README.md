@@ -434,10 +434,24 @@
   # User / DE
   zsh git jq flatpak gdm pacman-contrib devtools
   ```
+- Create Gentoo prep directories (In case you want to migrate to Gentoo in the future):
+  ```bash
+  mkdir -p /mnt/etc/gentoo-prep  
+  touch /mnt/etc/gentoo-prep/packages-mapping.md  
+  echo "# Arch to Gentoo Package Mapping" >> /mnt/etc/gentoo-prep/packages-mapping.md  
+  echo "- base -> sys-apps/baselayout" >> /mnt/etc/gentoo-prep/packages-mapping.md  
+  # Add more as you install, e.g., after pacstrap: pacman -Qeq >> /mnt/etc/gentoo-prep/arch-packages.txt
+  ```  
 - Chroot into the installed system:
   ```bash
   arch-chroot /mnt
   ```
+- Initialize Git for /etc (This tracks all /etc changes for easy merge into Gentoo):
+  ```bash
+  pacman -S --noconfirm git etckeeper  
+  etckeeper init  
+  etckeeper commit "Initial Arch config"
+  ```  
 - Ensure multilib repository is enabled (required for 32-bit drivers):
   ```bash
   sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
@@ -588,6 +602,11 @@
   echo "run0 validation complete in chroot."
   echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
   ```
+- Document kernel config upfront (for potential Gentoo migration):
+  ```bash
+  cp /usr/src/linux/.config /etc/kernel/config-$(uname -r)  
+  echo "Saved kernel .config for Gentoo migration"
+  ```  
 ## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
 ## Step 7: Back up the LUKS header for recovery
@@ -630,8 +649,9 @@
   ```
 - Configure Unified Kernel Image (UKI):
   ```bash
-  # Note: Along the step 9 we have multiple ($LUKS_UUID, $ROOT_UUID, $SWAP_OFFSET) that needs to be replaced by pre computed values.
+  # Note: Along the steps below we have multiple ($LUKS_UUID, $ROOT_UUID, $SWAP_OFFSET) that needs to be replaced by pre computed values.
   # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.
+  # If this was in Gentoo we would use dracut for initramfs with similar hooks (sd-encrypt, btrfs). Save your mkinitcpio.conf as a reference.
   # /etc/mkinitcpio.d/linux.preset (main kernel)  
   cat > /etc/mkinitcpio.d/linux.preset << EOF
   default_uki="/boot/EFI/Linux/arch.efi"
@@ -1918,6 +1938,7 @@
   sudo chezmoi add -r /etc/dnscrypt-proxy/
   sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
   sudo chezmoi add -r /etc/apparmor.d/local/
+  sudo chezmoi add /etc/gentoo-prep/
   ```
 - Export package lists for reproducibility
   ```bash
