@@ -164,17 +164,16 @@
   - **LUKS for rd.luks.uuid and Partition UUID**:
     - After encrypting `/dev/nvme1n1p2` with LUKS, retrieve its UUID:
       ```bash
-      LUKS_HEADER_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2)
-      echo $LUKS_HEADER_UUID  # Should output a UUID like 123e4567-e89b-12d3-a456-426614174000
+      LUKS_UUID=$(cryptsetup luksUUID --header /dev/nvme1n1p2)
+      echo $LUKS_UUID  # Should output a UUID like a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8
       ```
       - **Record this UUID** for use in `/etc/crypttab` and kernel parameters (`rd.luks.uuid=...`).
-    - Get the partition UUID:
+    - Get the partition UUID (rarely used):
       ```bash
-      LUKS_UUID=$(blkid -s UUID -o value /dev/nvme1n1p2)
-      echo $LUKS_UUID  # Should output a UUID like 123e4567-e89b-12d3-a456-426614174000
+      PART_UUID=$(blkid -s PARTUUID -o value /dev/nvme1n1p2)
+      echo $PART_UUID  # Should output a UUID like 123e4567-e89b-12d3-a456-426614174000
       ```
       - **Record this UUID** for kernel parameters and `/etc/crypttab` mappings.
-      - **Why two UUIDs?** The `LUKS_HEADER_UUID` is specific to the LUKS container, while `LUKS_UUID` is the partition’s UUID used by the bootloader.
   - **Root Filesystem UUID**:
     - After creating the BTRFS filesystem on `/dev/mapper/cryptroot`, obtain its UUID:
       ```bash
