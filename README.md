@@ -231,11 +231,16 @@
 - **c) Set Up LUKS2 Encryption for the BTRFS File System**:
   - Format `/dev/nvme1n1p2` with LUKS2, using `pbkdf2` for compatibility with `systemd-cryptenroll`:
     ```bash
-    cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 500000
+    # (REPLACED) cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 500000 *GRUB not supporting argon2id only applies if GRUB itself is unlocking the drive (e.g., to read an encrypted /boot partition, which you don't have).
+    cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --hash sha512 --iter-time 5000 --key-size 512 --pbkdf argon2id --sector-size 4096 /dev/nvme1n1p2
     ```
   - Open the LUKS partition:
     ```bash
     cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+    ```
+  - (OPTIONAL) Add dm-integrity for tampering detection (wiki recommends for high security; ~10% perf hit):
+    ```bash
+    cryptsetup open --integrity hmac-sha256 /dev/mapper/cryptroot cryptintegrity # If adding integrity
     ```
   - Create a recovery keyfile (not used in initramfs, only for GRUB rescue):
     ```bash
@@ -907,7 +912,7 @@
     insmod fat
     insmod luks
     insmod luks2
-    linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw
+    linux /vmlinuz-linux cryptdevice=UUID=$LUKS_UUID:cryptroot:allow-discards --key-file=/luks-keyfile root=UUID=$ROOT_UUID resume_offset=$SWAP_OFFSET rw
     initrd /initramfs-linux.img
   }
   EOF
