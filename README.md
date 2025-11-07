@@ -592,7 +592,7 @@
     alias btop='btm'
     alias iftop='bandwhich'
     alias sudo=' run0' # Note the leading space to avoid logging the command
-    alias fix-tpm='sudo tpm-seal-fix'
+    alias fix-tpm='tpm-seal-fix'
 
   # zoxide: use 'z' and 'zi' (no autojump alias needed)
   if command -v zoxide >/dev/null 2>&1; then
