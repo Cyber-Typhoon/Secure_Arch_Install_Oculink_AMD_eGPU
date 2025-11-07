@@ -293,12 +293,14 @@
 - **e) Configure Swap File**:
   - Create a swap file on the `@swap` subvolume:
     ```bash
-    mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
     touch /mnt/swap/swapfile
+    truncate -s 0 /mnt/swap/swapfile
     chattr +C /mnt/swap/swapfile  # Disable Copy-on-Write
-    fallocate -l 32G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; }
+    (REPLACED WITH TRUNCATE + DD) fallocate -l 32G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; } # DO NOT EXECUTE
+    dd if=/dev/zero of=/mnt/swap/swapfile bs=1M count=32768 status=progress
     chmod 600 /mnt/swap/swapfile
     mkswap /mnt/swap/swapfile || { echo "mkswap failed"; exit 1; }
+    swapon /mnt/swap/swapfile
     ```
   - Obtain the swapfile’s physical offset for hibernation:
     ```bash
@@ -308,14 +310,25 @@
     ```
     - **Record this SWAP_OFFSET value. Insert it directly into your systemd-boot kernel parameters (e.g., in /etc/mkinitcpio.d/linux.preset) and /etc/fstab (for the swapfile entry with resume_offset=).
     - **Note**: This offset is critical for hibernation support and must be accurate—recompute if the swap file changes.
+  - BTRFS OFFICIAL VERIFICATION
+    ```bash
+    btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile > /dev/null \
+      && echo "Swapfile 100 % BTRFS-compliant" \
+      || { echo "FATAL: map-swapfile failed"; exit 1; }
+    btrfs property get /mnt/swap/swapfile compression | grep -q none \
+      || { echo "FATAL: compression still on"; exit 1; }
+    ```
+  - Add to fstab (REPLACE $SWAP_OFFSET with the computed value)
+    ```bash
+    grep -q swapfile /mnt/etc/fstab || cat <<EOF >> /mnt/etc/fstab
+    /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
+    EOF
+    ```
   - Unmount the swap subvolume:
     ```bash
+    swapon --show | grep swapfile && swapoff /mnt/swap/swapfile
     umount /mnt/swap
-    ```
-  - Add the swapfile to `/etc/fstab`:
-    ```bash
-    # Replace $SWAP_OFFSET with the actual precomputed value
-    echo "/swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0" >> /mnt/etc/fstab
+    echo "Swap subvolume unmounted – you are DONE"
     ```
 - **f) Generate fstab**:
   - Generate the initial fstab:
