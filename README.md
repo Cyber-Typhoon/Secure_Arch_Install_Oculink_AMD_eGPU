@@ -198,34 +198,30 @@
     cat /sys/block/nvme1n1/queue/physical_block_size
     # Review your partitioning scheme: This creates a 1GiB ESP and full-disk encrypted root. Adjust sizes if needed (e.g., for multi-partition setups).
     ```
-  - Securely erase root partition before LUKS (fills with random data):
+  - NVMe Sanitize:
     ```bash
-    cryptsetup open --type plain -d /dev/urandom /dev/nvme1n1p2 erase  # Opens as plain dm-crypt
-    dd if=/dev/zero of=/dev/mapper/erase status=progress bs=4M  # Overwrite (long, but secure)
-    cryptsetup close erase
+    nvme sanitize /dev/nvme1 --sanact=0x02  # Block erase (quick, no overwrite)
+    nvme sanitize-log /dev/nvme1  # Monitor progress
+    partprobe  # Reload partition table (clears old Windows remnants)
     ```
   - Create a GPT partition table with an ESP and a LUKS partition:
     ```bash
-    parted /dev/nvme1n1 --script \
-      mklabel gpt \
-      mkpart ESP fat32 1MiB 1GiB \
-      set 1 esp on \
-      mkpart crypt btrfs 1GiB 100% \
-      align-check optimal 1 \
-    quit
-    parted /dev/nvme1n1 print
+    fdisk /dev/nvme1n1
+    # # At fdisk: g, n (1, +1G), t (1, EF), n (2, default), t (2, 83), p, w
+    g (create new GPT partition table)
+    n (new partition), 1 (partition number), default first sector, +1G (size for ESP)
+    t (change type), 1 (partition), EF (EFI System)
+    n (new partition), 2 (partition number), default first sector, default last sector (use remainder)
+    t (change type), 2 (partition), 83 (Linux filesystem—default, but confirm)
+    p (print table to verify)
+    w (write changes and exit)
+    fdisk -l /dev/nvme1n1
     ```
   - Verify partitions:
     ```bash
     lsblk -f /dev/nvme0n1 /dev/nvme1n1  # Confirm /dev/nvme0n1p1 (Windows ESP) and /dev/nvme1n1p1 (Arch ESP)
     fdisk -l # This should list the partitions in case the command above didn't return any outputs
     efibootmgr  # Check if UEFI recognizes both ESPs
-    ```
-  - NVMe Sanitize:
-    ```bash
-    nvme sanitize /dev/nvme1 --sanact=0x02  # Block erase (quick, no overwrite)
-    nvme sanitize-log /dev/nvme1  # Monitor progress
-    partprobe  # Reload partition table (clears old Windows remnants)
     ```
 - **b) Format ESP**:
   - Format the Arch ESP as FAT32:
@@ -302,6 +298,7 @@
 - **e) Configure Swap File**:
   - Create a swap file on the `@swap` subvolume:
     ```bash
+    mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
     touch /mnt/swap/swapfile
     chattr +C /mnt/swap/swapfile  # Disable Copy-on-Write
     fallocate -l 32G /mnt/swap/swapfile || { echo "fallocate failed"; exit 1; }
@@ -311,8 +308,8 @@
   - Obtain the swapfile’s physical offset for hibernation:
     ```bash
     SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
-    echo $SWAP_OFFSET > /mnt/etc/swap_offset
-    echo $SWAP_OFFSET  # Should output a numerical offset like 12345678
+    echo $SWAP_OFFSET > /mnt/etc/swap_offset # Save for later use
+    echo "SWAP_OFFSET: $SWAP_OFFSET"  # Should output a numerical offset like 12345678
     ```
     - **Record this SWAP_OFFSET** for `/etc/fstab` and kernel parameters.
   - Unmount the swap subvolume:
