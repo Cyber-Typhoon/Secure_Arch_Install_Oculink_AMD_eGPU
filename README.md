@@ -1054,7 +1054,7 @@
 - Install the **GNOME desktop environment**:
   ```bash
   # Install Gnome
-  pacman -Sy --needed gnome
+  pacman -S --needed gnome
   ```
 - Install **Paru and configure it**:
   ```bash   
