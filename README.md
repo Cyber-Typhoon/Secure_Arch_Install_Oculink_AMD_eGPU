@@ -628,9 +628,6 @@
   # Save the kernel configuration script as a reusable tool
   sudo tee /usr/local/bin/save-kernel-config.sh > /dev/null << 'EOF'
   #!/usr/bin/env bash
-  # save-kernel-config.sh — Save running kernel config for documentation/migration
-  # Usage: sudo ./save-kernel-config.sh
-
   set -euo pipefail
 
   KERNEL_VERSION=$(uname -r)
@@ -640,56 +637,33 @@
 
   echo "Saving kernel config for ${KERNEL_VERSION}..."
 
-  # Method 1: Extract from /proc (preferred — reflects running kernel)
   if [[ -f /proc/config.gz ]] && zcat /proc/config.gz > "$CONFIG_FILE" 2>/dev/null; then
-    echo "Success: Kernel config saved from /proc/config.gz → $CONFIG_FILE"
-
-  # Method 2: Fallback to build directory (headers must be installed)
+    echo "Success: Extracted from /proc/config.gz → $CONFIG_FILE"
   elif [[ -f "/usr/lib/modules/${KERNEL_VERSION}/build/.config" ]]; then
     cp "/usr/lib/modules/${KERNEL_VERSION}/build/.config" "$CONFIG_FILE"
-    echo "Success: Kernel config copied from build directory → $CONFIG_FILE"
-
-  # Method 3: User can enable /proc/config.gz
+    echo "Success: Copied from build dir → $CONFIG_FILE"
   else
     echo "Error: Kernel config not found."
-    echo "   • Install 'linux-headers' for your kernel"
-    echo "   • OR enable in-kernel config: sudo modprobe configs"
-    echo "   • Then run: zcat /proc/config.gz > $CONFIG_FILE"
-    echo ""
-    echo "Tip: Most Arch kernels have CONFIG_IKCONFIG_PROC=y by default."
-    echo "     If missing, rebuild kernel with it enabled."
+    echo "   • pacman -S linux-headers"
+    echo "   • OR: sudo modprobe configs && zcat /proc/config.gz > $CONFIG_FILE"
+    echo "   • Tip: Enable CONFIG_IKCONFIG_PROC=y in kernel"
     exit 1
   fi
 
-  # Set secure permissions
   chmod 644 "$CONFIG_FILE"
 
-  # Optional: Verify critical config options
-  echo "Verifying key kernel features..."
-  if grep -qE 'CONFIG_BTRFS_FS=[ym]' "$CONFIG_FILE"; then
-    echo "   BTRFS: enabled"
-  else
-    echo "   BTRFS: NOT enabled"
-  fi
+  echo "Verifying key features..."
+  for opt in "BTRFS_FS" "DM_CRYPT" "NVME_CORE"; do
+    if grep -q "^CONFIG_${opt}=[ym]" "$CONFIG_FILE"; then
+      echo "   $opt: enabled"
+    else
+      echo "   $opt: NOT enabled"
+    fi
+  done
 
-  if grep -qE 'CONFIG_DM_CRYPT=[ym]' "$CONFIG_FILE"; then
-    echo "   LUKS/dm-crypt: enabled"
-  else
-    echo "   LUKS/dm-crypt: NOT enabled"
-  fi
-
-  if grep -qE 'CONFIG_NVME_CORE=[ym]' "$CONFIG_FILE"; then
-    echo "   NVMe: enabled"
-  else
-    echo "   NVMe: NOT enabled"
-  fi
-
-  echo ""
   echo "Kernel config saved: $CONFIG_FILE"
-  echo "Ready for Gentoo migration, documentation, or auditing."
   EOF
 
-  # Make the script executable and run it for the first time
   sudo chmod +x /usr/local/bin/save-kernel-config.sh
   sudo save-kernel-config.sh
   ```  
@@ -1015,6 +989,100 @@
   umount /mnt/usb
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
+  ```
+- Full LUKS+UKI+TPM config snapshot - archive-system-config.sh (helpful in case of a Gentoo migration)
+  ```bash
+  # Usage: sudo ./archive-system-config.sh [keep-staging]
+  set -euo pipefail
+
+  # --- Config ---------------------------------------------------------
+  ARCHIVE_ROOT="/etc/system-config-archive"
+  STAGING_DIR="${ARCHIVE_ROOT}/staging_$(date +%Y%m%d_%H%M%S)"
+  ARCHIVE_NAME="arch_luks_uki_config_$(date +%Y%m%d).tar.gz"
+  FINAL_ARCHIVE="${ARCHIVE_ROOT}/${ARCHIVE_NAME}"
+
+  # Optional: keep staging dir for debugging
+  KEEP_STAGING="${1:-}"
+
+  # --- Helpers --------------------------------------------------------
+  log() { echo "[$(date +%H:%M:%S)] $*"; }
+  die() { log "ERROR: $*"; exit 1; }
+
+  # --- Main -----------------------------------------------------------
+  log "Creating system configuration archive..."
+
+  mkdir -p "$STAGING_DIR"
+  log "Staging directory: $STAGING_DIR"
+
+  # Kernel & Boot
+  log "Copying mkinitcpio & bootloader config..."
+  cp -v /etc/mkinitcpio.conf            "$STAGING_DIR/" || true
+  for preset in /etc/mkinitcpio.d/*.preset; do
+  [[ -f "$preset" ]] && cp -v "$preset" "$STAGING_DIR/"
+  done
+  cp -v /boot/loader/loader.conf        "$STAGING_DIR/" || true
+  cp -v /etc/pacman.d/hooks/90-uki-sign.hook "$STAGING_DIR/" || true
+
+  # Filesystem & Encryption
+  log "Copying fstab & crypttab..."
+  cp -v /etc/fstab                      "$STAGING_DIR/" || true
+  cp -v /etc/crypttab                   "$STAGING_DIR/" || true
+
+  # TPM / Security (sensitive!)
+  log "Copying TPM reenroll service (PEM excluded)..."
+  cp -v /etc/systemd/system/tpm-reenroll.service "$STAGING_DIR/" || true
+  # DO NOT copy private key! Store hash instead:
+  if [[ -f /etc/tpm2-ukey.pem ]]; then
+    sha256sum /etc/tpm2-ukey.pem > "$STAGING_DIR/tpm2-ukey.pem.sha256"
+    log "   tpm2-ukey.pem: hash saved (private key excluded)"
+  fi
+
+  # Kernel config 
+  log "Running kernel config saver..."
+  sudo /usr/local/bin/save-kernel-config.sh
+  KERNEL_CONFIG="/etc/kernel/config-$(uname -r)"
+  [[ -f "$KERNEL_CONFIG" ]] || die "Kernel config not generated"
+  cp -v "$KERNEL_CONFIG" "$STAGING_DIR/"
+
+  # Archive + Verify
+  log "Creating compressed archive..."
+  tar -C "$STAGING_DIR" --sort=name --owner=0 --group=0 --mtime='2025-01-01' \
+    -czf "$FINAL_ARCHIVE" .
+
+  log "Verifying archive integrity..."
+  gzip -t "$FINAL_ARCHIVE" || die "Corrupted archive!"
+
+  # Checksum 
+  sha256sum "$FINAL_ARCHIVE" > "${FINAL_ARCHIVE}.sha256"
+  log "Checksum: ${FINAL_ARCHIVE}.sha256"
+
+  # Cleanup
+  if [[ -z "$KEEP_STAGING" ]]; then
+    rm -rf "$STAGING_DIR"
+    log "Staging directory removed."
+  else
+    log "Staging directory preserved: $STAGING_DIR"
+  fi
+
+  log "Full system config archive saved:"
+  log "   → $FINAL_ARCHIVE"
+  log "   → ${FINAL_ARCHIVE}.sha256"
+
+  sudo chmod +x /usr/local/bin/archive-system-config.sh
+  sudo archive-system-config.sh
+  ```
+- Migration Gentoo Final Checklist
+  ```bash
+  # Verify all files exist
+  ls -R /etc/gentoo-prep/
+  ls /etc/kernel/config-*
+  ls /etc/system-config-archive/*.tar.gz
+
+  # Commit etckeeper
+  etckeeper commit "Final config before first boot"
+
+  # Backup archive off-system
+  cp /etc/system-config-archive/*.tar.gz /path/to/backup/
   ```
 - Exit chroot:
   ```bash
@@ -2825,7 +2893,23 @@
   sleep 10
   reboot
   ```
-- **j) Final Reboot & Lock**:
+- **j) Gentoo Migration: How to Use This Later**:
+  ```bash
+  # On Gentoo system:
+  tar -xzf arch_luks_uki_config_*.tar.gz -C /tmp/arch-config
+
+  # Kernel
+  cp /tmp/arch-config/config-* /usr/src/linux/.config
+  cd /usr/src/linux
+  make olddefconfig
+
+  # USE flags
+  cat /etc/gentoo-prep/desired-use-flags.txt >> /etc/portage/make.conf
+
+  # Packages
+  # Use arch-packages.txt + mapping to build @world
+  ```
+- **k) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
