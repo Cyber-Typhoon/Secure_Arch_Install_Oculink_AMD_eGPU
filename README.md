@@ -270,16 +270,16 @@
     ```
   - Mount subvolumes with optimized options:
     ```bash
-    mount -o subvol=@,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt
+    mount -o subvol=@,compress=zstd:3,ssd,space_cache=v2 /dev/mapper/cryptroot /mnt
     mkdir -p /mnt/{boot,windows-efi,.snapshots,home,data,var,var/lib,var/log,swap,srv}
     mount /dev/nvme1n1p1 /mnt/boot
     mount /dev/nvme0n1p1 /mnt/windows-efi
-    mount -o subvol=@home,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/home
-    mount -o subvol=@data,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/data
+    mount -o subvol=@home,compress=zstd:3,ssd,space_cache=v2 /dev/mapper/cryptroot /mnt/home
+    mount -o subvol=@data,compress=zstd:3,ssd,space_cache=v2 /dev/mapper/cryptroot /mnt/data
     mount -o subvol=@var,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var
     mount -o subvol=@var_lib,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var/lib
     mount -o subvol=@log,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/var/log
-    mount -o subvol=@srv,compress=zstd:3,ssd /dev/mapper/cryptroot /mnt/srv
+    mount -o subvol=@srv,compress=zstd:3,ssd,space_cache=v2 /dev/mapper/cryptroot /mnt/srv
     mount -o subvol=@swap,nodatacow,compress=no,noatime /dev/mapper/cryptroot /mnt/swap
     mount -o subvol=@snapshots,ssd,noatime /dev/mapper/cryptroot /mnt/.snapshots
     ```
@@ -287,7 +287,7 @@
     - **@**: Isolates the root filesystem for snapshotting and rollback.
     - **@home**: Separates user data for independent snapshots and backups.
     - **@snapshots**: Stores Snapper snapshots for system recovery.
-    - **@var, @var_lib, @log**: Disables Copy-on-Write (`nodatacow`, `noatime`) for performance on frequently written data.
+    - **@var**, @var_lib, @log**: Disables Copy-on-Write (`nodatacow`, `noatime`) for performance on frequently written data.
     - **@swap**: Ensures swapfile compatibility with hibernation (`nodatacow`, `noatime`).
     - **@srv, @data**: Provides flexible storage with compression (`zstd:3`) for server or user data.
 - **e) Configure Swap File**:
@@ -334,8 +334,6 @@
   - Generate the initial fstab:
     ```bash
     genfstab -U /mnt | tee /mnt/etc/fstab
-    # Remove auto-generated swap and tmpfs lines to avoid duplicates
-    sed -i '/swapfile\|\/tmp\|\/var\/tmp/d' /mnt/etc/fstab
     ```
   - Manually edit `/mnt/etc/fstab` to verify subvolume options and add security settings.
   - **BTRFS Subvolume and Mount Options**:
@@ -344,11 +342,11 @@
       UUID=$ROOT_UUID / btrfs subvol=@,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
       UUID=$ROOT_UUID /home btrfs subvol=@home,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
       UUID=$ROOT_UUID /data btrfs subvol=@data,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      UUID=$ROOT_UUID /var btrfs subvol=@var,nodatacow,noatime 0 0
-      UUID=$ROOT_UUID /var/lib btrfs subvol=@var_lib,nodatacow,noatime 0 0
-      UUID=$ROOT_UUID /var/log btrfs subvol=@log,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /var btrfs subvol=@var,nodatacow,compress=no,noatime 0 0
+      UUID=$ROOT_UUID /var/lib btrfs subvol=@var_lib,nodatacow,compress=no,noatime 0 0
+      UUID=$ROOT_UUID /var/log btrfs subvol=@log,nodatacow,compress=no,noatime 0 0
       UUID=$ROOT_UUID /srv btrfs subvol=@srv,compress=zstd:3,ssd,noatime,space_cache=v2 0 0
-      UUID=$ROOT_UUID /swap btrfs subvol=@swap,nodatacow,noatime 0 0
+      UUID=$ROOT_UUID /swap btrfs subvol=@swap,nodatacow,compress=no,noatime 0 0
       UUID=$ROOT_UUID /.snapshots btrfs subvol=@snapshots,ssd,noatime 0 0
       ```
   - **Edit ESP (/boot) Entry**:
@@ -370,7 +368,10 @@
   - **Add Swapfile Entry**:
     - Replace `$SWAP_OFFSET` with the actual value:
       ```bash
+      SWAP_OFFSET_VALUE=$(cat /mnt/etc/swap_offset) # Retrieve the saved value
+      grep -q "[/]swap/swapfile" /mnt/etc/fstab || cat <<EOF >> /mnt/etc/fstab
       /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
+      EOF
       ```
   - **Validation Steps**:
     - List ESP UUIDs to confirm:
@@ -438,7 +439,7 @@
   networkmanager openssh rsync reflector arch-install-scripts \
   \
   # User / DE
-  zsh git jq flatpak gdm pacman-contrib devtools
+  zsh git jq flatpak gdm pacman-contrib devtools nano
   ```
 - Create Gentoo prep directories (In case you want to migrate to Gentoo in the future):
   ```bash
@@ -501,7 +502,7 @@
   ```
 - Force-refresh package database and keyring:
   ```bash
-  pacman -Syy --noconfirm
+  pacman -Sy --noconfirm
   pacman-key --init
   pacman-key --populate archlinux
   ```
@@ -531,14 +532,17 @@
 - Create a user account with appropriate groups:
   ```bash
   read -p "Enter your username: " username
+
+  # Create user with Zsh as default shell
   useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh "$username"
-  chsh -s /usr/bin/zsh "$username"
+
+  # Set passwords
   passwd  # root
   passwd "$username"
   ```
 - Enable sudo
   ```bash
-  echo "%wheel ALL=(ALL:ALL)" | tee /etc/sudoers.d/wheel
+  echo "%wheel ALL=(ALL:ALL) ALL" | tee /etc/sudoers.d/wheel
   chmod 440 /etc/sudoers.d/wheel   # optional but good practice
   ```
 - Enable NetworkManager
@@ -579,11 +583,13 @@
 
   # Block 'yay' via pacman
   pacman() {
-    if [[ " $* " == *" yay "* ]] || [[ " $* " == *" yay-bin "* ]]; then
+  for arg in "$@"; do
+    if [[ "$arg" == "yay" ]] || [[ "$arg" == "yay-bin" ]]; then
       echo -e "\nERROR: Do not install 'yay'. This system uses 'paru' only.\n"
       return 1
     fi
-    command pacman "$@"
+  done
+  command pacman "$@"
   }
   
   # Modern CLI tool alias:
@@ -592,15 +598,14 @@
     alias grep='rg'
     alias find='fd'
     alias ls='eza  --icons --git'
-    alias cat='bat --paging=never'
+    alias cat='bat --style=plain'
     alias du='dua'
     alias man='tldr'
     alias ps='procs'
     alias dig='dog'
-    alias curl='http --continue'  # curl-like behavior
+    alias curl='http'
     alias btop='btm'
     alias iftop='bandwhich'
-    alias sudo=' run0' # Note the leading space to avoid logging the command
     alias fix-tpm='tpm-seal-fix'
 
   # zoxide: use 'z' and 'zi' (no autojump alias needed)
@@ -610,51 +615,98 @@
   fi
 
   # Safe update alias
-  alias update='paru -Syu --noconfirm'
+  alias update='paru -Syu'
   echo "Run 'update' weekly. Use 'paru -Syu' for full control."
   EOF
 
-  # Set ownership
-  chown $username:$username /home/$username/.zshrc
-  chmod 644 /home/$username/.zshrc
+  # Set ownership and permissions
+  chown "$username:$username" "/home/$username/.zshrc"
+  chmod 644 "/home/$username/.zshrc"
   ```
 - Document kernel config upfront (for potential Gentoo migration):
   ```bash
-  # Ensure we're capturing the *running* kernel's config reliably
+  # Save the kernel configuration script as a reusable tool
+  sudo tee /usr/local/bin/save-kernel-config.sh > /dev/null << 'EOF'
+  #!/usr/bin/env bash
+  # save-kernel-config.sh — Save running kernel config for documentation/migration
+  # Usage: sudo ./save-kernel-config.sh
+
+  set -euo pipefail
+
   KERNEL_VERSION=$(uname -r)
+  CONFIG_DIR="/etc/kernel"
+  CONFIG_FILE="${CONFIG_DIR}/config-${KERNEL_VERSION}"
+  mkdir -p "$CONFIG_DIR"
 
-  # Primary method: Extract from /proc (works if CONFIG_IKCONFIG_PROC=y – default in Arch)
-  if zcat /proc/config.gz > /etc/kernel/config-${KERNEL_VERSION} 2>/dev/null; then
-    echo "Kernel config saved from /proc/config.gz to /etc/kernel/config-${KERNEL_VERSION}"
+  echo "Saving kernel config for ${KERNEL_VERSION}..."
+
+  # Method 1: Extract from /proc (preferred — reflects running kernel)
+  if [[ -f /proc/config.gz ]] && zcat /proc/config.gz > "$CONFIG_FILE" 2>/dev/null; then
+    echo "Success: Kernel config saved from /proc/config.gz → $CONFIG_FILE"
+
+  # Method 2: Fallback to build directory (headers must be installed)
+  elif [[ -f "/usr/lib/modules/${KERNEL_VERSION}/build/.config" ]]; then
+    cp "/usr/lib/modules/${KERNEL_VERSION}/build/.config" "$CONFIG_FILE"
+    echo "Success: Kernel config copied from build directory → $CONFIG_FILE"
+
+  # Method 3: User can enable /proc/config.gz
   else
-    echo "Warning: /proc/config.gz not available. Falling back to module build config..."
-
-    # Fallback: Use config from kernel build directory (present if linux-headers installed)
-    if cp /usr/lib/modules/${KERNEL_VERSION}/build/.config /etc/kernel/config-${KERNEL_VERSION} 2>/dev/null; then
-        echo "Kernel config copied from /usr/lib/modules/${KERNEL_VERSION}/build/.config"
-    else
-        echo "Error: Could not locate kernel config. Install 'linux-headers' and retry, or manually extract from running kernel."
-        echo "   Run: sudo modprobe configs && zcat /proc/config.gz > /etc/kernel/config-${KERNEL_VERSION}"
-        exit 1
-    fi
+    echo "Error: Kernel config not found."
+    echo "   • Install 'linux-headers' for your kernel"
+    echo "   • OR enable in-kernel config: sudo modprobe configs"
+    echo "   • Then run: zcat /proc/config.gz > $CONFIG_FILE"
+    echo ""
+    echo "Tip: Most Arch kernels have CONFIG_IKCONFIG_PROC=y by default."
+    echo "     If missing, rebuild kernel with it enabled."
+    exit 1
   fi
 
-  # Optional: Verify key modules are present in config
-  echo "Verifying critical config options..."
-  grep -E 'CONFIG_BTRFS_FS|CONFIG_DM_CRYPT|CONFIG_NVME' /etc/kernel/config-${KERNEL_VERSION} && echo "Key drivers found."
+  # Set secure permissions
+  chmod 644 "$CONFIG_FILE"
+
+  # Optional: Verify critical config options
+  echo "Verifying key kernel features..."
+  if grep -qE 'CONFIG_BTRFS_FS=[ym]' "$CONFIG_FILE"; then
+    echo "   BTRFS: enabled"
+  else
+    echo "   BTRFS: NOT enabled"
+  fi
+
+  if grep -qE 'CONFIG_DM_CRYPT=[ym]' "$CONFIG_FILE"; then
+    echo "   LUKS/dm-crypt: enabled"
+  else
+    echo "   LUKS/dm-crypt: NOT enabled"
+  fi
+
+  if grep -qE 'CONFIG_NVME_CORE=[ym]' "$CONFIG_FILE"; then
+    echo "   NVMe: enabled"
+  else
+    echo "   NVMe: NOT enabled"
+  fi
+
+  echo ""
+  echo "Kernel config saved: $CONFIG_FILE"
+  echo "Ready for Gentoo migration, documentation, or auditing."
+  EOF
+
+  # Make the script executable and run it for the first time
+  sudo chmod +x /usr/local/bin/save-kernel-config.sh
+  sudo save-kernel-config.sh
   ```  
 ## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
-## Step 7: Back up the LUKS header for recovery
-
-- Back up the LUKS header for recovery:
+## Step 7: Backup the LUKS header for recovery
   ```bash
+  echo "=== LUKS Header Backup ==="
+  echo "Insert a USB drive (will be FORMATTED)"
+  echo "WARNING: ALL DATA ON THE USB WILL BE ERASED!"
   mkdir -p /mnt/usb
   lsblk  # Identify USB device
   mkfs.fat -F32 /dev/sdX1  # Replace sdX1 with USB partition
   mount /dev/sdX1 /mnt/usb
   cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
   sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
+  sync
   umount /mnt/usb
   echo "WARNING: Store /mnt/usb/luks-header-backup in Bitwarden or an encrypted cloud."
   echo "WARNING: TPM unlocking may fail after firmware updates; keep the LUKS passphrase in Bitwarden."
