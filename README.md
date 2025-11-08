@@ -606,7 +606,7 @@
     alias curl='http'
     alias btop='btm'
     alias iftop='bandwhich'
-    alias fix-tpm='tpm-seal-fix'
+    alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
 
   # zoxide: use 'z' and 'zi' (no autojump alias needed)
   if command -v zoxide >/dev/null 2>&1; then
@@ -829,10 +829,14 @@
   Description = Rebuild UKI and sign with Secure Boot
   When = PostTransaction
   Exec = /usr/bin/bash -c '
-    /usr/bin/mkinitcpio -P || true
-    /usr/bin/sbctl sign -s /boot/EFI/Linux/arch*.efi /usr/bin/systemd-cryptenroll /usr/bin/tpm2_* 2>/dev/null || true \
+  mkinitcpio -P || true
+  /usr/bin/sbctl sign -s \
+      /boot/EFI/Linux/arch*.efi \
       /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
-      /usr/lib/plymouth/plymouthd 2>/dev/null || true
+      /usr/lib/plymouth/plymouthd \
+      /usr/bin/systemd-cryptenroll \
+      /usr/bin/tpm2_*
+  2>/dev/null || true
   '
   EOF
   ```
@@ -847,6 +851,9 @@
   reboot
   ```
   ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
+
+## Step 9: TPM Healing Service Automation and Activation
+
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
   # Boot back into Arch ISO
@@ -862,28 +869,57 @@
     echo "TPM public key saved to $TPM_PUBKEY"
   fi
 
-  # Raw PCR + Public-Key Enrollment - ONE-LINER AUTO TPM REENROLL SCRIPT
-  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal-fix.sh > /dev/null
-  #!/usr/bin/env bash
+  # Raw PCR + Public-Key Enrollment - OCreate the systemd service file
+  cat > /etc/systemd/system/tpm-reenroll.service << 'EOF'
+  [Unit]
+  Description=Re-enroll TPM2 policy if PCRs changed
+  Documentation=man:systemd-cryptenroll(1)
+
+  # a. Wait until the LUKS device is unlocked and mapped
+  After=systemd-cryptsetup@cryptroot.service
+  Requires=systemd-cryptsetup@cryptroot.service
+
+  # b. Also wait for TPM device
+  Requires=tpm2.target
+  After=tpm2.target
+
+  [Service]
+  Type=oneshot
+  RemainAfterExit=yes
+
+  # c. Use the *mapped* device (safe, always exists after unlock)
+  ExecStart=/usr/bin/bash -c '
   set -euo pipefail
 
-  # Adjust this to your encrypted partition (e.g., via blkid or static path)
-  LUKS_UUID=$(blkid -s UUID -o value /dev/nvme1n1p2)  # Replace with your root partition
-  LUKS_DEV="/dev/disk/by-uuid/$LUKS_UUID"
+  LUKS_DEV="/dev/mapper/cryptroot"
+  TPM_PUB="/etc/tpm2-ukey.pem"
 
-  # Test if current PCRs would allow TPM unlock
-  if ! systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" >/dev/null 2>&1; then
-    echo "TPM auto-unlock failed this boot. Re-enrolling with current PCRs..."
-
-    systemd-cryptenroll "$LUKS_DEV" \
-        --tpm2-device=auto \
-        --tpm2-pcrs=7+11 \
-        --tpm2-pcrs-bank=sha256
-
-    echo "TPM re-enrollment complete. Auto-unlock restored for next boot."
+  # d. Test current policy
+  if systemd-cryptenroll --tpm2-device=auto --tpm2-public-key="$TPM_PUB" --test "$LUKS_DEV" >/dev/null 2>&1; then
+    echo "TPM policy valid. No action needed."
+    exit 0
   fi
+
+  echo "TPM policy mismatch detected. Re-enrolling with current PCRs..."
+
+  # e. Wipe old TPM slot and re-enroll
+  systemd-cryptenroll "$LUKS_DEV" --wipe-slot=tpm2
+  systemd-cryptenroll "$LUKS_DEV" \
+    --tpm2-device=auto \
+    --tpm2-pcrs=7+11 \
+    --tpm2-public-key="$TPM_PUB" \
+    --tpm2-pcrs-bank=sha256
+
+  echo "TPM re-enrollment complete. Auto-unlock restored."
+  '
+
+  [Install]
+  WantedBy=multi-user.target
   EOF
-  sudo chmod +x /usr/local/bin/tpm-seal-fix.sh
+
+  # Reload daemon and enable the service
+  systemctl daemon-reload
+  systemctl enable --now tpm-reenroll.service
 
   # Verify
   systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
@@ -900,7 +936,7 @@
   ✓ Signed: all files
   sbctl verify /boot/EFI/Linux/arch.efi | grep -q "signed" && echo "UKI signed"
   ```
-- Back up PCR values post-Secure Boot:
+- Backup PCR values post-Secure Boot:
   ```bash
   mount /dev/sdX1 /mnt/usb  # Replace with your USB
   tpm2_pcrread sha256:7,11 > /mnt/usb/tpm-pcr-post-secureboot.txt
@@ -988,35 +1024,6 @@
   ```bash
   umount -R /mnt
   reboot
-  ```
-## Step 9: Final Policy Sealing and Activation (Run on Installed Arch System)
-
-- TPM Reenroll automatic service
-  ```bash
-  # /etc/systemd/system/tpm-reenroll.service
-  cat << 'EOF' | sudo tee /etc/systemd/system/tpm-reenroll.service > /dev/null
-  [Unit]
-  Description=Automatically Re-enroll TPM2 Keyslot After PCR Drift
-  Requires=systemd-udev-settle.service
-  After=local-fs.target
-
-  [Service]
-  Type=oneshot
-  ExecStart=/usr/local/bin/tpm-seal-fix.sh
-  RemainAfterExit=yes
-
-  [Install]
-  WantedBy=multi-user.target
-  EOF
-
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now tpm-reenroll.service
-  ```
-- Final TPM Policy Sealing
-  ```bash
-  echo "Sealing LUKS to TPM with PCR 7+11 and public key..."
-  [[ -d /boot/EFI ]] || { echo "ERROR: ESP not mounted at /boot!"; exit 1; }
-  sudo tpm-seal-fix
   ```
 - Verify
   ```bash
