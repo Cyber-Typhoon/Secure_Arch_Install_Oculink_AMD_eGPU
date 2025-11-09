@@ -626,7 +626,7 @@
 - Document kernel config upfront (for potential Gentoo migration):
   ```bash
   # Save the kernel configuration script as a reusable tool
-  sudo tee /usr/local/bin/save-kernel-config.sh > /dev/null << 'EOF'
+  tee /usr/local/bin/save-kernel-config.sh > /dev/null << 'EOF'
   #!/usr/bin/env bash
   set -euo pipefail
 
@@ -645,7 +645,7 @@
   else
     echo "Error: Kernel config not found."
     echo "   • pacman -S linux-headers"
-    echo "   • OR: sudo modprobe configs && zcat /proc/config.gz > $CONFIG_FILE"
+    echo "   • OR: modprobe configs && zcat /proc/config.gz > $CONFIG_FILE"
     echo "   • Tip: Enable CONFIG_IKCONFIG_PROC=y in kernel"
     exit 1
   fi
@@ -664,8 +664,8 @@
   echo "Kernel config saved: $CONFIG_FILE"
   EOF
 
-  sudo chmod +x /usr/local/bin/save-kernel-config.sh
-  sudo save-kernel-config.sh
+  chmod +x /usr/local/bin/save-kernel-config.sh
+  save-kernel-config.sh
   ```  
 ## Milestone 3: After Step 6 (System Configuration) - Can pause at this point
 
@@ -693,7 +693,7 @@
 
 - Install TPM tools:
   ```bash
-  pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify tpm2-tss-engine
+  pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify plymouth 
   ```
 - Install `systemd-boot`:
   ```bash
@@ -702,9 +702,18 @@
   ```
 - Configure Unified Kernel Image (UKI):
   ```bash
+  # Dynamic Resume Offset Calculation (REQUIRED for BTRFS swapfile)
+  RESUME_OFFSET=$(awk '$2 == "/swap/swapfile" {print $1}' /etc/fstab | \
+    xargs btrfs inspect-internal map-swapfile -r /swap/swapfile 2>/dev/null)
+  if [[ -z "$RESUME_OFFSET" ]]; then
+      echo "ERROR: resume_offset not found – check swapfile and fstab!"
+      exit 1
+  fi
+  echo "Detected resume_offset = $RESUME_OFFSET"
+    
   # Explicit TPM2 auto-unlock via crypttab.initramfs
   # The sd-encrypt hook looks for this file and uses the tpm2-device=auto option.
-  echo "cryptroot UUID=$LUKS_UUID none tpm2-device=auto,discard" | sudo tee /etc/crypttab.initramfs > /dev/null
+  echo "cryptroot UUID=$LUKS_UUID none tpm2-device=auto,discard" | tee /etc/crypttab.initramfs > /dev/null
   echo "Created /etc/crypttab.initramfs for TPM auto-unlock (with TRIM)."
 
   # Update HOOKS in mkinitcpio.conf (Run this to ensure the final state is correct)
@@ -714,20 +723,23 @@
   # - kms for graphics
   # - plymouth BEFORE sd-encrypt → graphical unlock prompt
   # - no fsck, no btrfs, no keyboard/keymap/consolefont bloat
-  sudo sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms sd-vconsole plymouth block sd-encrypt filesystems resume)/' /etc/mkinitcpio.conf
+  sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms sd-vconsole plymouth block sd-encrypt filesystems resume)/' /etc/mkinitcpio.conf
   echo "Updated /etc/mkinitcpio.conf HOOKS."
 
   # Remove unnecessary lines (handled automatically now)
-  sudo sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
-  sudo sed -i '/^BINARIES=/d' /etc/mkinitcpio.conf
+  sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
+  sed -i '/^BINARIES=/d' /etc/mkinitcpio.conf
+  sed -i '/^HOOKS=/ { s/ keyboard//g; s/ keymap//g; s/ consolefont//g; s/ btrfs//g; s/ fsck//g; }' /etc/mkinitcpio.conf
   echo "Updated and cleaned /etc/mkinitcpio.conf HOOKS."
 
   # Configure linux.preset (defines the kernel command line for UKI)
   # rd.luks.uuid is now optional due to crypttab.initramfs, simplifying the cmdline.
+
+  # Main Preset (linux)
   cat > /etc/mkinitcpio.d/linux.preset << EOF
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
-  default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$SWAP_OFFSET rw quiet splash \
+  default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
   intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
   mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 \
   rd.emergency=poweroff amdgpu.dc=1 amdgpu.dpm=1"
@@ -735,83 +747,60 @@
   echo "Created /etc/mkinitcpio.d/linux.preset."
 
   # LTS preset (atomic copy, just rename the UKI)
-  sudo sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
+  sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
   echo "Created /etc/mkinitcpio.d/linux-lts.preset."
 
-  # Install Plymouth and set the default theme:
-  pacman -S --noconfirm plymouth
+  # Fallback (identical options, different UKI name)
+  sed "s/arch\.efi/arch-fallback\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-fallback.preset
+  echo "Created /etc/mkinitcpio.d/linux-fallback.preset"
+
+  # Plymouth set the default theme:
   plymouth-set-default-theme -R bgrt
-  echo "Installed Plymouth and set BGRT theme (uses OEM logo)."
+  echo "Plymouth + BGRT theme set"
 
   # Generate UKI
   mkinitcpio -P
-  echo "Generated Unified Kernel Images (arch.efi + arch-lts.efi)."
+  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi"
+  
+  # Secure Boot keys (only once)
+  if ! sbctl status | grep -q "Installed: Yes"; then
+      sbctl create-keys
+      sbctl enroll-keys -m -f
+      echo "sbctl keys created and enrolled (incl. Microsoft keys)"
+  fi
 
-  # Sign UKI
+  # Secure Boot Signing
   sbctl sign -s /boot/EFI/Linux/arch*.efi
   echo "Signed all UKIs for Secure Boot."
 
+  # Create systemd-boot entry for LTS kernel
+  cat > /boot/loader/entries/arch-lts.conf << 'EOF'
+  title   Arch Linux (LTS Kernel)
+  efi     /EFI/Linux/arch-lts.efi
+  EOF
+
+  # Fallback boot entry
+  cat > /boot/loader/entries/arch-fallback.conf << EOF
+  title   Arch Linux (Fallback)
+  efi     /EFI/Linux/arch-fallback.efi
+  EOF
+  
   # Update systemd-boot to ensure the latest version is installed in the ESP
   # This is crucial for future maintenance and ensures the signed bootloader is used.
-  sudo bootctl update
+  bootctl update
   echo "Updated systemd-boot bootloader in ESP."
 
   # Set a fast boot menu timeout (e.g., 3 seconds, or menu-hidden for fastest boot)
-  sudo bootctl set-timeout menu-hidden
+  bootctl set-timeout menu-hidden
   echo "Set systemd-boot timeout hidden. Pressing and holding a key (the Space bar is commonly cited and the most reliable)."
-  
-  #If you get a black screen, to debug:
-  # Reboot.
-  # Hold Space at boot → press 'e' → remove 'splash' or add 'i915.enable_guc=0' (Intel iGPU issue).
-  # If issues arise after connecting the eGPU, try amdgpu.dc=0.
-  ```
-- Verify configuration:
-  ```bash
-  # Check HOOKS order
-  grep HOOKS /etc/mkinitcpio.conf
 
-  # List boot entries
-  bootctl list
-  ```
-- Create a fallback UKI:
-  ```bash
-  # Minimal config (same hooks, different output)
-  cp /etc/mkinitcpio.conf /etc/mkinitcpio-fallback.conf
-  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio-fallback.conf
-  echo 'UKI_OUTPUT_PATH="/boot/EFI/Linux/arch-fallback.efi"' >> /etc/mkinitcpio-fallback.conf
-  # Generate fallback UKI
-  mkinitcpio -P -c /etc/mkinitcpio-fallback.conf
-  # Fallback entry
-  cat << 'EOF' > /boot/loader/entries/arch-fallback.conf
-  title Arch Linux (Fallback)
-  efi /EFI/Linux/arch-fallback.efi
-  EOF
+  # Set Boot Order (Arch first)
+  efibootmgr --bootorder \
+    $(efibootmgr | grep 'Arch Linux' | head -1 | awk '{print $1}' | cut -c5-),\
+    $(efibootmgr | grep -i windows | awk '{print $1}' | cut -c5-) \
+    2>/dev/null || echo "No Windows entry – boot order unchanged"
 
-  # Verify resume_offset is numeric (not $SWAP_OFFSET)
-  grep resume_offset /etc/fstab
-  grep resume_offset /boot/loader/entries/arch.conf
-  ```
-- Create /boot/loader/entries/arch-lts.conf
-  ```bash
-  cat << 'EOF' > /boot/loader/entries/arch-lts.conf
-  title Arch Linux (LTS Kernel)
-  efi /EFI/Linux/arch-lts.efi
-  EOF
-  ```
-- Set Boot Order (Arch first)
-  ```bash
-  BOOT_ARCH=$(efibootmgr | grep 'Arch Linux' | awk '{print $1}' | cut -c5-)
-  BOOT_WIN=$(efibootmgr | grep 'Windows' | awk '{print $1}' | cut -c5-)
-  efibootmgr --bootorder ${BOOT_ARCH},${BOOT_WIN}
-  ```
-- Create and enroll sbctl keys
-  ```bash
-  sbctl create-keys
-  sbctl enroll-keys -m -f
-  echo "sbctl keys created and enrolled (including Microsoft 3rd-party keys)"
-  ```
-- Create Pacman hooks to automatically sign EFI binaries after updates:
-  ```bash
+  # Create Pacman hooks to automatically sign EFI binaries after updates:
   cat << 'EOF' > /etc/pacman.d/hooks/90-uki-sign.hook
   [Trigger]
   Operation = Install
@@ -820,28 +809,28 @@
   Target = linux*
   Target = systemd
   Target = mkinitcpio
-  Target = fwupd
   Target = plymouth
-  Target = tpm2-tools
 
   [Action]
   Description = Rebuild UKI and sign with Secure Boot
   When = PostTransaction
-  Exec = /usr/bin/bash -c '
-  mkinitcpio -P || true
-  /usr/bin/sbctl sign -s \
-      /boot/EFI/Linux/arch*.efi \
-      /usr/lib/systemd/boot/efi/systemd-bootx64.efi \
-      /usr/lib/plymouth/plymouthd \
-      /usr/bin/systemd-cryptenroll \
-      /usr/bin/tpm2_*
-  2>/dev/null || true
-  '
+  Exec = /usr/bin/bash -c 'mkinitcpio -P; sbctl sign -s /boot/EFI/Linux/arch*.efi 2>/dev/null || true'
   EOF
-  ```
-- Enable paccache.timer
-  ```bash
+
+  # Enable paccache.timer
   systemctl enable paccache.timer
+
+  # Verification Checks
+  grep HOOKS /etc/mkinitcpio.conf
+  echo -e "\nBoot entries:"
+  bootctl list | grep -E "(title|efi)"
+  echo -e "\nresume_offset in presets:"
+  grep resume_offset /etc/mkinitcpio.d/linux*.preset
+  
+  #If you get a black screen, to debug:
+  # Reboot.
+  # Hold Space at boot → press 'e' → remove 'splash' or add 'i915.enable_guc=0' (Intel iGPU issue).
+  # If issues arise after connecting the eGPU, try amdgpu.dc=0.
   ```
 - Reboot to enroll keys and enable Secure Boot in UEFI:
   ```bash
