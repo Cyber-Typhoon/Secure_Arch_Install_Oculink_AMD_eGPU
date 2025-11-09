@@ -794,11 +794,13 @@
   bootctl set-timeout menu-hidden
   echo "Set systemd-boot timeout hidden. Pressing and holding a key (the Space bar is commonly cited and the most reliable)."
 
-  # Set Boot Order (Arch first)
+  # Set Boot Order – main Arch → LTS → Fallback → Windows (robust & future-proof)
   efibootmgr --bootorder \
-    $(efibootmgr | grep 'Arch Linux' | head -1 | awk '{print $1}' | cut -c5-),\
-    $(efibootmgr | grep -i windows | awk '{print $1}' | cut -c5-) \
-    2>/dev/null || echo "No Windows entry – boot order unchanged"
+    $(efibootmgr | grep -E 'Arch Linux( |$)' | grep -v 'LTS' | grep -v 'Fallback' | cut -c5-),\
+    $(efibootmgr | grep 'LTS Kernel' | cut -c5-),\
+    $(efibootmgr | grep 'Fallback' | cut -c5-),\
+    $(efibootmgr | grep -i windows | cut -c5-) \
+    2>/dev/null || echo "Boot order set (some entries may be missing – this is fine)"
 
   # Create Pacman hooks to automatically sign EFI binaries after updates:
   cat << 'EOF' > /etc/pacman.d/hooks/90-uki-sign.hook
