@@ -4,7 +4,7 @@
 
 - This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
 - The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
-- **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup and performance penalties. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. In the future linux-hardened and hardened-malloc can be explored.
+- **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup, performance penalties and linux-hardened does not support hibernation. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened and hardened-malloc can be explored.
 - **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
 
 ## Step 1: Verify Hardware
@@ -718,7 +718,7 @@
   # - kms for graphics
   # - plymouth BEFORE sd-encrypt → graphical unlock prompt
   # - no fsck, no btrfs, no keyboard/keymap/consolefont bloat
-  sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole plymouth block sd-encrypt filesystems resume)/' /etc/mkinitcpio.conf
+  sed -i 's/^HOOKS=.*/HOOKS=(systemd keyboard autodetect microcode modconf kms sd-vconsole plymouth block sd-encrypt filesystems resume)/' /etc/mkinitcpio.conf
   echo "Updated /etc/mkinitcpio.conf HOOKS."
 
   # Configure linux.preset (defines the kernel command line for UKI)
@@ -746,6 +746,15 @@
   # Plymouth set the default theme:
   plymouth-set-default-theme -R bgrt
   echo "Plymouth + BGRT theme set"
+
+  # Configure Plymouth Defaults (HiDPI and fast boot)
+  cat > /etc/plymouth/plymouthd.conf << EOF
+  [Daemon]
+  Theme=bgrt
+  ShowDelay=0
+  # DeviceScale=2  # Uncomment for HiDPI (e.g., 4K/Retina); test post-install regenerate the initramfs "mkinitcpio -p"
+  EOF
+  echo "Configured Plymouth for immediate display (ShowDelay=0) and HiDPI (DeviceScale=2)."
 
   # Generate UKI
   # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
