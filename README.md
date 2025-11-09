@@ -744,14 +744,21 @@
   # Sign UKI
   sbctl sign -s /boot/EFI/Linux/arch*.efi
   echo "Signed Unified Kernel Images."
+
+  # Update systemd-boot to ensure the latest version is installed in the ESP
+  # This is crucial for future maintenance and ensures the signed bootloader is used.
+  sudo bootctl update
+  echo "Updated systemd-boot bootloader in ESP."
+
+  # Set a fast boot menu timeout (e.g., 3 seconds, or menu-hidden for fastest boot)
+  sudo bootctl set-timeout menu-hidden
+  echo "Set systemd-boot timeout hidden. Pressing and holding a key (the Space bar is commonly cited and the most reliable)."
   
   #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
   #To debug:
-  # Reboot into your UEFI/BIOS (F1).
-  # Temporarily disable Secure Boot (set it to "Setup Mode").
   # Reboot. You can now press e in the systemd-boot menu to edit the kernel parameters.
-  # Try removing splash or adding amdgpu.dc=0 to test.
-  # Once fixed, re-enable Secure Boot in the UEFI/BIOS.
+  # Try removing splash or, for Intel iGPU issues, adding i915.enable_guc=0 to test.
+  # If issues arise after connecting the eGPU, try amdgpu.dc=0.
   ```
 - Verify configuration:
   ```bash
