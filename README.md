@@ -700,12 +700,6 @@
   # Creates /boot/loader/, installs systemd-bootx64.efi.
   bootctl --esp-path=/boot install
   ```
-- Configure `mkinitcpio` for TPM and encryption support:
-  ```bash
-  # HOOKS list: base systemd sd-encrypt (for TPM unlock) btrfs (for subvolumes) resume (for hibernation)
-  sudo sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect keyboard sd-vconsole modconf block sd-encrypt btrfs filesystems resume)/' /etc/mkinitcpio.conf
-  echo "Updated /etc/mkinitcpio.conf HOOKS."
-  ```
 - Install Plymouth for a graphical boot splash:
   ```bash
   pacman -S --noconfirm plymouth
@@ -902,7 +896,7 @@
     --tpm2-pcrs=7+11 \
     --tpm2-public-key="$TPM_PUB" \
     --tpm2-pcrs-bank=sha256
-
+  
   echo "TPM re-enrollment complete. Auto-unlock restored."
   '
 
@@ -910,6 +904,9 @@
   WantedBy=multi-user.target
   EOF
 
+  # f. Re-enroll command
+  ExecStartPost=/usr/bin/bash -c 'systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-public-key="$TPM_PUB" --tpm2-pcrs=7+11 "$LUKS_DEV"'
+  
   # Reload daemon and enable the service
   systemctl daemon-reload
   systemctl enable --now tpm-reenroll.service
