@@ -713,26 +713,43 @@
   ```
 - Configure Unified Kernel Image (UKI):
   ```bash
-  # Note: Along the steps below we have multiple ($LUKS_UUID, $ROOT_UUID, $SWAP_OFFSET) that needs to be replaced by pre computed values.
-  # Kernel command line (expand variables at runtime). Make sure to replace the variables below with the pre compute values.
-  # If this was in Gentoo we would use dracut for initramfs with similar hooks (sd-encrypt, btrfs). Save your mkinitcpio.conf as a reference.
-  # /etc/mkinitcpio.d/linux.preset (main kernel)  
+  # Explicit TPM2 auto-unlock via crypttab.initramfs
+  # The sd-encrypt hook looks for this file and uses the tpm2-device=auto option.
+  echo "cryptroot UUID=$LUKS_UUID none tpm2-device=auto" | sudo tee /etc/crypttab.initramfs
+  echo "Created /etc/crypttab.initramfs for TPM auto-unlock."
+
+  # Update HOOKS in mkinitcpio.conf (Run this to ensure the final state is correct)
+  # HOOKS: base systemd (required for sd-encrypt) sd-encrypt (for TPM/LUKS unlock) btrfs (for subvolumes) resume (for hibernation)
+  sudo sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect keyboard sd-vconsole modconf block sd-encrypt btrfs filesystems resume)/' /etc/mkinitcpio.conf
+  echo "Updated /etc/mkinitcpio.conf HOOKS."
+
+  # Remove legacy BINARIES line (if it exists)
+  sudo sed -i '/^BINARIES=/d' /etc/mkinitcpio.conf
+  echo "Removed legacy BINARIES line from mkinitcpio.conf."
+
+  # Configure linux.preset (defines the kernel command line for UKI)
+  # rd.luks.uuid is now optional due to crypttab.initramfs, simplifying the cmdline.
   cat > /etc/mkinitcpio.d/linux.preset << EOF
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
-  default_options="rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$SWAP_OFFSET rw quiet splash \
+  default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$SWAP_OFFSET rw quiet splash \
   intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
   mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 \
-  rd.emergency=poweroff tpm2-measure=yes amdgpu.dc=1 amdgpu.dpm=1"
+  rd.emergency=poweroff amdgpu.dc=1 amdgpu.dpm=1"
   EOF
-  # DO NOT add nomodeset. This parameter disables all kernel mode setting (KMS) and graphics drivers, which will break GNOME, Wayland, and all hardware acceleration.
+  echo "Created /etc/mkinitcpio.d/linux.preset."
+
   # /etc/mkinitcpio.d/linux-lts.preset (LTS kernel – atomic copy)
-  sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
-  # mkinitcpio.conf – ONE edit, correct HOOK order
-  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block plymouth sd-encrypt btrfs resume filesystems keyboard)/' /etc/mkinitcpio.conf
-  echo 'BINARIES=("/usr/bin/btrfs")' >> /etc/mkinitcpio.conf
+  sudo sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
+  echo "Created /etc/mkinitcpio.d/linux-lts.preset."
+
   # Generate UKI
   mkinitcpio -P
+  echo "Generated Unified Kernel Images."
+
+  # Sign UKI
+  sbctl sign -s /boot/EFI/Linux/arch*.efi
+  echo "Signed Unified Kernel Images."
   
   #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
   #To debug:
