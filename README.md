@@ -695,11 +695,6 @@
   ```bash
   pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify plymouth 
   ```
-- Install `systemd-boot`:
-  ```bash
-  # Creates /boot/loader/, installs systemd-bootx64.efi.
-  bootctl --esp-path=/boot install
-  ```
 - Configure Unified Kernel Image (UKI):
   ```bash
   # Dynamic Resume Offset Calculation (REQUIRED for BTRFS swapfile)
@@ -713,7 +708,7 @@
     
   # Explicit TPM2 auto-unlock via crypttab.initramfs
   # The sd-encrypt hook looks for this file and uses the tpm2-device=auto option.
-  echo "cryptroot UUID=$LUKS_UUID none tpm2-device=auto,discard" | tee /etc/crypttab.initramfs > /dev/null
+  echo "cryptroot UUID=$LUKS_UUID none tpm2-device=auto,discard" > /etc/crypttab.initramfs
   echo "Created /etc/crypttab.initramfs for TPM auto-unlock (with TRIM)."
 
   # Update HOOKS in mkinitcpio.conf (Run this to ensure the final state is correct)
@@ -723,14 +718,8 @@
   # - kms for graphics
   # - plymouth BEFORE sd-encrypt → graphical unlock prompt
   # - no fsck, no btrfs, no keyboard/keymap/consolefont bloat
-  sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms sd-vconsole plymouth block sd-encrypt filesystems resume)/' /etc/mkinitcpio.conf
+  sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole plymouth block sd-encrypt filesystems resume)/' /etc/mkinitcpio.conf
   echo "Updated /etc/mkinitcpio.conf HOOKS."
-
-  # Remove unnecessary lines (handled automatically now)
-  sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
-  sed -i '/^BINARIES=/d' /etc/mkinitcpio.conf
-  sed -i '/^HOOKS=/ { s/ keyboard//g; s/ keymap//g; s/ consolefont//g; s/ btrfs//g; s/ fsck//g; }' /etc/mkinitcpio.conf
-  echo "Updated and cleaned /etc/mkinitcpio.conf HOOKS."
 
   # Configure linux.preset (defines the kernel command line for UKI)
   # rd.luks.uuid is now optional due to crypttab.initramfs, simplifying the cmdline.
@@ -759,8 +748,13 @@
   echo "Plymouth + BGRT theme set"
 
   # Generate UKI
+  # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
   mkinitcpio -P
   echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi"
+
+  # Install `systemd-boot`:
+  # Creates /boot/loader/, installs systemd-bootx64.efi.
+  bootctl --esp-path=/boot install
   
   # Secure Boot keys (only once)
   if ! sbctl status | grep -q "Installed: Yes"; then
@@ -769,9 +763,10 @@
       echo "sbctl keys created and enrolled (incl. Microsoft keys)"
   fi
 
-  # Secure Boot Signing
+  # Secure Boot Signing (bootloader and UKIs)
+  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
   sbctl sign -s /boot/EFI/Linux/arch*.efi
-  echo "Signed all UKIs for Secure Boot."
+  echo "Signed Bootloader and all UKIs for Secure Boot."
 
   # Create systemd-boot entry for LTS kernel
   cat > /boot/loader/entries/arch-lts.conf << 'EOF'
@@ -784,11 +779,6 @@
   title   Arch Linux (Fallback)
   efi     /EFI/Linux/arch-fallback.efi
   EOF
-  
-  # Update systemd-boot to ensure the latest version is installed in the ESP
-  # This is crucial for future maintenance and ensures the signed bootloader is used.
-  bootctl update
-  echo "Updated systemd-boot bootloader in ESP."
 
   # Set a fast boot menu timeout (e.g., 3 seconds, or menu-hidden for fastest boot)
   bootctl set-timeout menu-hidden
@@ -816,7 +806,7 @@
   [Action]
   Description = Rebuild UKI and sign with Secure Boot
   When = PostTransaction
-  Exec = /usr/bin/bash -c 'mkinitcpio -P; sbctl sign -s /boot/EFI/Linux/arch*.efi 2>/dev/null || true'
+  Exec = /usr/bin/bash -c 'mkinitcpio -P; bootctl update && sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI /boot/EFI/Linux/arch*.efi 2>/dev/null || true'
   EOF
 
   # Enable paccache.timer
