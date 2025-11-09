@@ -704,17 +704,23 @@
   ```bash
   # Explicit TPM2 auto-unlock via crypttab.initramfs
   # The sd-encrypt hook looks for this file and uses the tpm2-device=auto option.
-  echo "cryptroot UUID=$LUKS_UUID none tpm2-device=auto" | sudo tee /etc/crypttab.initramfs
-  echo "Created /etc/crypttab.initramfs for TPM auto-unlock."
+  echo "cryptroot UUID=$LUKS_UUID none tpm2-device=auto,discard" | sudo tee /etc/crypttab.initramfs > /dev/null
+  echo "Created /etc/crypttab.initramfs for TPM auto-unlock (with TRIM)."
 
   # Update HOOKS in mkinitcpio.conf (Run this to ensure the final state is correct)
-  # HOOKS: base systemd (required for sd-encrypt) sd-encrypt (for TPM/LUKS unlock) btrfs (for subvolumes) resume (for hibernation)
-  sudo sed -i 's/^HOOKS=.*/HOOKS=(base autodetect keyboard keymap consolefont plymouth systemd block sd-encrypt btrfs filesystems resume)/' /etc/mkinitcpio.conf
+  HOOKS order:
+  # - systemd early
+  # - microcode for UKI early loading
+  # - kms for graphics
+  # - plymouth BEFORE sd-encrypt → graphical unlock prompt
+  # - no fsck, no btrfs, no keyboard/keymap/consolefont bloat
+  sudo sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf kms sd-vconsole plymouth block sd-encrypt filesystems resume)/' /etc/mkinitcpio.conf
   echo "Updated /etc/mkinitcpio.conf HOOKS."
 
-  # Remove legacy BINARIES line (if it exists)
+  # Remove unnecessary lines (handled automatically now)
+  sudo sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
   sudo sed -i '/^BINARIES=/d' /etc/mkinitcpio.conf
-  echo "Removed legacy BINARIES line from mkinitcpio.conf."
+  echo "Updated and cleaned /etc/mkinitcpio.conf HOOKS."
 
   # Configure linux.preset (defines the kernel command line for UKI)
   # rd.luks.uuid is now optional due to crypttab.initramfs, simplifying the cmdline.
@@ -728,23 +734,22 @@
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
 
-  # /etc/mkinitcpio.d/linux-lts.preset (LTS kernel – atomic copy)
+  # LTS preset (atomic copy, just rename the UKI)
   sudo sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
   echo "Created /etc/mkinitcpio.d/linux-lts.preset."
 
   # Install Plymouth and set the default theme:
   pacman -S --noconfirm plymouth
-  # -R ensures necessary files are copied; mkinitcpio -P will rebuild the image.
-  plymouth-set-default-theme bgrt
-  echo "Installed Plymouth and set default theme to bgrt."
+  plymouth-set-default-theme -R bgrt
+  echo "Installed Plymouth and set BGRT theme (uses OEM logo)."
 
   # Generate UKI
   mkinitcpio -P
-  echo "Generated Unified Kernel Images."
+  echo "Generated Unified Kernel Images (arch.efi + arch-lts.efi)."
 
   # Sign UKI
   sbctl sign -s /boot/EFI/Linux/arch*.efi
-  echo "Signed Unified Kernel Images."
+  echo "Signed all UKIs for Secure Boot."
 
   # Update systemd-boot to ensure the latest version is installed in the ESP
   # This is crucial for future maintenance and ensures the signed bootloader is used.
@@ -755,10 +760,9 @@
   sudo bootctl set-timeout menu-hidden
   echo "Set systemd-boot timeout hidden. Pressing and holding a key (the Space bar is commonly cited and the most reliable)."
   
-  #If you get a black screen, the amdgpu driver (or i915) likely failed to load.
-  #To debug:
-  # Reboot. You can now press e in the systemd-boot menu to edit the kernel parameters.
-  # Try removing splash or, for Intel iGPU issues, adding i915.enable_guc=0 to test.
+  #If you get a black screen, to debug:
+  # Reboot.
+  # Hold Space at boot → press 'e' → remove 'splash' or add 'i915.enable_guc=0' (Intel iGPU issue).
   # If issues arise after connecting the eGPU, try amdgpu.dc=0.
   ```
 - Verify configuration:
