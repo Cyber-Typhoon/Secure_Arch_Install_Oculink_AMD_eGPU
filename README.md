@@ -700,11 +700,6 @@
   # Creates /boot/loader/, installs systemd-bootx64.efi.
   bootctl --esp-path=/boot install
   ```
-- Install Plymouth for a graphical boot splash:
-  ```bash
-  pacman -S --noconfirm plymouth
-  plymouth-set-default-theme -R bgrt
-  ```
 - Configure Unified Kernel Image (UKI):
   ```bash
   # Explicit TPM2 auto-unlock via crypttab.initramfs
@@ -714,7 +709,7 @@
 
   # Update HOOKS in mkinitcpio.conf (Run this to ensure the final state is correct)
   # HOOKS: base systemd (required for sd-encrypt) sd-encrypt (for TPM/LUKS unlock) btrfs (for subvolumes) resume (for hibernation)
-  sudo sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect keyboard sd-vconsole modconf block sd-encrypt btrfs filesystems resume)/' /etc/mkinitcpio.conf
+  sudo sed -i 's/^HOOKS=.*/HOOKS=(base autodetect keyboard keymap consolefont plymouth systemd block sd-encrypt btrfs filesystems resume)/' /etc/mkinitcpio.conf
   echo "Updated /etc/mkinitcpio.conf HOOKS."
 
   # Remove legacy BINARIES line (if it exists)
@@ -736,6 +731,12 @@
   # /etc/mkinitcpio.d/linux-lts.preset (LTS kernel – atomic copy)
   sudo sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
   echo "Created /etc/mkinitcpio.d/linux-lts.preset."
+
+  # Install Plymouth and set the default theme:
+  pacman -S --noconfirm plymouth
+  # -R ensures necessary files are copied; mkinitcpio -P will rebuild the image.
+  plymouth-set-default-theme bgrt
+  echo "Installed Plymouth and set default theme to bgrt."
 
   # Generate UKI
   mkinitcpio -P
