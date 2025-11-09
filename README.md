@@ -702,7 +702,9 @@
   ```
 - Configure `mkinitcpio` for TPM and encryption support:
   ```bash
-  sed -i 's/^BINARIES=(.*)/BINARIES=(\/usr\/bin\/btrfs)/' /etc/mkinitcpio.conf
+  # HOOKS list: base systemd sd-encrypt (for TPM unlock) btrfs (for subvolumes) resume (for hibernation)
+  sudo sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect keyboard sd-vconsole modconf block sd-encrypt btrfs filesystems resume)/' /etc/mkinitcpio.conf
+  echo "Updated /etc/mkinitcpio.conf HOOKS."
   ```
 - Install Plymouth for a graphical boot splash:
   ```bash
