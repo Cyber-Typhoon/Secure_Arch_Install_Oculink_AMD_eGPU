@@ -1056,7 +1056,7 @@
 
   # Kernel config 
   log "Running kernel config saver..."
-  sudo /usr/local/bin/save-kernel-config.sh
+  /usr/local/bin/save-kernel-config.sh
   KERNEL_CONFIG="/etc/kernel/config-$(uname -r)"
   [[ -f "$KERNEL_CONFIG" ]] || die "Kernel config not generated"
   cp -v "$KERNEL_CONFIG" "$STAGING_DIR/"
@@ -1085,8 +1085,8 @@
   log "   → $FINAL_ARCHIVE"
   log "   → ${FINAL_ARCHIVE}.sha256"
 
-  sudo chmod +x /usr/local/bin/archive-system-config.sh
-  sudo archive-system-config.sh
+  chmod +x /usr/local/bin/archive-system-config.sh
+  archive-system-config.sh
   ```
 - Migration Gentoo Final Checklist
   ```bash
