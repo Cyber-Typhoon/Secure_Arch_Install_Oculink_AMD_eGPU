@@ -842,7 +842,7 @@
   ```
   ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
 
-## Step 9: TPM Healing Service Automation and Activation
+## Step 9: TPM Auto-Healing, Recovery USB, Windows Entry & Final Archive
 
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
