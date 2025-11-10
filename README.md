@@ -433,7 +433,7 @@
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack \
   \
   # System
-  sudo polkit udisks2 thermald acpi acpid ethtool namcap dmidecode \
+  sudo polkit udisks2 thermald acpi acpid ethtool namcap dmidecode apparmor \
   \
   # Network / Install
   networkmanager openssh rsync reflector arch-install-scripts wpa_supplicant \
@@ -1193,7 +1193,7 @@
   # System packages (CLI + system-level)
   pacman -S --needed \
   # Security & Hardening
-  aide apparmor auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
+  aide auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
   baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
