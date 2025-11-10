@@ -420,7 +420,7 @@
   base base-devel linux linux-lts linux-firmware mkinitcpio archlinux-keyring \
   \
   # Boot / Encryption
-  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools systemd-boot \
+  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools \
   \
   # Hardware / Firmware
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
