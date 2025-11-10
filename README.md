@@ -433,13 +433,13 @@
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack \
   \
   # System
-  sudo polkit udisks2 thermald acpi acpid ethtool namcap \
+  sudo polkit udisks2 thermald acpi acpid ethtool namcap dmidecode \
   \
   # Network / Install
-  networkmanager openssh rsync reflector arch-install-scripts \
+  networkmanager openssh rsync reflector arch-install-scripts wpa_supplicant \
   \
   # User / DE
-  zsh git jq flatpak gdm pacman-contrib devtools nano
+  zsh git jq flatpak gdm pacman-contrib devtools nano man-db man-pages
   ```
 - Create Gentoo prep directories (In case you want to migrate to Gentoo in the future):
   ```bash
@@ -600,7 +600,6 @@
     alias ls='eza  --icons --git'
     alias cat='bat --style=plain'
     alias du='dua'
-    alias man='tldr'
     alias ps='procs'
     alias dig='dog'
     alias curl='http'
