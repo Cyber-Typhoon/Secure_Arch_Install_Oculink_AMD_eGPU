@@ -614,7 +614,6 @@
     alias du='dua'
     alias ps='procs'
     alias dig='dog'
-    alias curl='http'
     alias btop='btm'
     alias iftop='bandwhich'
     alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
