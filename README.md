@@ -559,7 +559,8 @@
   systemctl enable thermald               
   systemctl enable acpid                  
   systemctl enable fwupd-refresh.timer    
-  systemctl enable paccache.timer         
+  systemctl enable paccache.timer
+  systemctl enable shadow.timer         
   ```
 - TTY console
   ```bash
