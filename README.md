@@ -473,6 +473,10 @@
   etckeeper init  
   etckeeper commit "Initial Arch config"
   ```
+- Initialize apparmor service:
+  ```bash
+  systemctl enable apparmor
+  ```
 - Document Detailed Hardware Profile (Useful for Gentoo migration):  
   ```bash
   # Capture PCI Devices (Most Critical for eGPU/NVMe)
@@ -545,9 +549,17 @@
   echo "%wheel ALL=(ALL:ALL) ALL" | tee /etc/sudoers.d/wheel
   chmod 440 /etc/sudoers.d/wheel   # optional but good practice
   ```
-- Enable NetworkManager
+- Enable essential services
   ```bash
   systemctl enable NetworkManager
+  systemctl enable systemd-timesyncd     
+  systemctl enable gdm                
+  systemctl enable bluetooth   
+  systemctl enable sshd                   
+  systemctl enable thermald               
+  systemctl enable acpid                  
+  systemctl enable fwupd-refresh.timer    
+  systemctl enable paccache.timer         
   ```
 - TTY console
   ```bash
@@ -730,7 +742,8 @@
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
   intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
   mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 \
-  rd.emergency=poweroff amdgpu.dc=1 amdgpu.dpm=1"
+  rd.emergency=poweroff amdgpu.dc=1 amdgpu.dpm=1 \
+  lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
 
@@ -1224,7 +1237,7 @@
   ```
 - Enable essential services:
   ```bash
-  systemctl enable gdm bluetooth ufw auditd apparmor systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
+  systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
   systemctl --failed  # Check for failed services
   journalctl -p 3 -xb
   ```
@@ -1649,9 +1662,6 @@
   # This activates the *complete* AppArmor.d policy (1000+ profiles)
   # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
   
-  # Enable service
-  sudo systemctl enable --now apparmor
-
   # Enable the upstream-sync timer (weekly profile updates)
   sudo systemctl enable --now apparmor.d-update.timer
   
