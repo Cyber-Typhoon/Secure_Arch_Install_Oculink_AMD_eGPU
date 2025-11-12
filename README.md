@@ -548,6 +548,11 @@
   ```bash
   echo "%wheel ALL=(ALL:ALL) ALL" | tee /etc/sudoers.d/wheel
   chmod 440 /etc/sudoers.d/wheel   # optional but good practice
+
+  # Enforce 440 permissions (Read-only for owner/group) for best practice security.
+  chown root:root /etc/sudoers
+  chmod 440 /etc/sudoers
+  echo "Secured /etc/sudoers permissions (440)."
   ```
 - Enable essential services
   ```bash
@@ -830,8 +835,12 @@
   Exec = /usr/bin/bash -c 'mkinitcpio -P; bootctl update && sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI /boot/EFI/Linux/arch*.efi 2>/dev/null || true'
   EOF
 
-  # Enable paccache.timer
-  systemctl enable paccache.timer
+  # Note: Although fstab uses umask=0077, these steps ensure the permissions are tight immediately.
+  # Set ownership to root:root recursively
+  chown -R root:root /boot
+  # Set permissions: 700 (owner only can read/write/execute) recursively
+  chmod -R 700 /boot
+  echo "Secured /boot directory permissions (700)."
 
   # Verification Checks
   grep HOOKS /etc/mkinitcpio.conf
