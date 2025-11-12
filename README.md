@@ -1405,7 +1405,7 @@
   sudo pacman -Syu                 # now safe – hooks are active
   sudo mkinitcpio -P               # regenerate UKI (covers new kernel)
   # REQUIRED: Manually sign the newly created UKI, as mkinitcpio -P does not trigger the Pacman hook.
-  sudo sbctl sign -s /boot/efi/EFI/Linux/*.efi 
+  sudo sbctl sign -s /boot/EFI/Linux/*.efi 
   sudo sbctl verify                # sanity-check all signed files
   ```
 - Check Secure Boot Violations:
