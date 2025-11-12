@@ -1133,21 +1133,23 @@
 
 ## Step 10: Install and Configure DE and Applications
 
+  set -euo pipefail
+
 - Install the **GNOME desktop environment**:
   ```bash
   # Install Gnome
-  pacman -S --needed gnome
+  sudo pacman -S --needed gnome
   ```
 - Install **Paru and configure it**:
   ```bash   
   # Clone & build in a clean temp dir
-  TMP_PARU=$(mktemp -d)
+  TMP_PARU=$(mktemp -d --tmpdir=paru.XXXXXX)
   git clone --depth 1 https://aur.archlinux.org/paru.git "$TMP_PARU"
   (
     cd "$TMP_PARU" || exit 1
   
   # Build the package (creates the .pkg.tar.zst file)
-  makepkg -s
+  makepkg -s --noconfirm
   
   # NAMCAP AUDIT (Insert Check Here)
   echo "--- Running namcap audit on the built paru package ---"
@@ -1155,13 +1157,13 @@
   namcap paru-*.pkg.tar.zst || true
   
   # Install the audited package
-  pacman -U paru-*.pkg.tar.zst --noconfirm
+  sudo pacman -U paru-*.pkg.tar.zst --noconfirm
   )
   rm -rf "$TMP_PARU"
 
   # Configure to show PKGBUILD diffs (edit the Paru config file):
-  mkdir -p /home/arch/.config/paru
-  cat << 'EOF' > /home/arch/.config/paru/paru.conf
+  mkdir -p ~/.config/paru
+  cat << 'EOF' > ~/.config/paru/paru.conf
   [options]
   PgpFetch
   BottomUp
@@ -1175,20 +1177,18 @@
   UseAsk = true
   Chroot = true
   EOF
-  chown -R arch:arch /home/arch/.config/paru
-  
+    
   # Verify if paru shows the PKGBUILD diffs
-  paru -Pg | grep -E 'diffmenu|combinedupgrade|editmenu' # Should show: combinedupgrade: Off diffmenu: Edit editmenu: Edit
+  paru -Pg | grep -E 'diffmenu|combinedupgrade|editmenu' || true # Should show: combinedupgrade: Off diffmenu: Edit editmenu: Edit
 
   # Set build directory
-  echo 'BUILDDIR = /home/arch/.cache/paru-build' >> /etc/makepkg.conf
-  sudo -p /home/arch/.cache/paru-build
-  chown arch:arch /home/arch/.cache/paru-build
+  echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
+  mkdir -p ~/.cache/paru-build
   ```
 - Install Pacman applications:
   ```bash
   # System packages (CLI + system-level)
-  pacman -S --needed \
+  sudo pacman -S --needed \
   # Security & Hardening
   aide auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
@@ -1203,7 +1203,7 @@
   \
   # CLI Tools
   atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
-  helix httpie hyfetch procs python-pygobject rage ripgrep rustup starship tealdeer \
+  helix httpie hyfetch procs python-gobject rage ripgrep rustup starship tealdeer \
   tokei xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
@@ -1211,19 +1211,19 @@
   libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud \
   \
   # Browsers & OBS (native)
-  brave-browser mullvad-browser tor-browser obs-studio \
+  brave-browser mullvad-browser obs-studio \
   \
   # Utilities
-  bandwhich pacman-notifier \
+  bandwhich \
   \
   # GNOME
-  gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks
+  gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks gnome-shell-extensions
   ```
 - Enable essential services:
   ```bash
-  systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer
-  systemctl --failed  # Check for failed services
-  journalctl -p 3 -xb
+  sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
+  sudo systemctl --failed  # Check for failed services
+  sudo journalctl -p 3 -xb
   ```
 - Install Rebos (NixOS-like repeatability for any Linux distro.)
   ```bash
@@ -1232,7 +1232,8 @@
 
   # Install latest from GitLab upstream
   cargo install --git https://gitlab.com/Oglo12/rebos.git rebos
-
+  export PATH="$HOME/.cargo/bin:$PATH"
+  
   # Verify
   rebos --version  # Should show latest (e.g., v0.x as of 2025)
   which rebos      # /home/$USER/.cargo/bin/rebos
@@ -1242,7 +1243,7 @@
   source ~/.zshrc
 
   # Init for your system (tracks pacman/AUR history)
-  rebos init
+  rebos init --user "$USER"
 
   # Generate initial manifest (from your current install)
   rebos gen base
@@ -1260,7 +1261,7 @@
   EOF
 
   # First backup/snapshot
-  rebos backup create --name "post-install-$(date +%Y%m%d)"
+  rebos backup create --name "post-install-$(date +%Y%m%d-%H%M)"
   ```
 - Install the AUR applications:
   ```bash
@@ -1271,26 +1272,22 @@
     astal-git \
     ags-git \
     gdm-settings \
-    thinklmi-git \
     systeroid-git \
     run0-sudo-shim-git
-
-  # Verify ThinkLMI for BIOS settings
-  sudo thinklmi  # Check BIOS settings (e.g., Secure Boot, TPM). 
 
   # Verify binaries exist before signing
     [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
   
   # Sign astal/ags for Secure Boot once
-  sbctl sign -s /usr/bin/astal /usr/bin/ags
+  sudo sbctl sign -s /usr/bin/astal /usr/bin/ags 2>/dev/null || true
 
   # Sign run0-sudo-shim for sudo replacement
-  sbctl sign -s /usr/bin/sudo
+  sudo sbctl sign -s /usr/bin/sudo
   echo "run0-sudo-shim installed and signed"
   
   # Append Astal/AGS to existing 90-uki-sign.hook
   if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
-  cat << 'EOF' >> /etc/pacman.d/hooks/90-uki-sign.hook
+  cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
 
   [Trigger]
   Operation = Install
@@ -1303,11 +1300,12 @@
   Description = Sign astal/ags with sbctl
   When = PostTransaction
   Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags
+  Depends = sbctl
   EOF
   fi
   
   # Test the hook after installation:
-  sbctl verify /usr/bin/astal  #Should show "signed"
+  sudo sbctl verify /usr/bin/astal  #Should show "signed"
 
   # Auto-re-sign hook for run0-sudo-shim
   sudo tee /etc/pacman.d/hooks/90-run0-shim-sign.hook <<'EOF'
@@ -1321,33 +1319,34 @@
   Description = Sign the sudo shim for Secure Boot
   When = PostTransaction
   Exec = /usr/bin/sbctl sign -s /usr/bin/sudo
+  Depends = sbctl
   EOF
 
   # Test the run0-sudo-shim
   sudo -v && echo "polkit cache OK"
-  fix-tpm && echo "TPM script OK"
-  sbctl verify /usr/bin/sudo && echo "Secure Boot OK"
+  sudo sbctl verify /usr/bin/sudo && echo "Secure Boot OK"
   type sudo && echo "shim is in place"
   ```
 - Configure GDM for Wayland:
   ```bash
-  cat << 'EOF' > /etc/gdm/custom.conf
+  cat << 'EOF' | sudo tee /etc/gdm/custom.conf
   [daemon]
   WaylandEnable=true
   DefaultSession=gnome-wayland.desktop
   EOF
-  systemctl restart gdm # or reboot
+  sudo systemctl restart gdm # or reboot
   ```
 - Install Bazzar and the Flatpak applications via GUI
   ```bash
   # Install Bazaar (Flatpak-focused app store) and Flatseal
-  flatpak install -y flathub io.github.kolunmi.Bazaar com.github.tchx84.Flatseal
+  flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+  flatpak install --user -y flathub io.github.kolunmi.Bazaar com.github.tchx84.Flatseal
 
   # Launch once to initialize
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop) and Tor Browser (torproject.org). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1356,59 +1355,69 @@
   # Allow GPU access for Steam:
   flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
   ```
-- Setup Automated System/AUR Updates
+- (OPTIONAL NOT RECOMMENDED) Setup Automated System/AUR Updates
   ```bash
-  
-  # Create a service and timer for automated paru (AUR/System) updates
-  cat << EOF | sudo tee /etc/systemd/system/paru-update.service
+  # === SYSTEM-WIDE TEMPLATED AUTO-UPDATE (FUNCTIONAL, BUT HAS SECURITY TRADE-OFF) ===
+  cat << 'EOF' | sudo tee /etc/systemd/system/paru-update@.service
   [Unit]
-  Description=Paru and System Update
+  Description=Paru and System Update for %i
   Wants=network-online.target
   After=network-online.target
 
   [Service]
   Type=oneshot
-  ExecStart=/usr/bin/paru --noconfirm -Syu
+  # WARNING: Using --noconfirm for AUR packages bypasses the PKGBUILD review, which is a security risk.
+  # This setting prioritizes full automation over security review.
+  ExecStart=/usr/bin/paru -Syu --noconfirm
   User=%i
-  # Remember to replace your_username with the actual username you set up in Step 6.
-  User=your_username 
+  WorkingDirectory=/home/%i
+  StandardOutput=journal
+  StandardError=journal
+  # Give time for large AUR builds
+  TimeoutSec=30min
   EOF
 
-  cat << EOF | sudo tee /etc/systemd/system/paru-update.timer
+  cat << 'EOF' | sudo tee /etc/systemd/system/paru-update.timer
   [Unit]
-  Description=Runs paru-update.service daily
+  Description=Runs paru-update@<user>.service daily
 
   [Timer]
-  # Run at 03:00 (3 AM) daily
-  OnCalendar=daily
-  # Wait up to 15 minutes to prevent all systems hitting the mirror at once
+  OnCalendar=*-*-* 03:00:00
   RandomizedDelaySec=15min
   Persistent=true
+  Unit=paru-update@%i.service
 
   [Install]
   WantedBy=timers.target
   EOF
 
-  # Enable and start the paru timer
-  sudo systemctl enable paru-update.timer
-  sudo systemctl start paru-update.timer
+  # === ENABLE FOR CURRENT USER ===
+  sudo systemctl daemon-reload
+  sudo systemctl enable "paru-update@$USER.service"
+  sudo systemctl enable --now paru-update.timer
+
+  # === VERIFY ===
+  sudo systemctl list-unit-files | grep paru-update
+  sudo systemctl status "paru-update@$USER.service"
   ```
 - Final full system update + UKI rebuild
   ```bash
-  pacman -Syu                 # now safe – hooks are active
-  mkinitcpio -P               # regenerate UKI (covers new kernel)
-  sbctl verify                # sanity-check all signed files
+  sudo pacman -Syu                 # now safe – hooks are active
+  sudo mkinitcpio -P               # regenerate UKI (covers new kernel)
+  # REQUIRED: Manually sign the newly created UKI, as mkinitcpio -P does not trigger the Pacman hook.
+  sudo sbctl sign -s /boot/efi/EFI/Linux/*.efi 
+  sudo sbctl verify                # sanity-check all signed files
   ```
 - Check Secure Boot Violations:
   ```bash
-  journalctl -b -p 3 | grep -i secureboot
+  sudo journalctl -b -p 3 | grep -i secureboot
   ```
 ## Step 11: Configure Power Management, Security, Network and Privacy
 
 - Disable power-profiles-daemon to prevent conflicts with TLP and Configure power management for efficiency:
   ```bash
-  systemctl mask power-profiles-daemon
-  systemctl disable power-profiles-daemon
+  sudo systemctl mask power-profiles-daemon
+  sudo systemctl disable power-profiles-daemon
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
   echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
   ```
