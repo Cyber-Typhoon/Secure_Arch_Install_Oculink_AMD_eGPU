@@ -810,14 +810,6 @@
   bootctl set-timeout menu-hidden
   echo "Set systemd-boot timeout hidden. Pressing and holding a key (the Space bar is commonly cited and the most reliable)."
 
-  # Set Boot Order – main Arch → LTS → Fallback → Windows (robust & future-proof)
-  efibootmgr --bootorder \
-    $(efibootmgr | grep -E 'Arch Linux( |$)' | grep -v 'LTS' | grep -v 'Fallback' | cut -c5-),\
-    $(efibootmgr | grep 'LTS Kernel' | cut -c5-),\
-    $(efibootmgr | grep 'Fallback' | cut -c5-),\
-    $(efibootmgr | grep -i windows | cut -c5-) \
-    2>/dev/null || echo "Boot order set (some entries may be missing – this is fine)"
-
   # Create Pacman hooks to automatically sign EFI binaries after updates:
   cat << 'EOF' > /etc/pacman.d/hooks/90-uki-sign.hook
   [Trigger]
@@ -866,16 +858,14 @@
 
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
-  # Boot back into Arch ISO
-  arch-chroot /mnt
-
   # Generate stable TPM public key (once only)
   TPM_PUBKEY="/etc/tpm2-ukey.pem"
   if [ ! -f "$TPM_PUBKEY" ]; then
     echo "Generating TPM public key..."
-    tpm2_createek --ek-context /tmp/ek.ctx --key-algorithm rsa --public /tmp/ek.pub
-    tpm2_readpublic -c /tmp/ek.ctx -o "$TPM_PUBKEY"
-    rm /tmp/ek.*
+    sudo tpm2_createek --ek-context /tmp/ek.ctx --key-algorithm rsa --public /tmp/ek.pub
+    sudo tpm2_readpublic -c /tmp/ek.ctx -o "$TPM_PUBKEY"
+    sudo rm /tmp/ek.*
+    sudo chmod 644 "$TPM_PUBKEY"
     echo "TPM public key saved to $TPM_PUBKEY"
   fi
 
@@ -902,10 +892,10 @@
   set -euo pipefail
 
   LUKS_DEV="/dev/mapper/cryptroot"
-  TPM_PUB="/etc/tpm2-ukey.pem"
+  TPM_PUBKEY="/etc/tpm2-ukey.pem"
 
   # d. Test current policy
-  if systemd-cryptenroll --tpm2-device=auto --tpm2-public-key="$TPM_PUB" --test "$LUKS_DEV" >/dev/null 2>&1; then
+  if systemd-cryptenroll --tpm2-device=auto --tpm2-public-key="$TPM_PUBKEY" --test "$LUKS_DEV" >/dev/null 2>&1; then
     echo "TPM policy valid. No action needed."
     exit 0
   fi
@@ -917,7 +907,7 @@
   systemd-cryptenroll "$LUKS_DEV" \
     --tpm2-device=auto \
     --tpm2-pcrs=7+11 \
-    --tpm2-public-key="$TPM_PUB" \
+    --tpm2-public-key="$TPM_PUBKEY" \
     --tpm2-pcrs-bank=sha256
   
   echo "TPM re-enrollment complete. Auto-unlock restored."
@@ -926,19 +916,43 @@
   [Install]
   WantedBy=multi-user.target
   EOF
-
-  # f. Re-enroll command
-  ExecStartPost=/usr/bin/bash -c 'systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-public-key="$TPM_PUB" --tpm2-pcrs=7+11 "$LUKS_DEV"'
   
   # Reload daemon and enable the service
-  systemctl daemon-reload
-  systemctl enable --now tpm-reenroll.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now tpm-reenroll.service
 
+  # Main Arch Entry
+  sudo tee /boot/loader/entries/arch.conf > /dev/null << 'EOF'
+  title   Arch Linux
+  efi     /EFI/Linux/arch.efi
+  EOF
+  echo "Main Arch boot entry created."
+
+  # Windows Entry (if /windows-efi mount exists from install)
+  if [ -d "/windows-efi" ]; then
+    sudo rsync -aHAX /windows-efi/EFI/Microsoft /boot/EFI/
+    sudo umount /windows-efi
+    sudo tee /boot/loader/entries/windows.conf > /dev/null << 'EOF'
+  title   Windows 11
+  efi     /EFI/Microsoft/Boot/bootmgfw.efi
+  EOF
+    echo "Windows boot entry created."
+  fi
+
+  # Set Boot Order – main Arch → LTS → Fallback → Windows (robust & future-proof)
+  echo "Setting final UEFI boot order..."
+  sudo efibootmgr --bootorder \
+  $(sudo efibootmgr | grep -E 'Arch Linux( |$)' | grep -v 'LTS' | grep -v 'Fallback' | head -n 1 | awk '{print $1}' | cut -c5-),\
+  $(sudo efibootmgr | grep 'LTS Kernel' | awk '{print $1}' | cut -c5-),\
+  $(sudo efibootmgr | grep 'Fallback' | awk '{print $1}' | cut -c5-),\
+  $(sudo efibootmgr | grep -i 'windows boot manager' | awk '{print $1}' | cut -c5-) \
+  2>/dev/null || echo "Boot order set (some entries may be missing – this is fine)"
+  
   # Verify
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
  
   # Final TPM unlock test
-  systemd-cryptenroll --tpm2-device=auto --test "$TPM_DEV" && echo "TPM unlock test PASSED"
+  sudo systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" && echo "TPM unlock test PASSED"
   # Should return 0 and print "Unlocking with TPM2... success".
 
   # Confirm Secure Boot is active
@@ -957,60 +971,42 @@
   echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
   echo "WARNING: Compare PCR values to ensure TPM policy consistency."
   ```
-- Create boot entries for dual-boot:
-  ```bash
-  # Copy Windows EFI files to Arch ESP:
-  rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
-  umount /mnt/windows-efi
-  
-  # Create /boot/loader/entries/windows.conf with:
-  cat << 'EOF' > /boot/loader/entries/windows.conf
-  title Windows 11
-  efi /EFI/Microsoft/Boot/bootmgfw.efi
-  EOF
-
-  # Create Arch bootloader entry (/boot/loader/entries/arch.conf):
-  cat << 'EOF' > /boot/loader/entries/arch.conf
-  title Arch Linux
-  efi /EFI/Linux/arch.efi
-  EOF
-  ```
 - Create a GRUB USB for recovery:
   ```bash
   lsblk  # Identify USB device (e.g., /dev/sdX1)
   read -p "Enter USB partition (e.g. /dev/sdb1): " USB_PART
-  mkfs.fat -F32 -n RESCUE_USB /dev/sdX1 # Make sure to enter the USB ID in use replacing the placeholder "/dev/sdX1"
+  sudo mkfs.fat -F32 -n RESCUE_USB /dev/sdX1 # Make sure to enter the USB ID in use replacing the placeholder "/dev/sdX1"
 
-  mkdir -p /mnt/usb
-  mount /dev/sdX1 /mnt/usb # Replace /dev/sdX1 with your USB partition confirmed via lsblk
+  sudo mkdir -p /mnt/usb
+  sudo mount /dev/sdX1 /mnt/usb # Replace /dev/sdX1 with your USB partition confirmed via lsblk
 
-  pacman -Sy grub
-  grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB --recheck
+  sudo pacman -Sy grub
+  sudo grub-install --target=x86_64-efi --efi-directory=/mnt/usb --bootloader-id=RescueUSB --recheck
 
   # Copy kernel + initramfs
-  cp /crypto_keyfile /mnt/usb/luks-keyfile
-  chmod 600 /mnt/usb/luks-keyfile
-  cp /boot/vmlinuz-linux /mnt/usb/
-  cp /boot/initramfs-linux.img /mnt/usb/initramfs-linux.img
+  sudo cp /crypto_keyfile /mnt/usb/luks-keyfile
+  sudo chmod 600 /mnt/usb/luks-keyfile
+  sudo cp /boot/vmlinuz-linux /mnt/usb/
+  sudo cp /boot/initramfs-linux.img /mnt/usb/initramfs-linux.img
 
   # Copy AMD firmware for offline recovery
   echo "Copying AMD firmware to recovery USB..."
-  mkdir -p /mnt/usb/firmware
-  cp -r /lib/firmware/amdgpu /mnt/usb/firmware/
+  sudo mkdir -p /mnt/usb/firmware
+  sudo cp -r /lib/firmware/amdgpu /mnt/usb/firmware/
 
   # Generate minimal rescue initramfs (no plymouth, resume)
-  cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
-  sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block sd-encrypt btrfs filesystems keyboard)/' /mnt/usb/mkinitcpio-rescue.conf
-  mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
-  cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
+  sudo cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
+  sudo sed -i 's/HOOKS=(.*/HOOKS=(base systemd autodetect modconf block sd-encrypt btrfs filesystems keyboard)/' /mnt/usb/mkinitcpio-rescue.conf
+  sudo mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
+  sudo cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
 
   # Copy LUKS keyfile
-  cp /crypto_keyfile /mnt/usb/luks-keyfile 2>/dev/null || \
+  sudo cp /crypto_keyfile /mnt/usb/luks-keyfile 2>/dev/null || \
   echo "Warning: No keyfile found. Using passphrase only."
-  chmod 600 /mnt/usb/luks-keyfile 2>/dev/null || true
+  sudo chmod 600 /mnt/usb/luks-keyfile 2>/dev/null || true
 
   # GRUB config (Replace $LUKS_UUID and $ROOT_UUID with actual values in the menuentry)
-  cat << EOF > /mnt/usb/boot/grub/grub.cfg
+  sudo tee /mnt/usb/boot/grub/grub.cfg > /dev/null << EOF
   set timeout=5
   menuentry "Arch Linux Rescue" {
     insmod part_gpt
@@ -1023,8 +1019,8 @@
   EOF
 
   # Sign GRUB bootloader
-  sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
-  shred -u /crypto_keyfile # This may fail and you will need to enter the chroot, mount everything, then wipe
+  sudo sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
+  sudo shred -u /crypto_keyfile # This may fail and you will need to enter the chroot, mount everything, then wipe
   umount /mnt/usb
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
@@ -1050,26 +1046,26 @@
   # --- Main -----------------------------------------------------------
   log "Creating system configuration archive..."
 
-  mkdir -p "$STAGING_DIR"
+  sudo mkdir -p "$STAGING_DIR"
   log "Staging directory: $STAGING_DIR"
 
   # Kernel & Boot
   log "Copying mkinitcpio & bootloader config..."
-  cp -v /etc/mkinitcpio.conf            "$STAGING_DIR/" || true
+  sudo cp -v /etc/mkinitcpio.conf            "$STAGING_DIR/" || true
   for preset in /etc/mkinitcpio.d/*.preset; do
   [[ -f "$preset" ]] && cp -v "$preset" "$STAGING_DIR/"
   done
-  cp -v /boot/loader/loader.conf        "$STAGING_DIR/" || true
-  cp -v /etc/pacman.d/hooks/90-uki-sign.hook "$STAGING_DIR/" || true
+  sudo cp -v /boot/loader/loader.conf        "$STAGING_DIR/" || true
+  sudo cp -v /etc/pacman.d/hooks/90-uki-sign.hook "$STAGING_DIR/" || true
 
   # Filesystem & Encryption
   log "Copying fstab & crypttab..."
-  cp -v /etc/fstab                      "$STAGING_DIR/" || true
-  cp -v /etc/crypttab                   "$STAGING_DIR/" || true
+  sudo cp -v /etc/fstab                      "$STAGING_DIR/" || true
+  sudo cp -v /etc/crypttab                   "$STAGING_DIR/" || true
 
   # TPM / Security (sensitive!)
   log "Copying TPM reenroll service (PEM excluded)..."
-  cp -v /etc/systemd/system/tpm-reenroll.service "$STAGING_DIR/" || true
+  sudo cp -v /etc/systemd/system/tpm-reenroll.service "$STAGING_DIR/" || true
   # DO NOT copy private key! Store hash instead:
   if [[ -f /etc/tpm2-ukey.pem ]]; then
     sha256sum /etc/tpm2-ukey.pem > "$STAGING_DIR/tpm2-ukey.pem.sha256"
@@ -1081,11 +1077,11 @@
   /usr/local/bin/save-kernel-config.sh
   KERNEL_CONFIG="/etc/kernel/config-$(uname -r)"
   [[ -f "$KERNEL_CONFIG" ]] || die "Kernel config not generated"
-  cp -v "$KERNEL_CONFIG" "$STAGING_DIR/"
+  sudo cp -v "$KERNEL_CONFIG" "$STAGING_DIR/"
 
   # Archive + Verify
   log "Creating compressed archive..."
-  tar -C "$STAGING_DIR" --sort=name --owner=0 --group=0 --mtime='2025-01-01' \
+  tar -C "$STAGING_DIR" --sort=name --owner=0 --group=0 --mtime='2025-01-01' --exclude=/etc/shadow \
     -czf "$FINAL_ARCHIVE" .
 
   log "Verifying archive integrity..."
@@ -1107,52 +1103,31 @@
   log "   → $FINAL_ARCHIVE"
   log "   → ${FINAL_ARCHIVE}.sha256"
 
-  chmod +x /usr/local/bin/archive-system-config.sh
-  archive-system-config.sh
+  sudo chmod +x /usr/local/bin/archive-system-config.sh
+  sudo archive-system-config.sh
   ```
 - Migration Gentoo Final Checklist
   ```bash
   # Verify all files exist
-  ls -R /etc/gentoo-prep/
-  ls /etc/kernel/config-*
-  ls /etc/system-config-archive/*.tar.gz
+  sudo ls -R /etc/gentoo-prep/
+  sudo ls /etc/kernel/config-*
+  sudo ls /etc/system-config-archive/*.tar.gz
 
   # Commit etckeeper
-  etckeeper commit "Final config before first boot"
+  sudo etckeeper commit "Final config before first boot"
 
   # Backup archive off-system
-  cp /etc/system-config-archive/*.tar.gz /path/to/backup/
-  ```
-- Exit chroot:
-  ```bash
-  exit
+  sudo cp /etc/system-config-archive/*.tar.gz /path/to/backup/
   ```
 - Final reboot into encrypted system:
   ```bash
-  umount -R /mnt
+  sudo umount -R /mnt
   reboot
   ```
 - Verify
   ```bash
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
-  sbctl status
-  ```
-- (Optional) Enable systemd-homed with LUKS-encrypted homes
-  ```bash
-  systemctl enable --now systemd-homed.service
-  chattr +C /home
-  
-  # Example user
-  read -p "Create homed user? (y/N): " CREATE_HOMED
-  if [[ "$CREATE_HOMED" =~ ^[Yy]$ ]]; then
-    read -p "Username: " USERNAME
-    homectl create "$USERNAME" \
-      --storage=luks \
-      --fs-type=btrfs \
-      --shell=/bin/zsh \
-      --member-of=wheel \
-      --disk-size=100G
-  fi
+  sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  sudo sbctl status
   ```
 ## Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can pause at this point
 
