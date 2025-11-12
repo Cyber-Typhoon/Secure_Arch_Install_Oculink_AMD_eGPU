@@ -1352,8 +1352,11 @@
   ```bash
   # Allow Flatpaks to read/write their own config/data only
   flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
+  flatpak override --user --socket=wayland --socket=x11
   # Allow GPU access for Steam:
   flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
+  # Flatpak GUI - Test
+  flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
   ```
 - (OPTIONAL NOT RECOMMENDED) Setup Automated System/AUR Updates
   ```bash
