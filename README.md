@@ -965,9 +965,9 @@
   ```
 - Backup PCR values post-Secure Boot:
   ```bash
-  mount /dev/sdX1 /mnt/usb  # Replace with your USB
-  tpm2_pcrread sha256:7,11 > /mnt/usb/tpm-pcr-post-secureboot.txt
-  diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt || echo "PCR 7 changed (expected)"
+  sudo mount /dev/sdX1 /mnt/usb  # Replace with your USB
+  sudo tpm2_pcrread sha256:7,11 > /mnt/usb/tpm-pcr-post-secureboot.txt
+  sudo diff /mnt/usb/tpm-pcr-backup.txt /mnt/usb/tpm-pcr-post-secureboot.txt || echo "PCR 7 changed (expected)"
   echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
   echo "WARNING: Compare PCR values to ensure TPM policy consistency."
   ```
