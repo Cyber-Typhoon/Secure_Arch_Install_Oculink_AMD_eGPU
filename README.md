@@ -1817,31 +1817,98 @@
   ```
 - VFIO for eGPU passthrough
   ```bash
-  pacman -S --needed qemu libvirt virt-manager
+  # VFIO for eGPU passthrough (AMD OCuLink focus)
+  pacman -S --needed qemu libvirt virt-manager 
   systemctl enable --now libvirtd
+
+  # Load VFIO modules
   echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
+
+  # Check IOMMU groups (essential for isolation; script from ArchWiki)
+  cat << 'EOF' | sudo tee /usr/local/bin/check-iommu-groups.sh
+  #!/bin/bash
+  shopt -s nullglob
+  for g in $(find /sys/kernel/iommu_groups/* -maxdepth 0 -type d | sort -V); do
+    echo "IOMMU Group ${g##*/}:"
+    for d in $g/devices/*; do
+        echo -e "\t$(lspci -nns ${d##*/})"
+    done;
+  done
+  EOF
+  sudo chmod +x /usr/local/bin/check-iommu-groups.sh
+  echo "Run: sudo check-iommu-groups.sh to verify eGPU isolation (GPU/audio should be alone)."
+  sudo check-iommu-groups.sh | grep -i amd  # Quick preview
+
+  # Guide for IDs + auto-detect AMD eGPU
   echo "1. Run: lspci -nn | grep -i amd"
   echo "2. Example output: 1002:73df [AMD Radeon RX 6700 XT]"
-  echo "3. Edit /etc/modprobe.d/vfio.conf and replace 1002:xxxx with real IDs"
-  echo "4. Then: mkinitcpio -P && reboot"
+  echo "3. Edit /etc/modprobe.d/vfio.conf below with real IDs (vendor:device for GPU + audio)."
   lspci -nn | grep -i amd
   fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
-  echo "Run 'lspci -nn | grep -i amd' to find PCIe IDs (e.g., 1002:73df for RX 6700 XT). Replace '1002:xxxx' in /etc/modprobe.d/vfio.conf with the correct IDs."
-  echo "options vfio-pci ids=1002:xxxx,1002:xxxx" | sudo tee /etc/modprobe.d/vfio.conf
+
+  # Blacklist AMD driver (prevents host claiming eGPU; OCuLink-specific)
+  echo "blacklist amdgpu" | sudo tee /etc/modprobe.d/blacklist-amdgpu.conf
+  echo "softdep amdgpu pre: vfio-pci" | sudo tee -a /etc/modprobe.d/vfio.conf
+
+  # Auto-generate vfio-pci IDs
+  GPU_IDS=$(lspci -nn | grep -i amd | grep VGA | awk '{print $3}' | sed 's/\://g' | head -1)
+  AUDIO_IDS=$(lspci -nn | grep -i amd | grep Audio | awk '{print $3}' | sed 's/\://g' | head -1)
+  echo "options vfio-pci ids=${GPU_IDS:-1002:xxxx},${AUDIO_IDS:-1002:xxxx}" | sudo tee /etc/modprobe.d/vfio.conf
+  echo "Auto-detected IDs: GPU=${GPU_IDS:-TBD}, Audio=${AUDIO_IDS:-TBD}. Edit if wrong."
+  echo "4. Then: mkinitcpio -P && reboot"
   mkinitcpio -P
 
-  # Chek if vfio and qemu needs to be signed
-  sbctl verify /usr/bin/qemu-system-x86_64
-  sbctl verify /usr/lib/libvirt/libvirtd
+  # Optional: vendor-reset for AMD reset bug
+  echo "For AMD eGPU reset issues: paru -S vendor-reset-dkms-git"
+  echo "Add 'vendor_reset' to MODULES in /etc/mkinitcpio.conf, then mkinitcpio -P."
 
-  # If unsigned, sign and add to the pacman hook
-  sbctl sign -s /usr/bin/qemu-system-x86_64
-  sbctl sign -s /usr/lib/libvirt/libvirtd
-  echo "Target = qemu" >> /etc/pacman.d/hooks/90-uki-sign.hook
-  echo "Target = libvirt" >> /etc/pacman.d/hooks/90-uki-sign.hook
-  echo "Target = supergfxctl" >> /etc/pacman.d/hooks/90-uki-sign.hook
-  echo "Target = rebos" >> /etc/pacman.d/hooks/90-uki-sign.hook
-  sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/90-uki-sign.hook
+  # Wiki: Disable split lock mitigation (kernel 6.12+)
+  echo "kernel.split_lock_mitigate=0" | sudo tee /etc/sysctl.d/99-vfio.conf
+  sysctl -p /etc/sysctl.d/99-vfio.conf
+
+  # Optional: Resizable BAR udev rule for Code 43
+  cat << 'EOF' | sudo tee /etc/udev/rules.d/01-amd-bar.rules
+  ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{resource0_resize}="14"
+  ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{resource2_resize}="8"
+  EOF
+  echo "For Resizable BAR/Code 43: Unplug/replug eGPU or reboot."
+
+  # Optional: BIOS hangs note
+  echo "If guest hangs: BIOS — disable Re-Size BAR, enable SR-IOV, set Initiate Graphic Adapter=IGD."
+
+  # Sign binaries if unsigned
+  for bin in /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl; do
+    if ! sbctl verify "$bin" | grep -q "signed"; then
+      sbctl sign -s "$bin"
+      echo "Signed $bin."
+    else
+      echo "$bin already signed."
+    fi
+  done
+
+  # Append structured hook
+  if ! grep -q "Target = rebos" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then
+  cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
+
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = qemu
+  Target = libvirt
+  Target = supergfxctl
+  Target = rebos
+
+  [Action]
+  Description = Sign VFIO/eGPU/Rebos binaries with sbctl
+  When = PostTransaction
+  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl /usr/bin/rebos
+  Depends = sbctl
+  EOF
+    echo "Added structured signing hook."
+  else
+    echo "Signing hook already exists."
+  fi
   ```
 - Enable VRR for 4K OLED
   ```bash
@@ -2070,24 +2137,30 @@
   ```
   - Create Rebos pacman hook for updates
   ```bash
-  cat > /etc/pacman.d/hooks/99-rebos-gen.hook << 'EOF'
+  if ! [ -f /etc/pacman.d/hooks/99-rebos-gen.hook ]; then
+  cat << 'EOF' | sudo tee /etc/pacman.d/hooks/99-rebos-gen.hook
   [Trigger]
-  Operation=Upgrade
-  Type=Package
-  Target=rebos
+  Operation = Upgrade
+  Operation = Install
+  Type = Package
+  Target = rebos
 
   [Action]
-  Description=Regenerate Rebos manifest after updates
-  When=PostTransaction
-  # NOTE: Replace 'your_username' with the actual username that installed Rebos via Cargo.
-  Exec=/usr/bin/runuser -u your_username -- /home/your_username/.cargo/bin/rebos gen base
+  Description = Regenerate Rebos manifest after rebos updates
+  When = PostTransaction
+  Exec = /usr/bin/rebos gen base
+  Depends = rebos
   EOF
+    echo "Added Rebos manifest auto-regeneration hook."
+  else
+    echo "Rebos hook already exists. Skipping."
+  fi
   ```
   - Set permissions for hooks:
   ```bash
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
-  chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook
+  chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook 
   ```
   - Verify configuration:
   ```bash 
@@ -2677,32 +2750,57 @@
   #!/usr/bin/env bash
   set -euo pipefail
 
-  REBOS_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/rebos"
+  # === CONFIG ===
+  USER="$SUDO_USER"
+  if [[ -z "$USER" ]]; then
+    echo "Error: Must be run with sudo or via a system service that sets SUDO_USER." >&2
+    exit 1
+  fi
+
+  REBOS_CONFIG="/home/$USER/.config/rebos"
   BACKUP_NAME="weekly-$(date +%Y%m%d-%H%M%S)"
   LOG="/var/log/rebos-backup.log"
 
-  echo "[$(date)] Starting Rebos backup: $BACKUP_NAME" | tee -a "$LOG"
+  # === ENSURE LOG IS WRITABLE BY USER ===
+  sudo touch "$LOG"
+  sudo chown root:adm "$LOG"
+  sudo chmod 664 "$LOG"
 
-  # Ensure rebos is in PATH
-  export PATH="$HOME/.cargo/bin:$PATH"
+  # === LOGGING (Root) ===
+  log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 
-  # Regenerate manifest from current system state
-  rebos gen base --output "$REBOS_CONFIG/base.toml" | tee -a "$LOG"
+  log "Starting Rebos backup for user: $USER → $BACKUP_NAME"
 
-  # Commit to local git (if initialized)
-  if [ -d "$REBOS_CONFIG/.git" ]; then
-    cd "$REBOS_CONFIG"
+  # === RUN AS USER ===
+  sudo -u "$USER" bash <<EOS
+  set -euo pipefail
+
+  REBOS_CONFIG="$REBOS_CONFIG"
+  BACKUP_NAME="$BACKUP_NAME"
+  LOG="$LOG"
+
+  log_output() { cat | tee -a "\$LOG"; }
+
+  echo "Running rebos gen base..." | log_output
+  rebos gen base --output "\$REBOS_CONFIG/base.toml" | log_output
+  echo "Manifest regenerated" | log_output
+
+  if [ -d "\$REBOS_CONFIG/.git" ]; then
+    cd "\$REBOS_CONFIG"
     git add base.toml
-    git commit -m "Auto: weekly system manifest - $BACKUP_NAME" || echo "No changes to commit" | tee -a "$LOG"
+    git commit -m "Auto: weekly manifest - \$BACKUP_NAME" || echo "No git changes" | log_output
   fi
 
-  # Create named backup
-  rebos backup create --name "$BACKUP_NAME" | tee -a "$LOG"
+  echo "Creating backup..." | log_output
+  rebos backup create --name "\$BACKUP_NAME" | log_output
+  echo "Backup created: \$BACKUP_NAME" | log_output
 
-  # Prune old backups: keep last 8 weekly + 4 monthly
-  rebos backup prune --keep-last 8 --keep-tagged monthly:4 | tee -a "$LOG"
+  echo "Pruning old backups..." | log_output
+  rebos backup prune --keep-last 8 --keep-tagged monthly:4 | log_output
+  echo "Pruned old backups" | log_output
+  EOS
 
-  echo "[$(date)] Rebos backup completed: $BACKUP_NAME" | tee -a "$LOG"
+  log "Rebos backup completed: $BACKUP_NAME"
   EOF
 
   sudo chmod +x /usr/local/bin/rebos-backup.sh
