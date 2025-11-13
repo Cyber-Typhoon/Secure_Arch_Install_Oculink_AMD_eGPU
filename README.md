@@ -1209,7 +1209,7 @@
   # CLI Tools
   atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
   helix httpie hyfetch procs python-gobject rage ripgrep rustup starship tealdeer \
-  tokei xdg-ninja yazi zellij zoxide zsh-autosuggestions \
+  xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
@@ -1232,57 +1232,105 @@
   ```
 - Install Rebos (NixOS-like repeatability for any Linux distro.)
   ```bash
-  # Install Rebos from the maintainer's dedicated Arch repository (cleaner than cargo install)
+  # === REBOS: FULL DECLARATIVE SETUP (2025) ===
   set -euo pipefail
-  
-  # Add Oglo's public key (only necessary if key is not already in pacman keyring)
-  # This section only runs if the key is NOT already in the keyring.
+
+  # Install Rebos (Oglo repo)
   if ! sudo pacman-key --list-keys 83F788B2E0576307 &>/dev/null; then
-    echo "--- Public key not found. Receiving and signing key 83F788B2E0576307 ---"
-    # NOTE: This key (83F788B2E0576307) must be verified externally before running these commands.
+    echo "Adding Oglo GPG key..."
     sudo pacman-key --recv-key 83F788B2E0576307
     sudo pacman-key --lsign-key 83F788B2E0576307
-  else
-    echo "--- Public key found. Skipping key reception and signing. ---"
   fi
 
-  # Add the repository to pacman.conf
-  # The sed command only runs if the [oglo] repo definition isn't already present.
-  if ! grep -q '\[oglo\]' /etc/pacman.conf; then
-    echo "--- Adding [oglo] repository definition to /etc/pacman.conf ---"
-    sudo sed -i '/^#\?\[options\]/a [oglo]\nSigLevel = PackageOptional\nServer = [https://arch.oglo.dev/$repo/$arch](https://arch.oglo.dev/$repo/$arch)' /etc/pacman.conf
-  else
-    echo "--- [oglo] repository already configured. Skipping sed command. ---"
+  if ! grep -q '^\[oglo\]' /etc/pacman.conf; then
+    echo "Adding [oglo] repository..."
+    sudo sed -i '/^#?\[options\]/a [oglo]\nSigLevel = PackageOptional\nServer = https://arch.oglo.dev/$repo/$arch' /etc/pacman.conf
   fi
 
-  # Synchronize package databases and install rebos
   sudo pacman -Syy
-  paru -S --needed rebos  # Or: sudo pacman -S --needed rebos if paru not yet ready
+  paru -S --needed rebos
 
-  # Verify installation
-  rebos --version # Should show latest (e.g., v0.5.2 as of Nov 2025)
-  which rebos # Should now be /usr/bin/rebos (system-wide installation)
-
-  # Init for your system (tracks pacman/AUR history) — no --user flag needed
+  # Initialize Rebos
   rebos init
 
-  # Generate initial manifest (from your current install)
-  rebos gen base
-  git add ~/.config/rebos/base.toml
-  git commit -m "Initial Rebos manifest"
+  # Create config structure
+  mkdir -p ~/.config/rebos/{managers,hooks}
 
-  # Optional: Custom config (BTRFS, eGPU, etc.)
-  mkdir -p ~/.config/rebos
-  cat > ~/.config/rebos/base.toml << 'EOF'
-  name = "arch-secure-egpu"
-  description = "Hardened Arch + BTRFS + LUKS2 + TPM2 + AppArmor + eGPU"
-  bootloader = "systemd-boot"
-  kernel = "linux"
-  extra_packages = ["supergfxctl", "bolt", "apparmor"] # Your eGPU/MAC deps
+  # === managers/system.toml ===
+  cat > ~/.config/rebos/managers/system.toml << 'EOF'
+  add = "paru -S --needed #:? --noconfirm"
+  remove = "paru -Rns #:?"
+  sync = "paru -Sy"
+  upgrade = "paru -Syu --noconfirm"
+  plural_name = "system packages"
+  hook_name = "system_packages"
+  [config]
+  many_args = true
   EOF
 
-  # First backup/snapshot (with seconds for uniqueness)
-  rebos backup create --name "post-install-$(date +%Y%m%d-%H%M%S)"
+  # === gen.toml (MASTER BLUEPRINT) ===
+  cat > ~/.config/rebos/gen.toml << 'EOF'
+  # === REBOS SYSTEM BLUEPRINT ===
+  # Consolidate ALL packages, services, and timers here.
+  # Split into logical sections for clarity.
+
+  imports = [
+    "core", "security", "desktop", "egpu",
+  ]
+
+  [managers.system]
+  items = [
+  # === AUR Packages ===
+  "apparmor.d-git", "astal-git", "ags-git", "gdm-settings",
+  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics",
+
+  # === Browsers & Apps ===
+  "brave-browser", "mullvad-browser", "obs-studio",
+  "restic", "chezmoi", "bitwarden",
+
+  # === CLI Tools (not in base-devel) ===
+  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua", "eza", "fd", "fzf", "gitui", "glow", "gping", "helix", "httpie", "hyfetch", "procs", "rage", "ripgrep", "rustup", "starship", "tealdeer", "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions", "bandwhich",
+
+  # === Security Tools (post-boot) ===
+  "aide", "chkrootkit", "lynis", "opensnitch", "usbguard", "logwatch",
+
+  # === GNOME Extras ===
+  "gnome-tweaks", "gnome-shell-extensions"
+  ]
+
+  [managers.serv_startup]
+  items = [ "ufw", "auditd" ]  # Already enabled in chroot
+
+  [managers.serv_now]
+  items = [ "logwatch.timer" ]
+  EOF
+
+  # === manager_order.toml ===
+  cat > ~/.config/rebos/manager_order.toml << 'EOF'
+  begin = ["system"]
+  end = ["serv_startup", "serv_now"]
+  EOF
+
+  # Validate
+  echo "Validating Rebos config..."
+  rebos config check
+
+  # Build & apply
+  echo "Building and switching to declarative config..."
+  rebos config build
+  rebos config switch
+
+  # First backup
+  BACKUP_NAME="initial-declarative-$(date +%Y%m%d-%H%M%S)"
+  rebos backup create --name "$BACKUP_NAME"
+  echo "First backup created: $BACKUP_NAME"
+
+  # Git version control
+  cd ~/.config/rebos
+  git init -q
+  git add .
+  git commit -m "Initial declarative Rebos config — $(date -Iseconds)" -q
+  echo "Rebos config now under Git version control."
   ```
 - Install the AUR applications:
   ```bash
