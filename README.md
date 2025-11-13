@@ -1309,10 +1309,10 @@
 
   [managers.flatpak]
   items = [
-  "io.github.kolunmi.Bazaar", "com.github.tchx84.Flatseal",
+  "com.github.tchx84.Flatseal", "org.torproject.torbrowser-launcher"
   "org.gimp.GIMP", "org.inkscape.Inkscape", "org.kde.krita",
   "org.blender.Blender", "io.github.realmazharhussain.GdmSettings",
-  "org.gnome.Lollypop", "com.github.micahflee.torbrowser-launcher"
+  "org.gnome.Lollypop"
   ]
   
   [managers.serv_startup]
@@ -1482,7 +1482,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop) and Tor Browser (com.github.micahflee.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
