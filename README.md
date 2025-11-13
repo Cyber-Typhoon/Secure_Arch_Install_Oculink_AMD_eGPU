@@ -1190,46 +1190,6 @@
   echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
   mkdir -p ~/.cache/paru-build
   ```
-- Install Pacman applications:
-  ```bash
-  # System packages (CLI + system-level)
-  sudo pacman -S --needed \
-  # Security & Hardening
-  aide auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
-  \
-  # System Monitoring
-  baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
-  \
-  # Hardware
-  bluez bluez-utils fprintd thermald \
-  \
-  # Networking & Privacy
-  dnscrypt-proxy opensnitch wireguard-tools \
-  \
-  # CLI Tools
-  atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
-  helix httpie hyfetch procs python-gobject rage ripgrep rustup starship tealdeer \
-  xdg-ninja yazi zellij zoxide zsh-autosuggestions \
-  \
-  # Multimedia (system)
-  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud \
-  \
-  # Browsers & OBS (native)
-  brave-browser mullvad-browser obs-studio \
-  \
-  # Utilities
-  bandwhich \
-  \
-  # GNOME
-  gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks gnome-shell-extensions
-  ```
-- Enable essential services:
-  ```bash
-  sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
-  sudo systemctl --failed  # Check for failed services
-  sudo journalctl -p 3 -xb
-  ```
 - Install Rebos (NixOS-like repeatability for any Linux distro.)
   ```bash
   # === REBOS: FULL DECLARATIVE SETUP (2025) ===
@@ -1268,6 +1228,38 @@
   many_args = true
   EOF
 
+  cat > ~/.config/rebos/managers/flatpak.toml << 'EOF'
+  add = "flatpak install --user -y flathub #:?"
+  remove = "flatpak uninstall --user #:?"
+  sync = "flatpak update --user -y"
+  upgrade = "flatpak update --user -y"
+  plural_name = "flatpak apps"
+  [config]
+  many_args = true
+  EOF
+
+  cat > ~/.config/rebos/managers/serv_startup.toml << 'EOF'
+  add = "sudo systemctl enable #:?"
+  remove = "sudo systemctl disable #:?"
+  sync = "true"
+  upgrade = "true"
+  plural_name = "startup services"
+  hook_name = "serv_startup"
+  [config]
+  many_args = true
+  EOF
+
+  cat > ~/.config/rebos/managers/serv_now.toml << 'EOF'
+  add = "sudo systemctl enable --now #:?"
+  remove = "sudo systemctl disable #:?"
+  sync = "true"
+  upgrade = "true"
+  plural_name = "immediate services"
+  hook_name = "serv_now"
+  [config]
+  many_args = true
+  EOF
+
   # === gen.toml (MASTER BLUEPRINT) ===
   cat > ~/.config/rebos/gen.toml << 'EOF'
   # === REBOS SYSTEM BLUEPRINT ===
@@ -1280,35 +1272,64 @@
 
   [managers.system]
   items = [
-  # === AUR Packages ===
+  # Security & Hardening
+  "aide", "auditd", "bitwarden", "chkrootkit", "lynis", "rkhunter", "sshguard", "ufw", "usbguard",
+  
+  # System Monitoring
+  "baobab", "cpupower", "gnome-system-monitor", "logwatch", "tlp", "upower", "zram-generator",
+  
+  # Hardware
+  "bluez", "bluez-utils", "fprintd", "thermald", 
+  
+  # Networking & Privacy
+  "dnscrypt-proxy", "opensnitch", "wireguard-tools", 
+  
+  # CLI Tools
+  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua", "eza", "fd", "fzf", "gcc", "gdb", "git", "gitui", "glow", "gping",
+  "helix", "httpie", "hyfetch", "procs", "python-gobject", "rage", "ripgrep", "rustup", "starship", "tealdeer",
+  "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions",
+  
+  # Multimedia (system)
+  "ffmpeg", "gstreamer", "gst-libav", "gst-plugins-bad", "gst-plugins-good", "gst-plugins-ugly",
+  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", 
+  
+  # Browsers & OBS (native)
+  "brave-browser", "mullvad-browser", "obs-studio", 
+  
+  # Utilities
+  "bandwhich",
+  
+  # GNOME
+  "gnome-bluetooth", "gnome-software-plugin-flatpak", "gnome-tweaks", "gnome-shell-extensions",
+
+  # AUR Packages
   "apparmor.d-git", "astal-git", "ags-git", "gdm-settings",
-  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics",
-
-  # === Browsers & Apps ===
-  "brave-browser", "mullvad-browser", "obs-studio",
-  "restic", "chezmoi", "bitwarden",
-
-  # === CLI Tools (not in base-devel) ===
-  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua", "eza", "fd", "fzf", "gitui", "glow", "gping", "helix", "httpie", "hyfetch", "procs", "rage", "ripgrep", "rustup", "starship", "tealdeer", "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions", "bandwhich",
-
-  # === Security Tools (post-boot) ===
-  "aide", "chkrootkit", "lynis", "opensnitch", "usbguard", "logwatch",
-
-  # === GNOME Extras ===
-  "gnome-tweaks", "gnome-shell-extensions"
+  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics"
   ]
 
+  [managers.flatpak]
+  items = [
+  "io.github.kolunmi.Bazaar", "com.github.tchx84.Flatseal",
+  "org.gimp.GIMP", "org.inkscape.Inkscape", "org.kde.krita",
+  "org.blender.Blender", "io.github.realmazharhussain.GdmSettings",
+  "org.gnome.Lollypop", "com.github.micahflee.torbrowser-launcher"
+  ]
+  
   [managers.serv_startup]
-  items = [ "ufw", "auditd" ]  # Already enabled in chroot
+  items = [
+  "gdm", "bluetooth", "ufw", "auditd", "systemd-timesyncd", "tlp",
+  "dnscrypt-proxy", "sshguard", "rkhunter", "chkrootkit",
+  "pipewire", "wireplumber", "pipewire-pulse"
+  ]
 
   [managers.serv_now]
-  items = [ "logwatch.timer" ]
+  items = [ "fstrim.timer", "logwatch.timer" ]
   EOF
 
   # === manager_order.toml ===
   cat > ~/.config/rebos/manager_order.toml << 'EOF'
   begin = ["system"]
-  end = ["serv_startup", "serv_now"]
+  end = ["flatpak", "serv_startup", "serv_now"]
   EOF
 
   # Validate
@@ -1325,6 +1346,10 @@
   rebos backup create --name "$BACKUP_NAME"
   echo "First backup created: $BACKUP_NAME"
 
+  # Validate Applicatins Installed
+  rebos status
+  # Should output something like this "system_packages: 124 installed, 0 to install, 0 to remove"
+
   # Git version control
   cd ~/.config/rebos
   git init -q
@@ -1332,7 +1357,47 @@
   git commit -m "Initial declarative Rebos config — $(date -Iseconds)" -q
   echo "Rebos config now under Git version control."
   ```
-- Install the AUR applications:
+- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip) Install Pacman applications:
+  ```bash
+  # System packages (CLI + system-level)
+  sudo pacman -S --needed \
+  # Security & Hardening
+  aide auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
+  \
+  # System Monitoring
+  baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
+  \
+  # Hardware
+  bluez bluez-utils fprintd thermald \
+  \
+  # Networking & Privacy
+  dnscrypt-proxy opensnitch wireguard-tools \
+  \
+  # CLI Tools
+  atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
+  helix httpie hyfetch procs python-gobject rage ripgrep rustup starship tealdeer \
+  xdg-ninja yazi zellij zoxide zsh-autosuggestions \
+  \
+  # Multimedia (system)
+  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud \
+  \
+  # Browsers & OBS (native)
+  brave-browser mullvad-browser obs-studio \
+  \
+  # Utilities
+  bandwhich \
+  \
+  # GNOME
+  gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks gnome-shell-extensions
+  ```
+- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip) Enable essential services:
+  ```bash
+  sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
+  sudo systemctl --failed  # Check for failed services
+  sudo journalctl -p 3 -xb
+  ```
+- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip)   Install the AUR applications:
   ```bash
   # AUR applications:
   paru -S --needed \
@@ -1405,7 +1470,7 @@
   EOF
   sudo systemctl restart gdm # or reboot
   ```
-- Install Bazzar and the Flatpak applications via GUI
+- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip) Install Bazzar and the Flatpak applications via GUI
   ```bash
   # Install Bazaar (Flatpak-focused app store) and Flatseal
   flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -1415,7 +1480,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop) and Tor Browser (torproject.org). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop) and Tor Browser (com.github.micahflee.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
