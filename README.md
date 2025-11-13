@@ -1408,7 +1408,9 @@
     gdm-settings \
     systeroid-git \
     run0-sudo-shim-git
-
+  ```
+- Sign the Astal, AGS and run0-sudo-shim
+  ```bash
   # Verify binaries exist before signing
     [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
   
