@@ -1147,13 +1147,18 @@
   git clone --depth 1 https://aur.archlinux.org/paru.git "$TMP_PARU"
   (
     cd "$TMP_PARU" || exit 1
+    set -e  # Fail fast on any error
+
+  # Make pacman non-interactive for deps (passes to internal pacman -S calls)
+  export PACMAN_OPTS=("--noconfirm")
   
   # Build the package (creates the .pkg.tar.zst file)
-  makepkg -s --noconfirm
+  makepkg -s --clean
   
   # NAMCAP AUDIT (Insert Check Here)
   echo "--- Running namcap audit on the built paru package ---"
   # Audits the built package. The || true allows the script to continue on warnings.
+  namcap PKGBUILD || true
   namcap paru-*.pkg.tar.zst || true
   
   # Install the audited package
@@ -1227,23 +1232,39 @@
   ```
 - Install Rebos (NixOS-like repeatability for any Linux distro.)
   ```bash
-  # Pre-reqs (Rust + Cargo; already in base-devel)
-  rustup default stable
-
-  # Install latest from GitLab upstream
-  cargo install --git https://gitlab.com/Oglo12/rebos.git rebos
-  export PATH="$HOME/.cargo/bin:$PATH"
+  # Install Rebos from the maintainer's dedicated Arch repository (cleaner than cargo install)
+  set -euo pipefail
   
-  # Verify
-  rebos --version  # Should show latest (e.g., v0.x as of 2025)
-  which rebos      # /home/$USER/.cargo/bin/rebos
+  # Add Oglo's public key (only necessary if key is not already in pacman keyring)
+  # This section only runs if the key is NOT already in the keyring.
+  if ! sudo pacman-key --list-keys 83F788B2E0576307 &>/dev/null; then
+    echo "--- Public key not found. Receiving and signing key 83F788B2E0576307 ---"
+    # NOTE: This key (83F788B2E0576307) must be verified externally before running these commands.
+    sudo pacman-key --recv-key 83F788B2E0576307
+    sudo pacman-key --lsign-key 83F788B2E0576307
+  else
+    echo "--- Public key found. Skipping key reception and signing. ---"
+  fi
 
-  # Add to PATH if needed (add to ~/.zshrc)
-  echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
-  source ~/.zshrc
+  # Add the repository to pacman.conf
+  # The sed command only runs if the [oglo] repo definition isn't already present.
+  if ! grep -q '\[oglo\]' /etc/pacman.conf; then
+    echo "--- Adding [oglo] repository definition to /etc/pacman.conf ---"
+    sudo sed -i '/^#\?\[options\]/a [oglo]\nSigLevel = PackageOptional\nServer = [https://arch.oglo.dev/$repo/$arch](https://arch.oglo.dev/$repo/$arch)' /etc/pacman.conf
+  else
+    echo "--- [oglo] repository already configured. Skipping sed command. ---"
+  fi
 
-  # Init for your system (tracks pacman/AUR history)
-  rebos init --user "$USER"
+  # Synchronize package databases and install rebos
+  sudo pacman -Syy
+  paru -S --needed rebos  # Or: sudo pacman -S --needed rebos if paru not yet ready
+
+  # Verify installation
+  rebos --version # Should show latest (e.g., v0.5.2 as of Nov 2025)
+  which rebos # Should now be /usr/bin/rebos (system-wide installation)
+
+  # Init for your system (tracks pacman/AUR history) — no --user flag needed
+  rebos init
 
   # Generate initial manifest (from your current install)
   rebos gen base
@@ -1257,11 +1278,11 @@
   description = "Hardened Arch + BTRFS + LUKS2 + TPM2 + AppArmor + eGPU"
   bootloader = "systemd-boot"
   kernel = "linux"
-  extra_packages = ["supergfxctl", "bolt", "apparmor"]  # Your eGPU/MAC deps
+  extra_packages = ["supergfxctl", "bolt", "apparmor"] # Your eGPU/MAC deps
   EOF
 
-  # First backup/snapshot
-  rebos backup create --name "post-install-$(date +%Y%m%d-%H%M)"
+  # First backup/snapshot (with seconds for uniqueness)
+  rebos backup create --name "post-install-$(date +%Y%m%d-%H%M%S)"
   ```
 - Install the AUR applications:
   ```bash
@@ -1820,7 +1841,6 @@
   echo "Target = libvirt" >> /etc/pacman.d/hooks/90-uki-sign.hook
   echo "Target = supergfxctl" >> /etc/pacman.d/hooks/90-uki-sign.hook
   echo "Target = rebos" >> /etc/pacman.d/hooks/90-uki-sign.hook
-  echo "Exec = /usr/bin/sbctl sign -s /home/*/.*cargo/bin/rebos" >> /etc/pacman.d/hooks/90-uki-sign.hook
   sed -i '/Exec =/ s|$| \/usr\/bin\/qemu-system-x86_64 \/usr\/lib\/libvirt\/libvirtd|' /etc/pacman.d/hooks/90-uki-sign.hook
   ```
 - Enable VRR for 4K OLED
