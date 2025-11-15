@@ -1407,7 +1407,9 @@
     ags-git \
     gdm-settings \
     systeroid-git \
-    run0-sudo-shim-git
+    run0-sudo-shim-git \
+    hardened_malloc
+  ldconfig  # Update linker cache
   ```
 - Sign the Astal, AGS and run0-sudo-shim
   ```bash
@@ -1421,7 +1423,7 @@
   sudo sbctl sign -s /usr/bin/sudo
   echo "run0-sudo-shim installed and signed"
   
-  # Append Astal/AGS to existing 90-uki-sign.hook
+  # Append Astal/AGS and hardened_malloc to existing 90-uki-sign.hook
   if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
   cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
 
@@ -1431,11 +1433,12 @@
   Type = Package
   Target = astal-git
   Target = ags-git
+  Target = hardened_malloc
 
   [Action]
-  Description = Sign astal/ags with sbctl
+  Description = Sign astal/ags and hardened_malloc libs for Secure Boot with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags
+  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags /usr/lib/libhardened_malloc*.so
   Depends = sbctl
   EOF
   fi
@@ -1746,7 +1749,7 @@
   kernel.dmesg_restrict=1
   kernel.kptr_restrict=2
   net.core.bpf_jit_harden=2
-  vm.max_map_count=1048576
+  vm.max_map_count=2147483642
   EOF
   sudo sysctl -p /etc/sysctl.d/99-hardening.conf
   ```
@@ -1817,7 +1820,7 @@
 
   echo "AppArmor FSP is now in COMPLAIN mode."
   echo "Use system normally for 1–2 days, then check denials:"
-  echo "  journalctl -u apparmor | grep DENIED"
+  echo "  journalctl -u apparmor | grep DENIED" # (THIS IS IMPORTANT STEP, MAKE SURE TO PERFORM IT)
   echo "  sudo aa-logprof"
   echo "NEXT STEPS (after eGPU setup + normal use):"
   echo "  1. Use system normally for 1–2 days"
