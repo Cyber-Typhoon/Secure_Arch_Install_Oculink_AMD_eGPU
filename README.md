@@ -2815,6 +2815,10 @@
   echo 1 | sudo tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
   echo "Conservation mode set back to 1 (ON). Status: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode)"
   ```
+- Forcepad Issues
+  ```bash
+  # If touchpad is with issue try this kernel patch https://github.com/ty2/goodix-gt7868q-linux-driver
+  ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
   ```bash
   echo "fwupd tests moved to Step 18 for BIOS/firmware updates."
