@@ -2633,6 +2633,10 @@
   # Log recent denials (FSP logs to same audit)
   ausearch -m avc -ts recent | tail -10 || echo "No recent AVC denials"
 
+  # Add the following lines to /etc/apparmor/parser.conf:
+  write-cache
+  Optimize=compress-fast
+
   # Confirm cache is enabled
   grep -q "cache-loc = /etc/apparmor.d/cache" /etc/apparmor/parser.conf && \
     echo "✓ AppArmor cache enabled" || echo "✗ Cache not configured"
