@@ -3109,52 +3109,95 @@
   ```
 - **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
   ```bash
-  # Enable early policy caching (required for boot-time FSP)
+  # Enable policy caching (using a robust, non-destructive sed command)
   sudo mkdir -p /etc/apparmor.d/cache
-  sudo sed -i '/^#.*cache-loc/s/^#//' /etc/apparmor/parser.conf
-  sudo sed -i 's|.*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
+  sudo sed -i -E 's|^[[:space:]]*#?[[:space:]]*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
+  # Verify change (outputs the updated line)
+  grep '^cache-loc' /etc/apparmor/parser.conf || echo "Warning: cache-loc not set correctly"
+  echo "Enabled AppArmor cache in parser.conf"
+
+  # Enable the FSP's built-in cache update timer
+  # (This timer is provided by the apparmor.d-git package)
+  if ! systemctl is-enabled --quiet apparmor.d-update.timer; then
+    sudo systemctl enable --now apparmor.d-update.timer
+    echo "Enabled and started apparmor.d-update.timer"
+  else
+    echo "apparmor.d-update.timer already enabled"
+  fi
 
   # Check timer status
-  systemctl status apparmor.d-update.timer
+  systemctl status apparmor.d-update.timer --no-pager
 
-  # Check timer last run
-  journalctl -u apparmor.d-update.service -n 20
+  # Create AppArmor abstraction for hardened_malloc
+  sudo mkdir -p /etc/apparmor.d/local
+  if [ ! -f /etc/apparmor.d/local/hardened_malloc.abstraction ]; then
+    sudo tee /etc/apparmor.d/local/hardened_malloc.abstraction > /dev/null <<'EOF'
+  # Hardened malloc preload support
+  /usr/lib/libhardened_malloc*.so mr,
+  EOF
+    echo "Created hardened_malloc abstraction"
+  else
+    echo "hardened_malloc abstraction already exists"
+  fi
 
-  # Confirm profiles are cached
-  ls /etc/apparmor.d/cache/ | wc -l   # Should show 1000+ files
-  aa-status | grep "profiles are loaded" | head -1
+  # Create local tunable for hardened_malloc (this is the clean way)
+  sudo mkdir -p /etc/apparmor.d/tunables/local
+  if [ ! -f /etc/apparmor.d/tunables/local/hardened_malloc ]; then
+    echo '/usr/lib/libhardened_malloc*.so mr,' | sudo tee /etc/apparmor.d/tunables/local/hardened_malloc > /dev/null
+    echo "Created hardened_malloc local tunable"
+  else
+    echo "hardened_malloc local tunable already exists"
+  fi
+
+  # Create local tunable for XDG (from your V1, still a good idea)
+  if [ ! -f /etc/apparmor.d/tunables/local/xdg.conf ]; then
+    echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf > /dev/null
+    echo "Created XDG local tunable"
+  else
+    echo "XDG local tunable already exists"
+  fi
+
+  # Reload all AppArmor profiles to apply new abstractions/tunables
+  sudo apparmor_parser -r /etc/apparmor.d/
+  # Verify no parse errors
+  sudo aa-status | head -5 || echo "Warning: aa-status failed (check apparmor.service)"
+  echo "hardened_malloc whitelisted in AppArmor FSP."
 
   # Tune from logs (run after normal usage)
-  echo "Use the system for a while, then run:"
-  echo "  sudo aa-logprof   # interactive"
-  echo "  sudo aa-genprof <binary>   # for new apps"
+  echo "---"
+  echo "Use the system normally for a while (1-2 days), then run:"
+  echo "  sudo aa-logprof   # To interactively tune profiles"
+  echo "  sudo aa-genprof <binary>   # To generate profiles for new apps"
+  echo "---"
 
-  # Switch to enforced mode once satisfied
+  # Switch to ENFORCE mode using the FSP helper
   read -p "Ready to enforce AppArmor.d FSP? (y/N): " confirm_fsp
   [[ $confirm_fsp =~ ^[Yy]$ ]] || exit 1
+
+  # Verify 'just' and fsp-enforce availability
+  if ! command -v just >/dev/null 2>&1 || ! just --list 2>/dev/null | grep -q fsp-enforce; then
+    echo "Error: 'just fsp-enforce' not available. Ensure apparmor.d-git is installed and up-to-date."
+    exit 1
+  fi
+
   sudo just fsp-enforce
-  sudo apparmor_parser -r /usr/share/apparmor.d/*
   sudo systemctl restart apparmor
-  aa-status | grep -E "(profiles are in enforce mode|complain)"
+
+  # Verify enforcement
+  aa-status | grep -E "(profiles are in enforce mode|complain)" || echo "Warning: Enforcement check failed"
   echo "AppArmor FSP is now ENFORCED."
 
-  # Confirm no stray vanilla profiles interfere
-  if [ -f /etc/appamor.d/disable ] || ls /etc/apparmor.d/*.conf >/dev/null 2>&1; then
-    echo "Warning: Legacy profiles in /etc/apparmor.d/ — consider removing or disabling."
-  fi
-  # echo "AppArmor.d FSP is now ENFORCED.
-
-  # Warm cache on boot (critical for UKI + Secure Boot)
+  # Warm cache on boot (using explicit cache-loc)
   sudo mkdir -p /etc/systemd/system/apparmor.service.d
-  sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf > /dev/null <<'EOF'
+  if [ ! -f /etc/systemd/system/apparmor.service.d/cache-warm.conf ]; then
+    sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf > /dev/null <<'EOF'
   [Service]
-  ExecStartPre=/usr/bin/apparmor_parser -r /usr/share/apparmor.d/*
+  ExecStartPre=/usr/bin/apparmor_parser --cache-loc=/etc/apparmor.d/cache -r /usr/share/apparmor.d/*
   EOF
-
-  # (Optional) Add user-specific tunables
-  sudo mkdir -p /etc/apparmor.d/tunables/local
-  echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf
-  sudo apparmor_parser -r /etc/apparmor.d/tunables/*
+    echo "Created apparmor cache-warm override"
+  else
+    echo "apparmor cache-warm override already exists"
+  fi
 
   # Reboot to apply cache & early load
   echo "Rebooting in 10 seconds to apply AppArmor.d cache..."
