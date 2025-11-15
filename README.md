@@ -1291,7 +1291,7 @@
   
   # Multimedia (system)
   "ffmpeg", "gstreamer", "gst-libav", "gst-plugins-bad", "gst-plugins-good", "gst-plugins-ugly",
-  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", "gamemode", "lib32-gamemode",
+  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", "gamemode", "lib32-gamemode", "gamescope",
   
   # Browsers & OBS (native)
   "brave-browser", "mullvad-browser", "obs-studio", 
@@ -1380,7 +1380,7 @@
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode gamescope \
   \
   # Browsers & OBS (native)
   brave-browser mullvad-browser obs-studio \
@@ -3300,12 +3300,18 @@
   # Packages
   # Use arch-packages.txt + mapping to build @world
   ```
-- **k) Tune Games
+- **k) Tunning Games
   ```bash
   # Steam/Lutris/Heroic add in launch options:
   gamemoderun %command%
   # For Linux Native Games:
   gamemoderun mangohud %command%
+  # Best Performance / Lowest Latency (Competitive, requires manual vsync control)
+  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco vkbasalt __GLX_VENDOR_LIBRARY_NAME=nvidia %command%
+
+  # Optimal Performance / Features (Recommended for Wayland/Freesync/VRR users)
+  # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
+  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 --fsr -r 144 -- %command%
   ```
 - **l) Final Reboot & Lock**:
   ```bash
