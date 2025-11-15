@@ -1728,6 +1728,7 @@
 - Configure sysctl hardening:
   ```bash
   sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<'EOF'
+  # === NETWORK HARDENING ===
   net.ipv4.conf.default.rp_filter=1
   net.ipv4.conf.all.rp_filter=1
   net.ipv4.tcp_syncookies=1
@@ -1745,20 +1746,39 @@
   net.ipv4.conf.all.log_martians=1
   net.ipv4.icmp_ignore_bogus_error_responses=1
   net.ipv4.icmp_echo_ignore_broadcasts=1
+  net.core.netdev_max_backlog=4096
+
+  # === KERNEL HARDENING ===
   kernel.randomize_va_space=2
   kernel.dmesg_restrict=1
   kernel.kptr_restrict=2
+  kernel.kexec_load_disabled=1
   net.core.bpf_jit_harden=2
+  kernel.nmi_watchdog=0                 
+
+  # === GAMING / MEMORY (Best of Both) ===
   vm.max_map_count=2147483642
-  vm.swappiness=10                    
+  vm.swappiness=10
+  vm.vfs_cache_pressure=50                    
   vm.compaction_proactiveness=0        
   vm.watermark_scale_factor=500        
   vm.watermark_boost_factor=0          
   vm.min_free_kbytes=1048576           
   vm.page_lock_unfairness=1             
-  vm.zone_reclaim_mode=0               
-  kernel.nmi_watchdog=0                 
-  kernel.sched_nr_migrate=128          
+  vm.zone_reclaim_mode=0
+  kernel.sched_nr_migrate=128
+
+  # === I/O SMOOTHNESS ===
+  vm.dirty_bytes=268435456
+  vm.dirty_background_bytes=67108864
+  vm.dirty_writeback_centisecs=1500
+
+  # === FILE DESCRIPTORS (Steam needs this) ===
+  fs.file-max=2097152
+
+  # === SWAP (Keep readahead for hibernation) ===
+  vm.page-cluster=3             
+            
   EOF
   sudo sysctl -p /etc/sysctl.d/99-hardening.conf
   ```
@@ -2196,6 +2216,31 @@
     lspci | grep -i amd  # Check eGPU detection
     dmesg | grep -i amdgpu  # Check driver loading
     glxinfo | grep -i renderer  # Verify GPU rendering
+    ```
+  - (Optional) If for some reason the Oculink performance has some latency issues consider adding some script for setpci like CachyOS does - https://wiki.cachyos.org/features/cachyos_settings/#helper-scripts
+    ```bash
+    #!/usr/bin/env sh
+    # This script is designed to improve the performance and reduce audio latency
+    # for sound cards by setting the PCI latency timer to an optimal value of 80
+    # cycles. It also resets the default value of the latency timer for other PCI
+    # devices, which can help prevent devices with high default latency timers from
+    # causing gaps in sound.
+
+    # Check if the script is run with root privileges
+    if [ "$(id -u)" -ne 0 ]; then
+    echo "Error: This script must be run with root privileges." >&2
+    exit 1
+    fi
+
+    # Reset the latency timer for all PCI devices
+    setpci -v -s '*:*' latency_timer=20
+    setpci -v -s '0:0' latency_timer=0
+
+    # Set latency timer for all sound cards
+    setpci -v -d "*:*:04xx" latency_timer=80
+
+    # Start the service for this script above
+    sudo systemctl enable --now pci-latency.service
     ```
 ## Step 13: Configure Snapper and Backups
 - Install Snapper and snap-pac
