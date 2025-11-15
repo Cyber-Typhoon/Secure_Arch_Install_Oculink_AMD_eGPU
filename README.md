@@ -1291,7 +1291,7 @@
   
   # Multimedia (system)
   "ffmpeg", "gstreamer", "gst-libav", "gst-plugins-bad", "gst-plugins-good", "gst-plugins-ugly",
-  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", 
+  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", "gamemode", "lib32-gamemode",
   
   # Browsers & OBS (native)
   "brave-browser", "mullvad-browser", "obs-studio", 
@@ -1380,7 +1380,7 @@
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode\
+  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode \
   \
   # Browsers & OBS (native)
   brave-browser mullvad-browser obs-studio \
