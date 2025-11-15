@@ -741,7 +741,7 @@
   # rd.luks.uuid is now optional due to crypttab.initramfs, simplifying the cmdline.
 
   # Main Preset (linux)
-  cat > /etc/mkinitcpio.d/linux.preset << EOF
+  tee /etc/mkinitcpio.d/linux.preset > /dev/null << EOF
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
