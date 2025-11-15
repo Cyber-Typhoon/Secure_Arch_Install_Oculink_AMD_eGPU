@@ -1603,6 +1603,10 @@
   else
     echo "WARNING: Conservation mode not supported (no sysfs path found)."
   fi
+  # If we experience issues where laptop resets when suspending with lid close create a modprobe configuration file to blacklist the module:
+  # echo "blacklist ideapad_laptop" | sudo tee /etc/modprobe.d/ideapad_suspend_fix.conf
+  # sudo mkinitcpio -P
+  # This will turn off the option to use power conservation mode and in this case set limits in the TLP in Step 12
   ```
 - Configure Wayland environment variables:
   ```bash
