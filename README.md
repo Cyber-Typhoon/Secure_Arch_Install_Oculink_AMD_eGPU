@@ -430,7 +430,7 @@
   vulkan-radeon lib32-vulkan-radeon intel-gpu-tools \
   \
   # Audio
-  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack \
+  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
   \
   # System
   sudo polkit udisks2 thermald acpi acpid ethtool namcap dmidecode apparmor \
