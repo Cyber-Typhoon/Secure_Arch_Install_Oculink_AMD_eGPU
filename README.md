@@ -1571,6 +1571,39 @@
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
   echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
   ```
+- Lenovo Battery Conservation Mode (60% Limit)
+  ```bash
+  echo "Setting up Lenovo Battery Conservation Mode..."
+
+  # Load module (idempotent)
+  sudo modprobe ideapad_laptop 2>/dev/null || echo "Module not available (non-Lenovo?)"
+
+  # Find sysfs path (robust: handles VPC2004:00, VPC2006:00, etc.)
+  CONSERVATION_PATH=$(find /sys/bus/platform/drivers/ideapad_acpi -name conservation_mode 2>/dev/null | head -n1)
+
+  if [[ -n "$CONSERVATION_PATH" ]]; then
+  # Enable by default (persists across reboots)
+    echo 1 | sudo tee "$CONSERVATION_PATH" > /dev/null
+    echo "Conservation Mode ENABLED (stops at ~60%; path: $CONSERVATION_PATH)"
+
+    # Install GNOME extension for GUI toggle
+    paru -S --noconfirm gnome-shell-extension-ideapad
+    echo "GNOME extension installed — enable in Extensions app (extensions.gnome.org/local)"
+
+    # Passwordless sudo for extension (wheel group; run0-shim compatible)
+    sudo tee /etc/sudoers.d/ideapad-conservation > /dev/null << 'EOF'
+    # Allow wheel users to toggle battery conservation without password
+    %wheel ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
+  EOF
+    sudo chmod 440 /etc/sudoers.d/ideapad-conservation
+    echo "Passwordless sudo enabled for extension"
+
+    # Quick status
+    echo "Current status: $(cat "$CONSERVATION_PATH")"
+  else
+    echo "WARNING: Conservation mode not supported (no sysfs path found)."
+  fi
+  ```
 - Configure Wayland environment variables:
   ```bash
   sudo tee /etc/environment > /dev/null <<'EOF'
@@ -1982,12 +2015,23 @@
   ```
 - Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
   ```bash
-  cat << 'EOF' >> /etc/tlp.conf
+  sudo tee -a /etc/tlp.conf > /dev/null << 'EOF'
   RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915" # This exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
   CPU_ENERGY_PERF_POLICY_ON_AC=performance
   CPU_MAX_PERF_ON_AC=100
   CPU_MIN_PERF_ON_AC=50
   CPU_SCALING_GOVERNOR_ON_AC=performance
+  # Battery Conservation. Disable TLP's native battery care to prevent conflicts with the GNOME extension.
+  # The GNOME extension now has exclusive control over the conservation_mode file.
+  BAT_CARE_VENDOR=none
+  # === OPTIONAL: 80% CHARGE THRESHOLD OVERRIDE ===
+  # To temporarily charge to 80% (e.g., for travel):
+  # 1. Disable Conservation Mode via the GNOME Extension (or CLI: echo 0 | sudo tee .../conservation_mode)
+  # 2. Uncomment the two lines below:
+  # START_CHARGE_THRESH_BAT0=75
+  # STOP_CHARGE_THRESH_BAT0=80
+  # 3. Restart TLP: sudo systemctl restart tlp
+  # Remember to reverse the change (comment out lines 2-3) and re-enable Conservation Mode (toggle to 1) after your trip.
   EOF
   systemctl restart tlp
   tlp-stat -p # Check TDP >60W on AC
@@ -2746,6 +2790,29 @@
   DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
   # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
   # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
+  ```
+- Lenovo Conservation Mode Validation
+  ```bash
+  echo "Current conservation mode status (Expected: 1):"
+  cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode 2>/dev/null || echo "Not supported"
+
+  # TLP Check (Confirms TLP is disabled from battery care)
+  echo "TLP Battery Care Check (Expected: 'none' vendor):"
+  tlp-stat -b | grep -i 'Care Vendor'
+
+  # Toggle Test (Confirms manual control works and TLP does not override after 10s)
+  echo "Testing manual toggle (Off/On cycle)..."
+
+  # Toggle OFF (Charge to 100%)
+  echo 0 | sudo tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
+  echo "Conservation mode set to 0 (OFF). Status: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode)"
+  sleep 10
+  # Re-check TLP status to ensure it did NOT override the '0'
+  echo "Status after 10s delay: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode) (Should still be 0)"
+
+  # Toggle back ON (Limit charge to ~60%)
+  echo 1 | sudo tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
+  echo "Conservation mode set back to 1 (ON). Status: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode)"
   ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
   ```bash
