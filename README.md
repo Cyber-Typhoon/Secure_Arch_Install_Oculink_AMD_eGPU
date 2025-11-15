@@ -746,8 +746,9 @@
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
   intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
-  mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 elevator=bfq scsi_mod.use_blk_mq=1 \
+  mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 scsi_mod.use_blk_mq=1 \
   rd.emergency=poweroff amdgpu.dc=1 amdgpu.dpm=1 tsc=reliable clocksource=tsc \
+  intel_idle.max_cstate=2 \
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
