@@ -1190,7 +1190,7 @@
   echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
   mkdir -p ~/.cache/paru-build
   ```
-- Install Rebos (NixOS-like repeatability for any Linux distro.)
+- (DEPRECATED - Rebos is a too young project, too risky) Install Rebos (NixOS-like repeatability for any Linux distro.)
   ```bash
   # === REBOS: FULL DECLARATIVE SETUP (2025) ===
   set -euo pipefail
@@ -1357,7 +1357,7 @@
   git commit -m "Initial declarative Rebos config — $(date -Iseconds)" -q
   echo "Rebos config now under Git version control."
   ```
-- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip) Install Pacman applications:
+- Install Pacman applications:
   ```bash
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
@@ -1391,13 +1391,13 @@
   # GNOME
   gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks gnome-shell-extensions
   ```
-- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip) Enable essential services:
+- Enable essential services:
   ```bash
   sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
-- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip)   Install the AUR applications:
+- Install the AUR applications:
   ```bash
   # AUR applications:
   paru -S --needed \
@@ -1472,7 +1472,7 @@
   EOF
   sudo systemctl restart gdm # or reboot
   ```
-- (OBSOLETE - Kept in case RebOS doesn't work, if it works skip) Install Bazzar and the Flatpak applications via GUI
+- Install Bazzar and the Flatpak applications via GUI
   ```bash
   # Install Bazaar (Flatpak-focused app store) and Flatseal
   flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
