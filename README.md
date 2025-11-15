@@ -3317,7 +3317,16 @@
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
   LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 --fsr -r 144 -- %command%
   ```
-- **l) Final Reboot & Lock**:
+- **l) Audio and Software Enhancements**:
+  ```bash
+  # Enhancing Laptop Speaker Sound - https://wiki.cachyos.org/configuration/general_system_tweaks/#audio-and-software-enhancements
+  sudo pacman -S easyeffects
+  sudo pacman -S lsp-plugins-lv2
+  sudo pacman -S zam-plugins
+  sudo pacman -S calf
+  sudo pacman -S mda.lv2
+  ```
+- **m) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
