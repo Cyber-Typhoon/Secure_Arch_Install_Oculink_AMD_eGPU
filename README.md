@@ -2,9 +2,9 @@
 
 ## Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
 
-- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
+- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0**, **hardened-malloc** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
 - The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
-- **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup, performance penalties and linux-hardened does not support hibernation. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened and hardened-malloc can be explored.
+- **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup, performance penalties and linux-hardened does not support hibernation. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened can be explored.
 - **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
 
 ## Step 1: Verify Hardware
@@ -1190,6 +1190,173 @@
   echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
   mkdir -p ~/.cache/paru-build
   ```
+- (DEPRECATED - Rebos is a too young project, too risky) Install Rebos (NixOS-like repeatability for any Linux distro.)
+  ```bash
+  # === REBOS: FULL DECLARATIVE SETUP (2025) ===
+  set -euo pipefail
+
+  # Install Rebos (Oglo repo)
+  if ! sudo pacman-key --list-keys 83F788B2E0576307 &>/dev/null; then
+    echo "Adding Oglo GPG key..."
+    sudo pacman-key --recv-key 83F788B2E0576307
+    sudo pacman-key --lsign-key 83F788B2E0576307
+  fi
+
+  if ! grep -q '^\[oglo\]' /etc/pacman.conf; then
+    echo "Adding [oglo] repository..."
+    sudo sed -i '/^#?\[options\]/a [oglo]\nSigLevel = PackageOptional\nServer = https://arch.oglo.dev/$repo/$arch' /etc/pacman.conf
+  fi
+
+  sudo pacman -Syy
+  paru -S --needed rebos
+
+  # Initialize Rebos
+  rebos init
+
+  # Create config structure
+  mkdir -p ~/.config/rebos/{managers,hooks}
+
+  # === managers/system.toml ===
+  cat > ~/.config/rebos/managers/system.toml << 'EOF'
+  add = "paru -S --needed #:? --noconfirm"
+  remove = "paru -Rns #:?"
+  sync = "paru -Sy"
+  upgrade = "paru -Syu --noconfirm"
+  plural_name = "system packages"
+  hook_name = "system_packages"
+  [config]
+  many_args = true
+  EOF
+
+  cat > ~/.config/rebos/managers/flatpak.toml << 'EOF'
+  add = "flatpak install --user -y flathub #:?"
+  remove = "flatpak uninstall --user #:?"
+  sync = "flatpak update --user -y"
+  upgrade = "flatpak update --user -y"
+  plural_name = "flatpak apps"
+  [config]
+  many_args = true
+  EOF
+
+  cat > ~/.config/rebos/managers/serv_startup.toml << 'EOF'
+  add = "sudo systemctl enable #:?"
+  remove = "sudo systemctl disable #:?"
+  sync = "true"
+  upgrade = "true"
+  plural_name = "startup services"
+  hook_name = "serv_startup"
+  [config]
+  many_args = true
+  EOF
+
+  cat > ~/.config/rebos/managers/serv_now.toml << 'EOF'
+  add = "sudo systemctl enable --now #:?"
+  remove = "sudo systemctl disable #:?"
+  sync = "true"
+  upgrade = "true"
+  plural_name = "immediate services"
+  hook_name = "serv_now"
+  [config]
+  many_args = true
+  EOF
+
+  # === gen.toml (MASTER BLUEPRINT) ===
+  cat > ~/.config/rebos/gen.toml << 'EOF'
+  # === REBOS SYSTEM BLUEPRINT ===
+  # Consolidate ALL packages, services, and timers here.
+  # Split into logical sections for clarity.
+
+  imports = [
+    "core", "security", "desktop", "egpu",
+  ]
+
+  [managers.system]
+  items = [
+  # Security & Hardening
+  "aide", "auditd", "bitwarden", "chkrootkit", "lynis", "rkhunter", "sshguard", "ufw", "usbguard",
+  
+  # System Monitoring
+  "baobab", "cpupower", "gnome-system-monitor", "logwatch", "tlp", "upower", "zram-generator",
+  
+  # Hardware
+  "bluez", "bluez-utils", "fprintd", "thermald", 
+  
+  # Networking & Privacy
+  "dnscrypt-proxy", "opensnitch", "wireguard-tools", 
+  
+  # CLI Tools
+  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua", "eza", "fd", "fzf", "gcc", "gdb", "git", "gitui", "glow", "gping",
+  "helix", "httpie", "hyfetch", "procs", "python-gobject", "rage", "ripgrep", "rustup", "starship", "tealdeer",
+  "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions",
+  
+  # Multimedia (system)
+  "ffmpeg", "gstreamer", "gst-libav", "gst-plugins-bad", "gst-plugins-good", "gst-plugins-ugly",
+  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", 
+  
+  # Browsers & OBS (native)
+  "brave-browser", "mullvad-browser", "obs-studio", 
+  
+  # Utilities
+  "bandwhich",
+  
+  # GNOME
+  "gnome-bluetooth", "gnome-software-plugin-flatpak", "gnome-tweaks", "gnome-shell-extensions",
+
+  # AUR Packages
+  "apparmor.d-git", "astal-git", "ags-git", "gdm-settings",
+  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics", "hardened_malloc"
+  ]
+
+  [managers.flatpak]
+  items = [
+  "com.github.tchx84.Flatseal", "org.torproject.torbrowser-launcher"
+  "org.gimp.GIMP", "org.inkscape.Inkscape", "org.kde.krita",
+  "org.blender.Blender", "io.github.realmazharhussain.GdmSettings",
+  "org.gnome.Lollypop"
+  ]
+  
+  [managers.serv_startup]
+  items = [
+  "gdm", "bluetooth", "ufw", "auditd", "systemd-timesyncd", "tlp",
+  "dnscrypt-proxy", "sshguard", "rkhunter", "chkrootkit",
+  "pipewire", "wireplumber", "pipewire-pulse"
+  ]
+
+  [managers.serv_now]
+  items = [ "fstrim.timer", "logwatch.timer" ]
+  EOF
+
+  # === manager_order.toml ===
+  cat > ~/.config/rebos/manager_order.toml << 'EOF'
+  begin = ["system"]
+  end = ["flatpak", "serv_startup", "serv_now"]
+  EOF
+
+  # Validate
+  echo "Validating Rebos config..."
+  rebos config check
+
+  # Build & apply
+  echo "Building and switching to declarative config..."
+  rebos config build
+  rebos config switch
+
+  # First backup
+  BACKUP_NAME="initial-declarative-$(date +%Y%m%d-%H%M%S)"
+  rebos backup create --name "$BACKUP_NAME"
+  echo "First backup created: $BACKUP_NAME"
+
+  # Validate Applicatins Installed
+  rebos status
+  # Should output something like this "system_packages: 124 installed, 0 to install, 0 to remove"
+
+  # Git version control
+  cd ~/.config/rebos
+  git init -q
+  git add .
+  git commit -m "Initial declarative Rebos config — $(date -Iseconds)" -q
+  echo "Rebos config now under Git version control."
+  ```
 - Install Pacman applications:
   ```bash
   # System packages (CLI + system-level)
@@ -1230,108 +1397,6 @@
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
-- Install Rebos (NixOS-like repeatability for any Linux distro.)
-  ```bash
-  # === REBOS: FULL DECLARATIVE SETUP (2025) ===
-  set -euo pipefail
-
-  # Install Rebos (Oglo repo)
-  if ! sudo pacman-key --list-keys 83F788B2E0576307 &>/dev/null; then
-    echo "Adding Oglo GPG key..."
-    sudo pacman-key --recv-key 83F788B2E0576307
-    sudo pacman-key --lsign-key 83F788B2E0576307
-  fi
-
-  if ! grep -q '^\[oglo\]' /etc/pacman.conf; then
-    echo "Adding [oglo] repository..."
-    sudo sed -i '/^#?\[options\]/a [oglo]\nSigLevel = PackageOptional\nServer = https://arch.oglo.dev/$repo/$arch' /etc/pacman.conf
-  fi
-
-  sudo pacman -Syy
-  paru -S --needed rebos
-
-  # Initialize Rebos
-  rebos init
-
-  # Create config structure
-  mkdir -p ~/.config/rebos/{managers,hooks}
-
-  # === managers/system.toml ===
-  cat > ~/.config/rebos/managers/system.toml << 'EOF'
-  add = "paru -S --needed #:? --noconfirm"
-  remove = "paru -Rns #:?"
-  sync = "paru -Sy"
-  upgrade = "paru -Syu --noconfirm"
-  plural_name = "system packages"
-  hook_name = "system_packages"
-  [config]
-  many_args = true
-  EOF
-
-  # === gen.toml (MASTER BLUEPRINT) ===
-  cat > ~/.config/rebos/gen.toml << 'EOF'
-  # === REBOS SYSTEM BLUEPRINT ===
-  # Consolidate ALL packages, services, and timers here.
-  # Split into logical sections for clarity.
-
-  imports = [
-    "core", "security", "desktop", "egpu",
-  ]
-
-  [managers.system]
-  items = [
-  # === AUR Packages ===
-  "apparmor.d-git", "astal-git", "ags-git", "gdm-settings",
-  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics",
-
-  # === Browsers & Apps ===
-  "brave-browser", "mullvad-browser", "obs-studio",
-  "restic", "chezmoi", "bitwarden",
-
-  # === CLI Tools (not in base-devel) ===
-  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua", "eza", "fd", "fzf", "gitui", "glow", "gping", "helix", "httpie", "hyfetch", "procs", "rage", "ripgrep", "rustup", "starship", "tealdeer", "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions", "bandwhich",
-
-  # === Security Tools (post-boot) ===
-  "aide", "chkrootkit", "lynis", "opensnitch", "usbguard", "logwatch",
-
-  # === GNOME Extras ===
-  "gnome-tweaks", "gnome-shell-extensions"
-  ]
-
-  [managers.serv_startup]
-  items = [ "ufw", "auditd" ]  # Already enabled in chroot
-
-  [managers.serv_now]
-  items = [ "logwatch.timer" ]
-  EOF
-
-  # === manager_order.toml ===
-  cat > ~/.config/rebos/manager_order.toml << 'EOF'
-  begin = ["system"]
-  end = ["serv_startup", "serv_now"]
-  EOF
-
-  # Validate
-  echo "Validating Rebos config..."
-  rebos config check
-
-  # Build & apply
-  echo "Building and switching to declarative config..."
-  rebos config build
-  rebos config switch
-
-  # First backup
-  BACKUP_NAME="initial-declarative-$(date +%Y%m%d-%H%M%S)"
-  rebos backup create --name "$BACKUP_NAME"
-  echo "First backup created: $BACKUP_NAME"
-
-  # Git version control
-  cd ~/.config/rebos
-  git init -q
-  git add .
-  git commit -m "Initial declarative Rebos config — $(date -Iseconds)" -q
-  echo "Rebos config now under Git version control."
-  ```
 - Install the AUR applications:
   ```bash
   # AUR applications:
@@ -1343,7 +1408,9 @@
     gdm-settings \
     systeroid-git \
     run0-sudo-shim-git
-
+  ```
+- Sign the Astal, AGS and run0-sudo-shim
+  ```bash
   # Verify binaries exist before signing
     [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
   
@@ -1415,7 +1482,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop) and Tor Browser (torproject.org). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1424,6 +1491,14 @@
   flatpak override --user --socket=wayland --socket=x11
   # Allow GPU access for Steam:
   flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
+  # Hardened Malloc in Flatpak Applications
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.torproject.torbrowser-launcher
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gimp.GIMP
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.kde.krita
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.blender.Blender
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.inkscape.Inkscape
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Lollypop
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mixxx.Mixxx
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
   ```
@@ -1649,7 +1724,7 @@
   ```
 - Configure sysctl hardening:
   ```bash
-  cat << 'EOF' > /etc/sysctl.d/99-hardening.conf
+  sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<'EOF'
   net.ipv4.conf.default.rp_filter=1
   net.ipv4.conf.all.rp_filter=1
   net.ipv4.tcp_syncookies=1
@@ -1671,8 +1746,9 @@
   kernel.dmesg_restrict=1
   kernel.kptr_restrict=2
   net.core.bpf_jit_harden=2
+  vm.max_map_count=1048576
   EOF
-  sysctl -p /etc/sysctl.d/99-hardening.conf
+  sudo sysctl -p /etc/sysctl.d/99-hardening.conf
   ```
 - Audit SUID binaries:
   ```bash
@@ -1935,7 +2011,7 @@
   done
 
   # Append structured hook
-  if ! grep -q "Target = rebos" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then
+  if ! grep -q "Target = supergfxctl" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then 
   cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
 
   [Trigger]
@@ -1945,12 +2021,12 @@
   Target = qemu
   Target = libvirt
   Target = supergfxctl
-  Target = rebos
+  # Target = rebos (DEPRECATED - Rebos is a too young project, too risky)
 
   [Action]
-  Description = Sign VFIO/eGPU/Rebos binaries with sbctl
+  Description = Sign VFIO/eGPU binaries with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl /usr/bin/rebos
+  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl # /usr/bin/rebos (DEPRECATED - Rebos is a too young project, too risky)
   Depends = sbctl
   EOF
     echo "Added structured signing hook."
@@ -2183,7 +2259,7 @@
   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
-  - Create Rebos pacman hook for updates
+  - (DEPRECATED - Rebos is a too young project, too risky) Create Rebos pacman hook for updates
   ```bash
   if ! [ -f /etc/pacman.d/hooks/99-rebos-gen.hook ]; then
   cat << 'EOF' | sudo tee /etc/pacman.d/hooks/99-rebos-gen.hook
@@ -2208,7 +2284,7 @@
   ```bash
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
-  chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook 
+  # chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook # (DEPRECATED - Rebos is a too young project, too risky)
   ```
   - Verify configuration:
   ```bash 
@@ -2249,7 +2325,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup ~/.config/rebos
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup ~/.config/rebos (DEPRECATED - Rebos is a too young project, too risky)
   ```
 - Add user-specific dotfiles
   ```bash
@@ -2260,7 +2336,7 @@
   chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
   chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
-  chezmoi add ~/.config/rebos
+  # chezmoi add ~/.config/rebos # (DEPRECATED - Rebos is a too young project, too risky)
   ```
 - Add system-wide configurations
   ```bash
@@ -2792,7 +2868,7 @@
   EOF
   sudo chmod +x /usr/local/bin/restic-backup.sh
   ```
-- Create a Rebos backup script
+- (DEPRECATED - Rebos is a too young project, too risky) Create a Rebos backup script
   ```bash
   sudo tee /usr/local/bin/rebos-backup.sh > /dev/null <<'EOF'
   #!/usr/bin/env bash
@@ -2943,8 +3019,8 @@
   /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
   systemctl list-timers --all
   journalctl -u restic-backup.timer -n 20
-  journalctl -u rebos-backup.service -n 20
-  rebos backup list
+  # journalctl -u rebos-backup.service -n 20 (DEPRECATED - Rebos is a too young project, too risky)
+  # rebos backup list (DEPRECATED - Rebos is a too young project, too risky)
 
   # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
   # Check status any time:  restic snapshots --repo <path>
