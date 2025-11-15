@@ -1304,7 +1304,7 @@
 
   # AUR Packages
   "apparmor.d-git", "astal-git", "ags-git", "gdm-settings",
-  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics"
+  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics", "hardened_malloc"
   ]
 
   [managers.flatpak]
@@ -1482,7 +1482,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1491,6 +1491,14 @@
   flatpak override --user --socket=wayland --socket=x11
   # Allow GPU access for Steam:
   flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
+  # Hardened Malloc in Flatpak Applications
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.torproject.torbrowser-launcher
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gimp.GIMP
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.kde.krita
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.blender.Blender
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.inkscape.Inkscape
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Lollypop
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mixxx.Mixxx
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
   ```
@@ -1716,7 +1724,7 @@
   ```
 - Configure sysctl hardening:
   ```bash
-  cat << 'EOF' > /etc/sysctl.d/99-hardening.conf
+  sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<'EOF'
   net.ipv4.conf.default.rp_filter=1
   net.ipv4.conf.all.rp_filter=1
   net.ipv4.tcp_syncookies=1
@@ -1738,8 +1746,9 @@
   kernel.dmesg_restrict=1
   kernel.kptr_restrict=2
   net.core.bpf_jit_harden=2
+  vm.max_map_count=1048576
   EOF
-  sysctl -p /etc/sysctl.d/99-hardening.conf
+  sudo sysctl -p /etc/sysctl.d/99-hardening.conf
   ```
 - Audit SUID binaries:
   ```bash
@@ -2002,7 +2011,7 @@
   done
 
   # Append structured hook
-  if ! grep -q "Target = rebos" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then
+  if ! grep -q "Target = supergfxctl" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then 
   cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
 
   [Trigger]
@@ -2012,12 +2021,12 @@
   Target = qemu
   Target = libvirt
   Target = supergfxctl
-  Target = rebos
+  # Target = rebos (DEPRECATED - Rebos is a too young project, too risky)
 
   [Action]
-  Description = Sign VFIO/eGPU/Rebos binaries with sbctl
+  Description = Sign VFIO/eGPU binaries with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl /usr/bin/rebos
+  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl # /usr/bin/rebos (DEPRECATED - Rebos is a too young project, too risky)
   Depends = sbctl
   EOF
     echo "Added structured signing hook."
@@ -2250,7 +2259,7 @@
   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
-  - Create Rebos pacman hook for updates
+  - (DEPRECATED - Rebos is a too young project, too risky) Create Rebos pacman hook for updates
   ```bash
   if ! [ -f /etc/pacman.d/hooks/99-rebos-gen.hook ]; then
   cat << 'EOF' | sudo tee /etc/pacman.d/hooks/99-rebos-gen.hook
@@ -2275,7 +2284,7 @@
   ```bash
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
-  chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook 
+  # chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook # (DEPRECATED - Rebos is a too young project, too risky)
   ```
   - Verify configuration:
   ```bash 
@@ -2316,7 +2325,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds ~/.config/gnome-backup ~/.config/rebos
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup ~/.config/rebos (DEPRECATED - Rebos is a too young project, too risky)
   ```
 - Add user-specific dotfiles
   ```bash
@@ -2327,7 +2336,7 @@
   chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
   chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
-  chezmoi add ~/.config/rebos
+  # chezmoi add ~/.config/rebos # (DEPRECATED - Rebos is a too young project, too risky)
   ```
 - Add system-wide configurations
   ```bash
@@ -2859,7 +2868,7 @@
   EOF
   sudo chmod +x /usr/local/bin/restic-backup.sh
   ```
-- Create a Rebos backup script
+- (DEPRECATED - Rebos is a too young project, too risky) Create a Rebos backup script
   ```bash
   sudo tee /usr/local/bin/rebos-backup.sh > /dev/null <<'EOF'
   #!/usr/bin/env bash
@@ -3010,8 +3019,8 @@
   /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
   systemctl list-timers --all
   journalctl -u restic-backup.timer -n 20
-  journalctl -u rebos-backup.service -n 20
-  rebos backup list
+  # journalctl -u rebos-backup.service -n 20 (DEPRECATED - Rebos is a too young project, too risky)
+  # rebos backup list (DEPRECATED - Rebos is a too young project, too risky)
 
   # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
   # Check status any time:  restic snapshots --repo <path>
