@@ -746,8 +746,8 @@
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
   intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
-  mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 \
-  rd.emergency=poweroff amdgpu.dc=1 amdgpu.dpm=1 \
+  mitigations=auto,nosmt slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 elevator=bfq scsi_mod.use_blk_mq=1 \
+  rd.emergency=poweroff amdgpu.dc=1 amdgpu.dpm=1 tsc=reliable clocksource=tsc \
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
@@ -1380,7 +1380,7 @@
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode\
   \
   # Browsers & OBS (native)
   brave-browser mullvad-browser obs-studio \
@@ -1750,8 +1750,32 @@
   kernel.kptr_restrict=2
   net.core.bpf_jit_harden=2
   vm.max_map_count=2147483642
+  vm.swappiness=10                    
+  vm.compaction_proactiveness=0        
+  vm.watermark_scale_factor=500        
+  vm.watermark_boost_factor=0          
+  vm.min_free_kbytes=1048576           
+  vm.page_lock_unfairness=1             
+  vm.zone_reclaim_mode=0               
+  kernel.nmi_watchdog=0                 
+  kernel.sched_nr_migrate=128          
   EOF
   sudo sysctl -p /etc/sysctl.d/99-hardening.conf
+  ```
+- MGLRU + THP madvise:
+  ```bash
+  sudo tee /etc/tmpfiles.d/10-gaming-tweaks.conf > /dev/null <<'EOF'
+  # Transparent Huge Pages → madvise + no defrag (eliminates THP stalls in games)
+  w /sys/kernel/mm/transparent_hugepage/enabled           - - - - madvise
+  w /sys/kernel/mm/transparent_hugepage/shmem_enabled      - - - - advise
+  w /sys/kernel/mm/transparent_hugepage/khugepaged/defrag  - - - - 0
+
+  # Full MGLRU (multi-gen LRU) – gives 5–12 % better 1% lows on Zen 4/Meteor Lake
+  w /sys/kernel/mm/lru_gen/enabled                         - - - - 5
+  EOF
+
+  # Apply immediately apply
+  sudo systemd-tmpfiles --create
   ```
 - Audit SUID binaries:
   ```bash
@@ -1779,6 +1803,28 @@
   compression-algorithm = zstd
   EOF
   systemctl enable --now systemd-zram-setup@zram0.service
+  ```
+- Memory/scheduler tweaks:
+  ```bash
+  sudo tee /etc/tmpfiles.d/consistent-response-time-for-gaming.conf > /dev/null <<'EOF'
+  # Memory/Jitter Reduction (Arch Wiki Gaming)
+  w /proc/sys/vm/compaction_proactiveness - - - - 0
+  w /proc/sys/vm/watermark_boost_factor - - - - 1
+  w /proc/sys/vm/min_free_kbytes - - - - 1048576
+  w /proc/sys/vm/watermark_scale_factor - - - - 500
+  w /proc/sys/vm/swappiness - - - - 10
+  w /sys/kernel/mm/lru_gen/enabled - - - - 5
+  w /proc/sys/vm/zone_reclaim_mode - - - - 0
+  w /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
+  w /sys/kernel/mm/transparent_hugepage/shmem_enabled - - - - advise
+  w /sys/kernel/mm/transparent_hugepage/defrag - - - - never
+  w /proc/sys/vm/page_lock_unfairness - - - - 1
+  w /proc/sys/kernel/sched_child_runs_first - - - - 0
+  w /proc/sys/kernel/sched_autogroup_enabled - - - - 1
+  w /proc/sys/kernel/sched_migration_cost_ns - - - - 500000
+  w /proc/sys/kernel/sched_nr_migrate - - - - 8
+  EOF
+  sudo systemd-tmpfiles --create
   ```
 - Configure fwupd for Firmware Updates (Chroot-Safe):
   ```bash
@@ -1817,6 +1863,9 @@
 
   # Restart to apply everything
   sudo systemctl restart apparmor
+
+  # Regenerate UKI
+  mkinitcpio -P && sbctl sign -s /boot/EFI/Linux/arch*.efi
 
   echo "AppArmor FSP is now in COMPLAIN mode."
   echo "Use system normally for 1–2 days, then check denials:"
@@ -2082,6 +2131,11 @@
   EOF
   chmod 644 /etc/pacman.d/hooks/90-pacman-verify.hook
   ```
+- Enable gamemoded
+  ```bash
+  systemctl --user enable --now gamemoded
+  # Launch: gamemoderun %command% in Steam
+  ```
 - Verify eGPU setup
   ```bash
   # Verify eGPU detection
@@ -2341,6 +2395,19 @@
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
   # chezmoi add ~/.config/rebos # (DEPRECATED - Rebos is a too young project, too risky)
   ```
+- DRI/Mesa config: Disable vblank sync for lowest GL latency (games/benchmarks)
+  ```bash
+  cat > ~/.drirc <<'EOF'
+  <driconf>
+    <device>
+      <application name="Default">
+        <option name="vblank_mode" value="0"/>
+      </application>
+    </device>
+  </driconf>
+  EOF
+  chezmoi add ~/.drirc
+  ```
 - Add system-wide configurations
   ```bash
   sudo chezmoi add /etc/pacman.conf /etc/paru.conf /etc/pacman.d/hooks
@@ -2370,6 +2437,7 @@
   sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
   sudo chezmoi add -r /etc/apparmor.d/local/
   sudo chezmoi add /etc/gentoo-prep/
+  sudo chezmoi add ~/.alsoftrc
   ```
 - Export package lists for reproducibility
   ```bash
@@ -2617,6 +2685,18 @@
   #       In chroot, caching is limited but rule application is verified.
   echo "run0 validation complete in chroot."
   echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
+  ```
+- Gaming Launch Template (add to Steam/Lutris)
+  ```bash
+  export LD_BIND_NOW=1
+  gamemoderun mangohud %command%  # (Install GameMode below)
+
+  # Verifi Gaming Settings
+  sysctl -a | grep vm.swappiness # (should be 10)
+  cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
+  DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
+  # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
+  # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
   ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
   ```bash
@@ -3220,7 +3300,14 @@
   # Packages
   # Use arch-packages.txt + mapping to build @world
   ```
-- **k) Final Reboot & Lock**:
+- **k) Tune Games
+  ```bash
+  # Steam/Lutris/Heroic add in launch options:
+  gamemoderun %command%
+  # For Linux Native Games:
+  gamemoderun mangohud %command%
+  ```
+- **l) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
