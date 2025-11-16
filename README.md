@@ -745,9 +745,10 @@
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc iommu.passthrough=0 iommu.strict=1 \
+  hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always \
   mitigations=auto \
-  slub_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off \
+  slab_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
   amdgpu.dc=1 amdgpu.dpm=1 intel_idle.max_cstate=2 \
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
@@ -1786,40 +1787,59 @@
   net.ipv4.icmp_ignore_bogus_error_responses=1
   net.ipv4.icmp_echo_ignore_broadcasts=1
   net.core.netdev_max_backlog=4096
+  net.core.bpf_jit_harden=2
 
-  # === KERNEL HARDENING ===
+  # === CORE KERNEL HARDENING (Post-Boot) ===
   kernel.randomize_va_space=2
   kernel.dmesg_restrict=1
   kernel.kptr_restrict=2
   kernel.kexec_load_disabled=1
-  net.core.bpf_jit_harden=2
-  kernel.nmi_watchdog=0                 
+  kernel.nmi_watchdog=0
+  kernel.perf_event_paranoid=3
+  kernel.yama.ptrace_scope=1           # Safer for debuggers (Wine/Proton)
+  vm.unprivileged_userfaultfd = 0      # Disable dangerous userfaultfd
+  dev.tty.ldisc_autoload = 0           # Disable tty line discipline autoloading
+  dev.tty.legacy_tiocsti = 0           # Disable TIOCSTI (key injection)
+  kernel.warn_limit = 1                # Reboot on excessive warnings
+  kernel.oops_limit = 1                # Reboot on excessive oopses
 
-  # === GAMING / MEMORY (Best of Both) ===
+  # === COMPATIBILITY HARDENING ===
+  kernel.unprivileged_bpf_disabled=0   # MUST BE 0 for Games/Tracing
+  kernel.modules_disabled=0            # MUST BE 0 for eGPU/WiFi (Default is fine, but ensures we don't accidentally disable it)
+
+  # === SANDBOXING (Flatpak/Steam) ===
+  user.max_user_namespaces=16384       # REQUIRED for sandboxing (Flatpak, Steam, Chrome)
+
+  # === FILE SYSTEM PROTECTIONS ===
+  fs.protected_symlinks=1
+  fs.protected_hardlinks=1
+  fs.protected_fifos=2                 # Strong protection for FIFOs
+  fs.protected_regular=2               # Strong protection for regular files
+  fs.suid_dumpable=0
+  fs.file-max=2097152                  # High limit for Steam/Gaming
+
+  # === GAMING / MEMORY TUNING ===
   vm.max_map_count=2147483642
   vm.swappiness=10
-  vm.vfs_cache_pressure=50                    
-  vm.compaction_proactiveness=0        
-  vm.watermark_scale_factor=500        
-  vm.watermark_boost_factor=0          
-  vm.min_free_kbytes=1048576           
-  vm.page_lock_unfairness=1             
+  vm.vfs_cache_pressure=50
+  vm.compaction_proactiveness=0
+  vm.watermark_scale_factor=500
+  vm.watermark_boost_factor=0
+  vm.min_free_kbytes=1048576
+  vm.page_lock_unfairness=1
   vm.zone_reclaim_mode=0
   kernel.sched_nr_migrate=128
 
-  # === I/O SMOOTHNESS ===
+  # === I/O SMOOTHNESS (Smoothness/Latency) ===
   vm.dirty_bytes=268435456
   vm.dirty_background_bytes=67108864
   vm.dirty_writeback_centisecs=1500
 
-  # === FILE DESCRIPTORS (Steam needs this) ===
-  fs.file-max=2097152
-
-  # === SWAP (Keep readahead for hibernation) ===
-  vm.page-cluster=3             
-            
+  # === SWAP (Hibernation Readahead) ===
+  vm.page-cluster=3
   EOF
   sudo sysctl -p /etc/sysctl.d/99-hardening.conf
+  sudo etckeeper commit "Final sysctl hardening: secure, compatible, gaming-optimized"
   ```
 - MGLRU + THP madvise:
   ```bash
