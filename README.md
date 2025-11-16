@@ -3449,7 +3449,7 @@
   # Packages
   # Use arch-packages.txt + mapping to build @world
   ```
-- **k) Tunning Games
+- **k) Tunning Games**:
   ```bash
   # Steam/Lutris/Heroic add in launch options:
   gamemoderun %command%
