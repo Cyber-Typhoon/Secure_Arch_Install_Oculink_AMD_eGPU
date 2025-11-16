@@ -1877,11 +1877,12 @@
   ```
 - Configure zram:
   ```bash
-  cat << 'EOF' > /etc/systemd/zram-generator.conf 
+  cat << 'EOF' | sudo tee /etc/systemd/zram-generator.conf
   [zram0]
-  zram-size = 50%
+  zram-size = min(ram / 2, 4096)
   compression-algorithm = zstd
   EOF
+  sudo systemctl daemon-reload
   systemctl enable --now systemd-zram-setup@zram0.service
   ```
 - Memory/scheduler tweaks:
