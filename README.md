@@ -754,6 +754,7 @@
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
+  # If when we start using the laptop we experience random freezes add i915.enable_dc=0, test if resolves, if not update intel_idle.max_cstate=1. Source: https://wiki.archlinux.org/title/Intel_graphics#Crash/freeze_on_low_power_Intel_CPUs
 
   # LTS preset (atomic copy, just rename the UKI)
   sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
@@ -3469,7 +3470,27 @@
   sudo pacman -S calf
   sudo pacman -S mda.lv2
   ```
-- **m) Final Reboot & Lock**:
+- **m) ACPI Troubleshooting**:
+  ```bash
+  # Check for ACPI functionality: Test all Fn keys and laptop-specific hardware features. If everything works, no action is needed.
+  # Identify Potential Module (if needed): If a feature fails, attempt to identify a vendor-specific ACPI module. For a Lenovo, it's often thinkpad_acpi.
+  # From: https://wiki.archlinux.org/title/ACPI_modules
+  # A complete list for your running kernel can be obtained with the following command:
+  sudo ls -l /usr/lib/modules/$(uname -r)/kernel/drivers/acpi
+  # You have to try yourself which module works for your machine using modprobe yourmodule, then check if the module is supported on your hardware by using dmesg. It may help to add a grep text search to narrow your results:
+  dmesg | grep -i acpi
+  # Test Module Loading (Examples):
+  sudo modprobe thinkpad_acpi
+  sudo modprobe intel_pmc_core
+  # Test the broken feature again.
+  # Make Permanent (if successful): If the feature starts working, add the module to the list of modules loaded at boot in your mkinitcpio configuration:
+  # Edit the mkinitcpio hook file (e.g., /etc/mkinitcpio.conf)
+  # Add 'thinkpad_acpi' and/or 'intel_pmc_core' to the MODULES array if they are not enabled by default:
+  # Example MODULES=(... sd-vconsole plymouth block sd-encrypt filesystems resume thinkpad_acpi intel_pmc_core)
+  # Re-generate the UKI
+  sudo mkinitcpio -P
+  ```
+- **n) Final Reboot & Lock**:
   ```bash
   mkinitcpio -P
   
