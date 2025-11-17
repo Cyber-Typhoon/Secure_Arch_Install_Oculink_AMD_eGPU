@@ -1377,7 +1377,7 @@
   \
   # CLI Tools
   atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
-  helix httpie hyfetch procs python-gobject rage ripgrep rustup starship tealdeer \
+  helix httpie hyfetch procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
   xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
@@ -1412,7 +1412,6 @@
     astal-git \
     ags-git \
     gdm-settings \
-    systeroid-git \
     run0-sudo-shim-git \
     hardened_malloc
   ldconfig  # Update linker cache
@@ -1838,6 +1837,7 @@
   # === SWAP (Hibernation Readahead) ===
   vm.page-cluster=3
   EOF
+  # Validate if you are not missing any hardening using systeroid https://github.com/orhun/systeroid?tab=readme-ov-file
   sudo sysctl -p /etc/sysctl.d/99-hardening.conf
   sudo etckeeper commit "Final sysctl hardening: secure, compatible, gaming-optimized"
   ```
@@ -2812,7 +2812,7 @@
   export LD_BIND_NOW=1
   gamemoderun mangohud %command%  # (Install GameMode below)
 
-  # Verifi Gaming Settings
+  # Verify Gaming Settings
   sysctl -a | grep vm.swappiness # (should be 10)
   cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
   DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
