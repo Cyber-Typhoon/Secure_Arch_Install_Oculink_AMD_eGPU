@@ -160,27 +160,6 @@
 ## Step 4: Pre-Arch Installation Steps
 
 - Boot from the **Arch Live USB**.
-- **Pre-computation and Pre-determination of System Identifiers**:
-  - **LUKS for rd.luks.uuid and Partition UUID**:
-    - After encrypting `/dev/nvme1n1p2` with LUKS, retrieve its UUID:
-      ```bash
-      LUKS_UUID=$(cryptsetup luksUUID --header /dev/nvme1n1p2)
-      echo $LUKS_UUID  # Should output a UUID like a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8
-      ```
-      - **Record this UUID** for use in `/etc/crypttab` and kernel parameters (`rd.luks.uuid=...`).
-    - Get the partition UUID (rarely used):
-      ```bash
-      PART_UUID=$(blkid -s PARTUUID -o value /dev/nvme1n1p2)
-      echo $PART_UUID  # Should output a UUID like 123e4567-e89b-12d3-a456-426614174000
-      ```
-      - **Record this UUID** for kernel parameters and `/etc/crypttab` mappings.
-  - **Root Filesystem UUID**:
-    - After creating the BTRFS filesystem on `/dev/mapper/cryptroot`, obtain its UUID:
-      ```bash
-      ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
-      echo $ROOT_UUID  # Should output a UUID like 48d0e960-1b5e-4f2c-8caa-...
-      ```
-      - **Record this UUID** for the bootloader (`root=UUID=...`) and `/etc/fstab`.
 - **a) Partition the Second NVMe M.2 (/dev/nvme1n1)**:
   - Check optimal sector size (should be 512 for most NVMe; 4096 for some)
     ```bash
@@ -249,12 +228,32 @@
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
     echo "WARNING: Store the LUKS keyfile (/mnt/usb/crypto_keyfile) securely in Bitwarden for recovery purposes."
     ```
+  - **LUKS for rd.luks.uuid and Partition UUID**:
+    - After encrypting `/dev/nvme1n1p2` with LUKS, retrieve its UUID:
+      ```bash
+      LUKS_UUID=$(cryptsetup luksUUID --header /dev/nvme1n1p2)
+      echo $LUKS_UUID  # Should output a UUID like a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8
+      ```
+      - **Record this UUID** for use in `/etc/crypttab` and kernel parameters (`rd.luks.uuid=...`).
+    - Get the partition UUID (rarely used):
+      ```bash
+      PART_UUID=$(blkid -s PARTUUID -o value /dev/nvme1n1p2)
+      echo $PART_UUID  # Should output a UUID like 123e4567-e89b-12d3-a456-426614174000
+      ```
+      - **Record this UUID** for kernel parameters and `/etc/crypttab` mappings.
 - **d) Create BTRFS Filesystem and Subvolumes**:
   - Create the BTRFS filesystem:
     ```bash
     mkfs.btrfs /dev/mapper/cryptroot
     mount /dev/mapper/cryptroot /mnt
     ```
+  - **Root Filesystem UUID**:
+    - After creating the BTRFS filesystem on `/dev/mapper/cryptroot`, obtain its UUID:
+      ```bash
+      ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
+      echo $ROOT_UUID  # Should output a UUID like 48d0e960-1b5e-4f2c-8caa-...
+      ```
+      - **Record this UUID** for the bootloader (`root=UUID=...`) and `/etc/fstab`.
   - Create subvolumes for isolation and snapshotting:
     ```bash
     btrfs subvolume create /mnt/@
@@ -308,7 +307,7 @@
     echo $SWAP_OFFSET > /mnt/etc/swap_offset # Save for later use
     echo "SWAP_OFFSET: $SWAP_OFFSET"  # Record this number. Should output a numerical offset like 12345678
     ```
-    - **Record this SWAP_OFFSET value. Insert it directly into your systemd-boot kernel parameters (e.g., in /etc/mkinitcpio.d/linux.preset) and /etc/fstab (for the swapfile entry with resume_offset=).
+    - **Record this SWAP_OFFSET value**. Insert it directly into your systemd-boot kernel parameters (e.g., in /etc/mkinitcpio.d/linux.preset) and /etc/fstab (for the swapfile entry with resume_offset=).
     - **Note**: This offset is critical for hibernation support and must be accurate—recompute if the swap file changes.
   - BTRFS OFFICIAL VERIFICATION
     ```bash
