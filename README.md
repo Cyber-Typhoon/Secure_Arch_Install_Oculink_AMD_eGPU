@@ -1314,8 +1314,7 @@
   [managers.flatpak]
   items = [
   "com.github.tchx84.Flatseal", "org.torproject.torbrowser-launcher"
-  "org.gimp.GIMP", "org.inkscape.Inkscape", "org.kde.krita",
-  "org.blender.Blender", "io.github.realmazharhussain.GdmSettings",
+  "org.gimp.GIMP", "io.github.realmazharhussain.GdmSettings",
   "org.gnome.Lollypop"
   ]
   
@@ -1493,7 +1492,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), Inkscape (org.inkscape.Inkscape), Krita (org.kde.krita), Blender (org.blender.Blender), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Blender if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1505,9 +1504,6 @@
   # Hardened Malloc in Flatpak Applications
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.torproject.torbrowser-launcher
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gimp.GIMP
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.kde.krita
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.blender.Blender
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.inkscape.Inkscape
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Lollypop
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mixxx.Mixxx
   # Flatpak GUI - Test
