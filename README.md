@@ -1377,7 +1377,7 @@
   \
   # CLI Tools
   atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
-  helix httpie hyfetch procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
+  helix httpie hyfetch linux-docs procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
   xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
@@ -1837,8 +1837,42 @@
   # === SWAP (Hibernation Readahead) ===
   vm.page-cluster=3
   EOF
-  # Validate if you are not missing any hardening using systeroid https://github.com/orhun/systeroid?tab=readme-ov-file
-  sudo sysctl -p /etc/sysctl.d/99-hardening.conf
+
+  # === SYSTEROID VALIDATION: Audit for misses, explanations, and interactive review ===
+  # Requires: systeroid (aliased to sysctl) + linux-docs package
+  echo "=== Auditing hardening config with systeroid ==="
+
+  # Load & apply config, ignore errors for validation
+  sudo systeroid --load=/etc/sysctl.d/99-hardening.conf -e --quiet
+
+  # Search for key hardening categories (check for misses/overrides)
+  # - Network: Ensure RP filters, redirects, etc., applied
+  sudo systeroid -r '^net\.(ipv4|ipv6)\.conf.*(rp_filter|accept_redirects|send_redirects|accept_source_route|log_martians|accept_ra)' -e
+  # - Kernel core: Verify restrictions like dmesg, ptrace
+  sudo systeroid -r '^(kernel\.(randomize_va_space|dmesg_restrict|kptr_restrict|kexec_load_disabled|yama\.ptrace_scope)|vm\.unprivileged_userfaultfd|dev\.tty\.(ldisc_autoload|legacy_tiocsti))' -e
+  # - FS/Sandbox: Spot protected_* or namespaces issues
+  sudo systeroid -r '^(fs\.protected_(symlinks|hardlinks|fifos|regular)|user\.max_user_namespaces)' -e
+
+  # Explain a sample param (e.g., for gaming compatibility review)
+  sudo systeroid --explain kernel.yama.ptrace_scope  # Safer for Wine/Proton; adjust if needed
+  # Or batch-explain network ones: sudo systeroid -r 'net.ipv4.*rp_filter' --explain -e
+
+  # Interactive TUI audit (optional, but recommended for full review)
+  # Launch filtered to security sections; search '/', explain with '?', save tweaks with 's'
+  sudo systeroid-tui --section kernel --query "hardening" --save-path /tmp/hardening-audit.conf
+  # Review output file if tweaks needed, then merge back to 99-hardening.conf
+
+  # Quick diff: Compare loaded system config vs. runtime (spot overrides)
+  sudo systeroid --system -n > /tmp/sys-loaded.txt  # Loaded names/values
+  sudo systeroid -A -n > /tmp/sys-runtime.txt       # Current runtime
+  echo "Differences (should be minimal/expected):"
+  sudo diff /tmp/sys-loaded.txt /tmp/sys-runtime.txt  # Any mismatches? Investigate
+  sudo rm /tmp/{sys-loaded,sys-runtime}.txt      # Cleanup
+
+  echo "=== Audit complete. Review outputs above for gaps (e.g., add IPv6 martians if missing). ==="
+
+  # Apply if validation passes (or reboot for full effect)
+  sudo systeroid -p -q
   sudo etckeeper commit "Final sysctl hardening: secure, compatible, gaming-optimized"
   ```
 - MGLRU + THP madvise:
