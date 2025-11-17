@@ -1393,7 +1393,11 @@
   bandwhich \
   \
   # GNOME
-  gnome-bluetooth gnome-software-plugin-flatpak gnome-tweaks gnome-shell-extensions
+  gnome-bluetooth gnome-tweaks gnome-shell-extensions gnome-firmware
+  ```
+- Remove Gnome Software App Store
+  ```bash
+  sudo pacman -Rns gnome-software
   ```
 - Enable essential services:
   ```bash
