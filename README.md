@@ -1149,7 +1149,7 @@
   # GNOME Adwaita and Orchis
   gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme
 
-  # Create ~/Music, etc. (for Lollypop/Clapper)
+  # Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, Clapper, etc)
   xdg-user-dirs-update 
   ```
 - Install **Paru and configure it**:
