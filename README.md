@@ -612,15 +612,15 @@
   # Modern CLI tool alias:
   if [[ $- == *i* ]]; then
   alias sysctl='systeroid'          
-  alias grep='rg'
-  alias find='fd'
-  alias ls='eza --icons --git --color=auto'
-  alias cat='bat --style=plain'
+  alias grep='rg --color=auto'
+  alias find='fd --color=auto --hidden --no-ignore'
+  alias ls='eza --icons --git --color=auto --group-directories-first --header'
+  alias cat='bat -p --paging=never'
   alias du='dua'                    
-  alias ps='procs'
+  alias ps='procs --color=always'
   alias dig='dog'
   alias btop='btm'
-  alias iftop='bandwhich'
+  alias iftop='bandwhich --immediate --tree'
   alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
   # Optional: make sudo preserve these aliases when you really want it
   # (rarely needed, but harmless)
@@ -1289,7 +1289,7 @@
   "dnscrypt-proxy", "opensnitch", "wireguard-tools", 
   
   # CLI Tools
-  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua", "eza", "fd", "fzf", "gcc", "gdb", "git", "gitui", "glow", "gping",
+  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua-cli", "eza", "fd", "fzf", "gcc", "gdb", "git", "gitui", "glow", "gping",
   "helix", "httpie", "hyfetch", "procs", "python-gobject", "rage", "ripgrep", "rustup", "starship", "tealdeer",
   "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions",
   
