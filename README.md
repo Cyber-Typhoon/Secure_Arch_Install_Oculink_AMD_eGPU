@@ -1238,19 +1238,28 @@
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd
   ```
-- Permanently allow the bandwhich binary its required privileges
+- Permanently allow the bandwhich binary its required privileges:
   ```bash
   # assign capabilities
   sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $(command -v bandwhich)
   ```
+- Privacy measure to prevent laptop location identification:
+  ```bash
+  sudo systemctl mask geoclue.service
+  ```
 - Font rendering (subpixel + hinting):
   ```bash
+  fc-cache -fv
   gsettings set org.gnome.desktop.interface font-antialiasing 'rgba'
   gsettings set org.gnome.desktop.interface font-hinting 'slight'
-  ``` 
+  ```
+- GDM Wayland Default:
+  ```bash
+  gsettings set org.gnome.desktop.session session-name gnome-wayland
+  ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
+  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
