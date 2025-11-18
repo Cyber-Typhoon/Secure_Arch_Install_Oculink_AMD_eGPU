@@ -1238,9 +1238,8 @@
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd
   ```
-- Permanently allow the bandwhich binary its required privileges:
+- Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
-  # assign capabilities
   sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $(command -v bandwhich)
   ```
 - Privacy measure to prevent laptop location identification:
