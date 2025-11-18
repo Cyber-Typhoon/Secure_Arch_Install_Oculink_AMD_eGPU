@@ -1486,7 +1486,7 @@
   EOF
   sudo systemctl restart gdm # or reboot
   ```
-- Install Bazzar and the Flatpak applications via GUI
+- Install Bazaar and the Flatpak applications via GUI
   ```bash
   # Install Bazaar (Flatpak-focused app store) and Flatseal
   flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
