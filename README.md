@@ -1346,6 +1346,7 @@
   # Hardened Malloc in Flatpak Applications
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.torproject.torbrowser-launcher
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gimp.GIMP
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so io.github.realmazharhussain.GdmSettings
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Lollypop
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mixxx.Mixxx
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so com.github.rafostar.Clapper
