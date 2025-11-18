@@ -1210,7 +1210,7 @@
   aide auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
-  baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
+  gnome-system-monitor gnome-disk-utility logwatch tlp tlp-rdw upower zram-generator \
   \
   # Hardware
   bluez bluez-utils fprintd thermald \
@@ -1227,8 +1227,8 @@
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
   libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode gamescope \
   \
-  # Browsers & OBS (native)
-  brave-browser mullvad-browser obs-studio \
+  # Browsers
+  brave-browser mullvad-browser \
   \
   # Utilities
   bandwhich \
@@ -1243,7 +1243,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
+  sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -1334,7 +1334,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate)  and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1349,6 +1349,22 @@
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Lollypop
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mixxx.Mixxx
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so com.github.rafostar.Clapper
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so com.logseq.Logseq
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Calculator
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mozilla.Thunderbird
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Snapshot
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Characters
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.baobab
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.SimpleScan
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Papers
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.font-viewer
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Loupe
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Logs
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so ca.desrt.dconf-editor
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.virt_manager.virt-manager
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.freedesktop.Bustle
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so com.github.finefindus.eyedropper
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so com.belmoussaoui.Obfuscate
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
   ```
@@ -1844,7 +1860,7 @@
   echo "       ausearch -m avc -ts recent | tail -20"
   echo "  3. Tune interactively:"
   echo "       sudo aa-logprof"
-  echo "       sudo aa-genprof <binary>  # e.g., astal, supergfxctl, obs-studio"
+  echo "       sudo aa-genprof <binary>  # e.g., astal, supergfxctl"
   echo "  4. After tuning → ENFORCE:"
   echo "       sudo just fsp-enforce"
   echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
@@ -2655,7 +2671,7 @@
 - AppArmor Tuning Milestone (Run After Normal Use)
   ```bash
   echo "=== APARMOR TUNING ==="
-  echo "Use system normally (eGPU, browsers, OBS, AGS) for 1–2 hours."
+  echo "Use system normally (eGPU, browsers, AGS) for 1–2 hours."
   echo "Then run:"
 
   sudo ausearch -m avc -ts boot | audit2allow
