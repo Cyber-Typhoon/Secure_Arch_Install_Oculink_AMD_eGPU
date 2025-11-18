@@ -1185,6 +1185,7 @@
   PgpFetch
   BottomUp
   RemoveMake
+  CleanAfter = true
   SudoLoop
   EditMenu = true
   CombinedUpgrade = false
@@ -1236,7 +1237,7 @@
   ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd \
   \
   # GNOME Extras
-  gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd
+  gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd 
   ```
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
@@ -1258,7 +1259,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
+  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -1384,6 +1385,19 @@
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
   ```
+- Install GSConnect from extensions.gnome.org
+  ```bash
+  echo "Install GSConnect from https://extensions.gnome.org/extension/1319/gsconnect/ using Extension Manager (preferred over AUR version)"
+  echo "After installing GSConnect via Extension Manager, enable it and restart GNOME Shell (Alt+F2 → r → Enter)"
+  ```
+- Enroll fingerprint if device has a reader
+  ```bash
+  if fprintd-enroll -f list | grep -q "no devices"; then
+    echo "No fingerprint reader detected"
+  else
+    echo "Fingerprint reader found! Run 'fprintd-enroll' to set it up (optional)"
+  fi
+  ```
 - (OPTIONAL NOT RECOMMENDED) Setup Automated System/AUR Updates
   ```bash
   # === SYSTEM-WIDE TEMPLATED AUTO-UPDATE (FUNCTIONAL, BUT HAS SECURITY TRADE-OFF) ===
@@ -1431,17 +1445,32 @@
   ```
 - Edit the configuration file (likely at ~/.config/alacritty/alacritty.toml or alacritty.yml):
   ```bash
-  # Ini, TOML
+  # Configure Alacritty font
+  mkdir -p ~/.config/alacritty
+  if [[ ! -f ~/.config/alacritty/alacritty.toml ]]; then
+    cat <<'EOF' > ~/.config/alacritty/alacritty.toml
   [font.normal]
   family = "JetBrainsMono Nerd Font"
   style = "Regular"
+
+  [font.bold]
+  family = "JetBrainsMono Nerd Font"
+  style = "Bold"
+
+  [font.italic]
+  family = "JetBrainsMono Nerd Font"
+  style = "Italic"
+  EOF
+  else
+    echo "Alacritty config already exists – font not overwritten"
+  fi
   ```
 - Final full system update + UKI rebuild
   ```bash
   sudo pacman -Syu                 # now safe – hooks are active
   sudo mkinitcpio -P               # regenerate UKI (covers new kernel)
   # REQUIRED: Manually sign the newly created UKI, as mkinitcpio -P does not trigger the Pacman hook.
-  sudo sbctl sign -s /boot/EFI/Linux/*.efi 
+  sudo sbctl sign -s /boot/EFI/Linux/*.efi /boot/EFI/Linux/*.EFI 2>/dev/null || true
   sudo sbctl verify                # sanity-check all signed files
   ```
 - Check Secure Boot Violations:
@@ -1614,6 +1643,9 @@
   cert_refresh_delay = 240
   EOF
   systemctl restart dnscrypt-proxy
+  # Switch to the socket to prevents conflicts
+  sudo systemctl disable --now dnscrypt-proxy.service
+  sudo systemctl enable --now dnscrypt-proxy.socket
   # Test DNS resolution:
   dog archlinux.org
   ```
