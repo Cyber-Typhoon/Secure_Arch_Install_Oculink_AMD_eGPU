@@ -1398,6 +1398,11 @@
   ```bash
   sudo pacman -Rns gnome-software
   ```
+- Permanently allow the bandwhich binary its required privileges
+  ```bash
+  # assign capabilities
+  sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $(command -v bandwhich)
+  ```
 - Enable essential services:
   ```bash
   sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
