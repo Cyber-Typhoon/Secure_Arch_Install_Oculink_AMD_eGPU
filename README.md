@@ -1255,7 +1255,6 @@
     alacritty-graphics \
     astal-git \
     ags-git \
-    gdm-settings \
     run0-sudo-shim-git \
     hardened_malloc
   ldconfig  # Update linker cache
