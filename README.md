@@ -1253,10 +1253,6 @@
   gsettings set org.gnome.desktop.interface font-antialiasing 'rgba'
   gsettings set org.gnome.desktop.interface font-hinting 'slight'
   ```
-- GDM Wayland Default:
-  ```bash
-  gsettings set org.gnome.desktop.session session-name gnome-wayland
-  ```
 - Enable essential services:
   ```bash
   sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
