@@ -557,7 +557,7 @@
   ```bash
   systemctl enable NetworkManager
   systemctl enable systemd-timesyncd     
-  systemctl enable gdm                
+  systemctl enable gdm.service                
   systemctl enable bluetooth                  
   systemctl enable thermald               
   systemctl enable acpid                  
@@ -1140,8 +1140,17 @@
 
 - Install the **GNOME desktop environment**:
   ```bash
-  # Install Gnome
-  sudo pacman -S --needed gnome
+  # Core Desktop Environment (Shell, Compositor, Login Manager)
+  sudo pacman -S --needed mutter gnome-shell gdm gnome-control-center gnome-session gnome-settings-daemon \
+
+  # Install Essential Tools
+  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome \
+
+  # GNOME Adwaita and Orchis
+  adwaita-fonts adwaita-icon-theme orchis-theme
+
+  # Create ~/Music, etc. (for Lollypop/Clapper)
+  xdg-user-dirs-update 
   ```
 - Install **Paru and configure it**:
   ```bash   
@@ -1193,172 +1202,6 @@
   echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
   mkdir -p ~/.cache/paru-build
   ```
-- (DEPRECATED - Rebos is a too young project, too risky) Install Rebos (NixOS-like repeatability for any Linux distro.)
-  ```bash
-  # === REBOS: FULL DECLARATIVE SETUP (2025) ===
-  set -euo pipefail
-
-  # Install Rebos (Oglo repo)
-  if ! sudo pacman-key --list-keys 83F788B2E0576307 &>/dev/null; then
-    echo "Adding Oglo GPG key..."
-    sudo pacman-key --recv-key 83F788B2E0576307
-    sudo pacman-key --lsign-key 83F788B2E0576307
-  fi
-
-  if ! grep -q '^\[oglo\]' /etc/pacman.conf; then
-    echo "Adding [oglo] repository..."
-    sudo sed -i '/^#?\[options\]/a [oglo]\nSigLevel = PackageOptional\nServer = https://arch.oglo.dev/$repo/$arch' /etc/pacman.conf
-  fi
-
-  sudo pacman -Syy
-  paru -S --needed rebos
-
-  # Initialize Rebos
-  rebos init
-
-  # Create config structure
-  mkdir -p ~/.config/rebos/{managers,hooks}
-
-  # === managers/system.toml ===
-  cat > ~/.config/rebos/managers/system.toml << 'EOF'
-  add = "paru -S --needed #:? --noconfirm"
-  remove = "paru -Rns #:?"
-  sync = "paru -Sy"
-  upgrade = "paru -Syu --noconfirm"
-  plural_name = "system packages"
-  hook_name = "system_packages"
-  [config]
-  many_args = true
-  EOF
-
-  cat > ~/.config/rebos/managers/flatpak.toml << 'EOF'
-  add = "flatpak install --user -y flathub #:?"
-  remove = "flatpak uninstall --user #:?"
-  sync = "flatpak update --user -y"
-  upgrade = "flatpak update --user -y"
-  plural_name = "flatpak apps"
-  [config]
-  many_args = true
-  EOF
-
-  cat > ~/.config/rebos/managers/serv_startup.toml << 'EOF'
-  add = "sudo systemctl enable #:?"
-  remove = "sudo systemctl disable #:?"
-  sync = "true"
-  upgrade = "true"
-  plural_name = "startup services"
-  hook_name = "serv_startup"
-  [config]
-  many_args = true
-  EOF
-
-  cat > ~/.config/rebos/managers/serv_now.toml << 'EOF'
-  add = "sudo systemctl enable --now #:?"
-  remove = "sudo systemctl disable #:?"
-  sync = "true"
-  upgrade = "true"
-  plural_name = "immediate services"
-  hook_name = "serv_now"
-  [config]
-  many_args = true
-  EOF
-
-  # === gen.toml (MASTER BLUEPRINT) ===
-  cat > ~/.config/rebos/gen.toml << 'EOF'
-  # === REBOS SYSTEM BLUEPRINT ===
-  # Consolidate ALL packages, services, and timers here.
-  # Split into logical sections for clarity.
-
-  imports = [
-    "core", "security", "desktop", "egpu",
-  ]
-
-  [managers.system]
-  items = [
-  # Security & Hardening
-  "aide", "auditd", "bitwarden", "chkrootkit", "lynis", "rkhunter", "sshguard", "ufw", "usbguard",
-  
-  # System Monitoring
-  "baobab", "cpupower", "gnome-system-monitor", "logwatch", "tlp", "upower", "zram-generator",
-  
-  # Hardware
-  "bluez", "bluez-utils", "fprintd", "thermald", 
-  
-  # Networking & Privacy
-  "dnscrypt-proxy", "opensnitch", "wireguard-tools", 
-  
-  # CLI Tools
-  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua-cli", "eza", "fd", "fzf", "gcc", "gdb", "git", "gitui", "glow", "gping",
-  "helix", "httpie", "hyfetch", "procs", "python-gobject", "rage", "ripgrep", "rustup", "starship", "tealdeer",
-  "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions",
-  
-  # Multimedia (system)
-  "ffmpeg", "gstreamer", "gst-libav", "gst-plugins-bad", "gst-plugins-good", "gst-plugins-ugly",
-  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", "gamemode", "lib32-gamemode", "gamescope",
-  
-  # Browsers & OBS (native)
-  "brave-browser", "mullvad-browser", "obs-studio", 
-  
-  # Utilities
-  "bandwhich",
-  
-  # GNOME
-  "gnome-bluetooth", "gnome-software-plugin-flatpak", "gnome-tweaks", "gnome-shell-extensions",
-
-  # AUR Packages
-  "apparmor.d-git", "astal-git", "ags-git", "gdm-settings",
-  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics", "hardened_malloc"
-  ]
-
-  [managers.flatpak]
-  items = [
-  "com.github.tchx84.Flatseal", "org.torproject.torbrowser-launcher"
-  "org.gimp.GIMP", "io.github.realmazharhussain.GdmSettings",
-  "org.gnome.Lollypop"
-  ]
-  
-  [managers.serv_startup]
-  items = [
-  "gdm", "bluetooth", "ufw", "auditd", "systemd-timesyncd", "tlp",
-  "dnscrypt-proxy", "sshguard", "rkhunter", "chkrootkit",
-  "pipewire", "wireplumber", "pipewire-pulse"
-  ]
-
-  [managers.serv_now]
-  items = [ "fstrim.timer", "logwatch.timer" ]
-  EOF
-
-  # === manager_order.toml ===
-  cat > ~/.config/rebos/manager_order.toml << 'EOF'
-  begin = ["system"]
-  end = ["flatpak", "serv_startup", "serv_now"]
-  EOF
-
-  # Validate
-  echo "Validating Rebos config..."
-  rebos config check
-
-  # Build & apply
-  echo "Building and switching to declarative config..."
-  rebos config build
-  rebos config switch
-
-  # First backup
-  BACKUP_NAME="initial-declarative-$(date +%Y%m%d-%H%M%S)"
-  rebos backup create --name "$BACKUP_NAME"
-  echo "First backup created: $BACKUP_NAME"
-
-  # Validate Applicatins Installed
-  rebos status
-  # Should output something like this "system_packages: 124 installed, 0 to install, 0 to remove"
-
-  # Git version control
-  cd ~/.config/rebos
-  git init -q
-  git add .
-  git commit -m "Initial declarative Rebos config — $(date -Iseconds)" -q
-  echo "Rebos config now under Git version control."
-  ```
 - Install Pacman applications:
   ```bash
   # System packages (CLI + system-level)
@@ -1390,20 +1233,8 @@
   # Utilities
   bandwhich \
   \
-  # GNOME
-  gnome-bluetooth gnome-tweaks gnome-shell-extensions gnome-firmware
-  ```
-- Remove unused, replaced and/or unsafe Gnome applications (Software App Store, Videos, Music, etc ...)
-  ```bash
-  sudo pacman -Rns gnome-software # Replaced by Bazaar
-  sudo pacman -Rns gnome-music # Replaced by Lollypop
-  sudo pacman -Rns totem # Replaced by Clapper
-  sudo pacman -Rns epiphany # Web browser; insecure for daily use
-  sudo pacman -Rns gnome-maps # Privacy: Uses GeoClue/Location services
-  sudo pacman -Rns gnome-weather # Privacy: Uses GeoClue/Location services
-  sudo pacman -Rns gnome-2048 gnome-chess gnome-klotski gnome-mahjongg gnome-mines gnome-sudoku aisleriot # Bloat unused games
-  sudo pacman -Rns eog # Image viewer; basic, but swap for modern (e.g., Loupe)
-  sudo pacman -Rns sushi # Quick previewer; leaks via remote album art/HTML fetches
+  # GNOME Extras
+  gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware
   ```
 - Permanently allow the bandwhich binary its required privileges
   ```bash
