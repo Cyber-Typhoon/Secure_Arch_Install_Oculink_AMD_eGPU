@@ -1393,9 +1393,17 @@
   # GNOME
   gnome-bluetooth gnome-tweaks gnome-shell-extensions gnome-firmware
   ```
-- Remove Gnome Software App Store
+- Remove unused, replaced and/or unsafe Gnome applications (Software App Store, Videos, Music, etc ...)
   ```bash
-  sudo pacman -Rns gnome-software
+  sudo pacman -Rns gnome-software # Replaced by Bazaar
+  sudo pacman -Rns gnome-music # Replaced by Lollypop
+  sudo pacman -Rns totem # Replaced by Clapper
+  sudo pacman -Rns epiphany # Web browser; insecure for daily use
+  sudo pacman -Rns gnome-maps # Privacy: Uses GeoClue/Location services
+  sudo pacman -Rns gnome-weather # Privacy: Uses GeoClue/Location services
+  sudo pacman -Rns gnome-2048 gnome-chess gnome-klotski gnome-mahjongg gnome-mines gnome-sudoku aisleriot # Bloat unused games
+  sudo pacman -Rns eog # Image viewer; basic, but swap for modern (e.g., Loupe)
+  sudo pacman -Rns sushi # Quick previewer; leaks via remote album art/HTML fetches
   ```
 - Permanently allow the bandwhich binary its required privileges
   ```bash
@@ -1495,7 +1503,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1509,6 +1517,7 @@
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gimp.GIMP
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Lollypop
   flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mixxx.Mixxx
+  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so com.github.rafostar.Clapper
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
   ```
