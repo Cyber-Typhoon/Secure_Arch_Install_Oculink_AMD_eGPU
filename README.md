@@ -558,8 +558,7 @@
   systemctl enable NetworkManager
   systemctl enable systemd-timesyncd     
   systemctl enable gdm                
-  systemctl enable bluetooth   
-  systemctl enable sshd                   
+  systemctl enable bluetooth                  
   systemctl enable thermald               
   systemctl enable acpid                  
   systemctl enable fwupd-refresh.timer    
@@ -1616,6 +1615,20 @@
   # sudo mkinitcpio -P
   # This will turn off the option to use power conservation mode and in this case set limits in the TLP in Step 12
   ```
+- Default deny incoming network via firewall (ufw):
+  ```bash
+  # Disables the SSH daemon and stops it immediately, removing the risk
+  sudo systemctl disable --now sshd
+  # Blocks all incoming connections by default (including port 22, ping, etc.)
+  sudo ufw default deny incoming
+  # Allows the laptop to connect to the internet, servers, etc. (required)
+  sudo ufw default allow outgoing
+  # Replace '51413' with the actual port number from your torrent client.
+  sudo ufw allow 51413/tcp
+  sudo ufw allow 51413/udp
+  # Enables the firewall and applies the rules
+  sudo ufw enable
+  ```
 - Configure Wayland environment variables:
   ```bash
   sudo tee /etc/environment > /dev/null <<'EOF'
@@ -1673,13 +1686,6 @@
   EOF
   systemctl restart NetworkManager
   nmcli connection down <connection_name> && nmcli connection up <connection_name>
-  ```
-- Configure UFW firewall:
-  ```bash
-  ufw allow ssh
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw enable
   ```
 - Configure GNOME privacy:
   ```bash
