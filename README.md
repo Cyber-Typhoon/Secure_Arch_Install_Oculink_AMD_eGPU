@@ -611,24 +611,25 @@
   
   # Modern CLI tool alias:
   if [[ $- == *i* ]]; then
-    alias sysctl='systeroid'
-    alias grep='rg'
-    alias find='fd'
-    alias ls='eza  --icons --git'
-    alias cat='bat --style=plain'
-    alias du='dua'
-    alias ps='procs'
-    alias dig='dog'
-    alias btop='btm'
-    alias iftop='bandwhich'
-    alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
-
+  alias sysctl='systeroid'          
+  alias grep='rg'
+  alias find='fd'
+  alias ls='eza --icons --git --color=auto'
+  alias cat='bat --style=plain'
+  alias du='dua'                    
+  alias ps='procs'
+  alias dig='dog'
+  alias btop='btm'
+  alias iftop='bandwhich'
+  alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
+  # Optional: make sudo preserve these aliases when you really want it
+  # (rarely needed, but harmless)
+  alias sudo='sudo '  # trailing space → sudo also expands aliases
+  fi
+  
   # zoxide: use 'z' and 'zi' (no autojump alias needed)
-  if command -v zoxide >/dev/null 2>&1; then
-    eval "$(zoxide init zsh)"
-  fi
-  fi
-
+  (( ${+commands[zoxide]} )) && eval "$(zoxide init zsh)"
+    
   # Safe update alias
   alias update='paru -Syu'
   echo "Run 'update' weekly. Use 'paru -Syu' for full control."
