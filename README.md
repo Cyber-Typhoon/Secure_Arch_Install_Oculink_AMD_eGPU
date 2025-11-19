@@ -1273,6 +1273,7 @@
     rose-pine-cursor \
     rose-pine-alacritty-git \
     rose-pine-gtk-theme-full \
+    stylepak-git \
     run0-sudo-shim-git \
     hardened_malloc
   ldconfig  # Update linker cache
@@ -1378,6 +1379,23 @@
   # Rely on Flatpak's bubblewrap sandbox for application isolation instead.
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
+  ```
+- Install Theme Extensions for Flatpak via stylepak
+  ```bash
+  # Install themes system-wide (for all users) and for the current user
+  ./stylepak install-system
+  ./stylepak install-user
+
+  # Clear the theme storage cache to ensure the new themes are picked up
+  ./stylepak clear-cache
+  ```
+- Configure GTK4/Libadwaita Overrides for Flatpak Themes
+  ```bash
+  # Allow user Flatpak apps to READ the host user's GTK4 config (e.g., custom CSS)
+  flatpak override --user --filesystem=xdg-config/gtk-4.0:ro
+
+  # Optional: Allow system-installed Flatpak apps to READ the host system's GTK4 config
+  sudo flatpak override --filesystem=xdg-config/gtk-4.0:ro
   ```
 - Install GSConnect from extensions.gnome.org
   ```bash
