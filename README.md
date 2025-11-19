@@ -1144,10 +1144,10 @@
   sudo pacman -S --needed mutter gnome-shell gdm gnome-control-center gnome-session gnome-settings-daemon \
 
   # Install Essential Tools
-  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome localsearch \
+  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome localsearch libadwaita \
 
-  # GNOME Adwaita and Orchis
-  gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme
+  # GNOME Adwaita, Orchis and Papirus
+  gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
 
   # Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, Clapper, etc)
   xdg-user-dirs-update 
@@ -1268,6 +1268,11 @@
     alacritty-graphics \
     astal-git \
     ags-git \
+    kanagawa-icon-theme-git \
+    kanagawa-gtk-theme-git \
+    rose-pine-cursor \
+    rose-pine-alacritty-git \
+    rose-pine-gtk-theme-full \
     run0-sudo-shim-git \
     hardened_malloc
   ldconfig  # Update linker cache
@@ -1283,8 +1288,14 @@
   # Sign run0-sudo-shim for sudo replacement
   sudo sbctl sign -s /usr/bin/sudo
   echo "run0-sudo-shim installed and signed"
+
+  # Sign fwupd for Secure Boot once
+  sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
+
+  # Sign hardened_malloc for Secure Boot once
+  sudo sbctl sign -s /usr/lib/libhardened_malloc*.so 2>/dev/null || true
   
-  # Append Astal/AGS and hardened_malloc to existing 90-uki-sign.hook
+  # Append Astal/AGS, hardened_malloc and fwupd to existing 90-uki-sign.hook
   if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
   cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
 
@@ -1295,11 +1306,12 @@
   Target = astal-git
   Target = ags-git
   Target = hardened_malloc
+  Target = fwupd
 
   [Action]
-  Description = Sign astal/ags and hardened_malloc libs for Secure Boot with sbctl
+  Description = Sign astal/ags, hardened_malloc and fwupd libs for Secure Boot with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags /usr/lib/libhardened_malloc*.so
+  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags /usr/lib/libhardened_malloc*.so /usr/lib/fwupd/efi/fwupdx64.efi
   Depends = sbctl
   EOF
   fi
