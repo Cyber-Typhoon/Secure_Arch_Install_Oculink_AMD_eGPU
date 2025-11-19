@@ -1277,7 +1277,7 @@
     hardened_malloc
   ldconfig  # Update linker cache
   ```
-- Sign the Astal, AGS and run0-sudo-shim
+- Sign the Astal, AGS, fwupd, hardened_malloc and run0-sudo-shim
   ```bash
   # Verify binaries exist before signing
     [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
