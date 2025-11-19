@@ -1266,8 +1266,8 @@
   paru -S --needed \
     apparmor.d-git \
     alacritty-graphics \
-    astal-git \
-    ags-git \
+    libastal-meta  \
+    aylurs-gtk-shell-git \
     kanagawa-icon-theme-git \
     kanagawa-gtk-theme-git \
     rose-pine-cursor \
@@ -1280,10 +1280,11 @@
 - Sign the Astal, AGS, fwupd, hardened_malloc and run0-sudo-shim
   ```bash
   # Verify binaries exist before signing
-    [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
+  # Note: Astal is libs only (no binary); AGS installs /usr/bin/ags
+  [[ -f /usr/bin/ags ]] || { echo "ERROR: ags binary not found!"; exit 1; }
   
-  # Sign astal/ags for Secure Boot once
-  sudo sbctl sign -s /usr/bin/astal /usr/bin/ags 2>/dev/null || true
+  # Sign AGS for Secure Boot once
+  sudo sbctl sign -s /usr/bin/ags 2>/dev/null || true
 
   # Sign run0-sudo-shim for sudo replacement
   sudo sbctl sign -s /usr/bin/sudo
@@ -1295,29 +1296,34 @@
   # Sign hardened_malloc for Secure Boot once
   sudo sbctl sign -s /usr/lib/libhardened_malloc*.so 2>/dev/null || true
   
-  # Append Astal/AGS, hardened_malloc and fwupd to existing 90-uki-sign.hook
-  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
+  # Append AGS/Astal, hardened_malloc and fwupd to existing 90-uki-sign.hook
+  if ! grep -q "Target = aylurs-gtk-shell-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
+  # Ensure kernel target exists (critical for UKI signing)
+  if ! grep -q "Target = linux" /etc/pacman.d/hooks/90-uki-sign.hook; then
+    sed -i '/\[Trigger\]/a Target = linux\nTarget = linux-lts' /etc/pacman.d/hooks/90-uki-sign.hook || \
+    echo -e "\nTarget = linux\nTarget = linux-lts" | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
+  fi
   cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
 
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
-  Target = astal-git
-  Target = ags-git
+  Target = libastal-meta
+  Target = aylurs-gtk-shell-git
   Target = hardened_malloc
   Target = fwupd
 
   [Action]
-  Description = Sign astal/ags, hardened_malloc and fwupd libs for Secure Boot with sbctl
+  Description = Sign AGS/Astal, hardened_malloc and fwupd libs for Secure Boot with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags /usr/lib/libhardened_malloc*.so /usr/lib/fwupd/efi/fwupdx64.efi
+  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/libhardened_malloc*.so /usr/lib/fwupd/efi/fwupdx64.efi
   Depends = sbctl
   EOF
   fi
   
   # Test the hook after installation:
-  sudo sbctl verify /usr/bin/astal  #Should show "signed"
+  sudo sbctl verify /usr/bin/ags  #Should show "signed"
 
   # Auto-re-sign hook for run0-sudo-shim
   sudo tee /etc/pacman.d/hooks/90-run0-shim-sign.hook <<'EOF'
@@ -1925,7 +1931,7 @@
   echo "       ausearch -m avc -ts recent | tail -20"
   echo "  3. Tune interactively:"
   echo "       sudo aa-logprof"
-  echo "       sudo aa-genprof <binary>  # e.g., astal, supergfxctl"
+  echo "       sudo aa-genprof <binary>  # e.g., Astal, supergfxctl"
   echo "  4. After tuning → ENFORCE:"
   echo "       sudo just fsp-enforce"
   echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
@@ -2475,7 +2481,7 @@
   dconf dump /org/gnome/shell/extensions/ > ~/.config/gnome-shell-extensions.dconf
   flatpak override --user --export > ~/.config/flatpak-overrides
   chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
-  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
+  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/ags
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
   # chezmoi add ~/.config/rebos # (DEPRECATED - Rebos is a too young project, too risky)
   ```
@@ -2508,7 +2514,7 @@
   sudo chezmoi add /etc/systemd/system/arch-news.timer /etc/systemd/system/arch-news.service
   sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
   sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
-  sudo chezmoi add /etc/systemd/system/astal-widgets.service
+  sudo chezmoi add /etc/systemd/system/ags-widgets.service
   sudo chezmoi add /etc/pacman.d/hooks/90-uki-sign.hook
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
   sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
@@ -2742,12 +2748,12 @@
   sudo ausearch -m avc -ts boot | audit2allow
   sudo aa-logprof
 
-  # For AGS/Astal:
-  sudo aa-genprof astal
-  # → In another terminal: astal -- ags -c ~/.config/ags/config.js
+  # For Astal/AGS:
+  sudo aa-genprof ags
+  # → In another terminal: ags -c ~/.config/ags/config.js
   # → Exercise UI, then Ctrl+C and finish aa-genprof
 
-  echo "Repeat for: ags, supergfxctl, boltctl, qemu-system-x86_64"
+  echo "Repeat for: AGS, supergfxctl, boltctl, qemu-system-x86_64"
 
   echo "After tuning: reboot and verify no denials in journalctl -u apparmor"
   ```
@@ -3521,7 +3527,7 @@
   ```
 - Logwatch
   ```bash
-  // ~/.config/ags/widgets/logwatch.ts
+  // ~/.config/astal/widgets/logwatch.ts
   import { Widget, Utils } from 'astal/gtk3';
 
   export default () => Widget.Box({
