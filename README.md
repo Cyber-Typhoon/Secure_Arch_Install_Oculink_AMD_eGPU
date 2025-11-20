@@ -1226,7 +1226,10 @@
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode gamescope \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
+  \
+  # Games
+  steam mangohud gamemode lib32-gamemode gamescope \
   \
   # General Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
@@ -1364,7 +1367,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -3429,11 +3432,16 @@
   # For Linux Native Games:
   gamemoderun mangohud %command%
   # Best Performance / Lowest Latency (Competitive, requires manual vsync control)
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco vkbasalt __GLX_VENDOR_LIBRARY_NAME=nvidia %command%
+  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco %command%
 
   # Optimal Performance / Features (Recommended for Wayland/Freesync/VRR users)
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 --fsr -r 144 -- %command%
+  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr --adaptive-sync -- %command%
+  # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
+  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr -r 240 -- %command%
+  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 --fsr -r 144 -- %command%
+
+  # Tune games individually using the application "Scopebuddy"
   ```
 - **l) Audio and Software Enhancements**:
   ```bash
