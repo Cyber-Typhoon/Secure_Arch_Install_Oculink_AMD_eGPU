@@ -1367,7 +1367,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), ProtonUp-Qt (net.davidotek.pupgui2) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -2141,12 +2141,11 @@
   Target = qemu
   Target = libvirt
   Target = supergfxctl
-  # Target = rebos (DEPRECATED - Rebos is a too young project, too risky)
 
   [Action]
   Description = Sign VFIO/eGPU binaries with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl # /usr/bin/rebos (DEPRECATED - Rebos is a too young project, too risky)
+  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl
   Depends = sbctl
   EOF
     echo "Added structured signing hook."
@@ -2410,32 +2409,10 @@
   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
-  - (DEPRECATED - Rebos is a too young project, too risky) Create Rebos pacman hook for updates
-  ```bash
-  if ! [ -f /etc/pacman.d/hooks/99-rebos-gen.hook ]; then
-  cat << 'EOF' | sudo tee /etc/pacman.d/hooks/99-rebos-gen.hook
-  [Trigger]
-  Operation = Upgrade
-  Operation = Install
-  Type = Package
-  Target = rebos
-
-  [Action]
-  Description = Regenerate Rebos manifest after rebos updates
-  When = PostTransaction
-  Exec = /usr/bin/rebos gen base
-  Depends = rebos
-  EOF
-    echo "Added Rebos manifest auto-regeneration hook."
-  else
-    echo "Rebos hook already exists. Skipping."
-  fi
-  ```
   - Set permissions for hooks:
   ```bash
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
-  # chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook # (DEPRECATED - Rebos is a too young project, too risky)
   ```
   - Verify configuration:
   ```bash 
@@ -2476,7 +2453,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup ~/.config/rebos (DEPRECATED - Rebos is a too young project, too risky)
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
   ```
 - Add user-specific dotfiles
   ```bash
@@ -2487,7 +2464,6 @@
   chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
   chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/ags
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
-  # chezmoi add ~/.config/rebos # (DEPRECATED - Rebos is a too young project, too risky)
   ```
 - DRI/Mesa config: Disable vblank sync for lowest GL latency (games/benchmarks)
   ```bash
@@ -3076,67 +3052,6 @@
   EOF
   sudo chmod +x /usr/local/bin/restic-backup.sh
   ```
-- (DEPRECATED - Rebos is a too young project, too risky) Create a Rebos backup script
-  ```bash
-  sudo tee /usr/local/bin/rebos-backup.sh > /dev/null <<'EOF'
-  #!/usr/bin/env bash
-  set -euo pipefail
-
-  # === CONFIG ===
-  USER="$SUDO_USER"
-  if [[ -z "$USER" ]]; then
-    echo "Error: Must be run with sudo or via a system service that sets SUDO_USER." >&2
-    exit 1
-  fi
-
-  REBOS_CONFIG="/home/$USER/.config/rebos"
-  BACKUP_NAME="weekly-$(date +%Y%m%d-%H%M%S)"
-  LOG="/var/log/rebos-backup.log"
-
-  # === ENSURE LOG IS WRITABLE BY USER ===
-  sudo touch "$LOG"
-  sudo chown root:adm "$LOG"
-  sudo chmod 664 "$LOG"
-
-  # === LOGGING (Root) ===
-  log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
-
-  log "Starting Rebos backup for user: $USER → $BACKUP_NAME"
-
-  # === RUN AS USER ===
-  sudo -u "$USER" bash <<EOS
-  set -euo pipefail
-
-  REBOS_CONFIG="$REBOS_CONFIG"
-  BACKUP_NAME="$BACKUP_NAME"
-  LOG="$LOG"
-
-  log_output() { cat | tee -a "\$LOG"; }
-
-  echo "Running rebos gen base..." | log_output
-  rebos gen base --output "\$REBOS_CONFIG/base.toml" | log_output
-  echo "Manifest regenerated" | log_output
-
-  if [ -d "\$REBOS_CONFIG/.git" ]; then
-    cd "\$REBOS_CONFIG"
-    git add base.toml
-    git commit -m "Auto: weekly manifest - \$BACKUP_NAME" || echo "No git changes" | log_output
-  fi
-
-  echo "Creating backup..." | log_output
-  rebos backup create --name "\$BACKUP_NAME" | log_output
-  echo "Backup created: \$BACKUP_NAME" | log_output
-
-  echo "Pruning old backups..." | log_output
-  rebos backup prune --keep-last 8 --keep-tagged monthly:4 | log_output
-  echo "Pruned old backups" | log_output
-  EOS
-
-  log "Rebos backup completed: $BACKUP_NAME"
-  EOF
-
-  sudo chmod +x /usr/local/bin/rebos-backup.sh
-  ```  
 - Systemd Service & Timer:
   ```bash
   sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
@@ -3227,8 +3142,6 @@
   /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
   systemctl list-timers --all
   journalctl -u restic-backup.timer -n 20
-  # journalctl -u rebos-backup.service -n 20 (DEPRECATED - Rebos is a too young project, too risky)
-  # rebos backup list (DEPRECATED - Rebos is a too young project, too risky)
 
   # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
   # Check status any time:  restic snapshots --repo <path>
@@ -3439,9 +3352,44 @@
   LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr --adaptive-sync -- %command%
   # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
   # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr -r 240 -- %command%
-  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 --fsr -r 144 -- %command%
+  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 -F fsr -r 144 -- %command%
 
   # Tune games individually using the application "Scopebuddy"
+
+  # GameMode pacman hook
+  sudo tee /etc/pacman.d/hooks/91-gaming-sign.hook <<'EOF'
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = steam
+  Target = mangohud
+  Target = gamemode
+  Target = lib32-gamemode
+  Target = gamescope
+
+  [Action]
+  Description = Sign gaming binaries for Secure Boot
+  When = PostTransaction
+  Exec = /bin/sh -c '/usr/bin/sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true'
+  Depends = sbctl
+  EOF
+
+  sudo sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true
+  
+  # Environment variables (add to ~/.zshrc for system-wide effect):
+  cat >> ~/.zshrc <<'EOF'
+  # Gaming Env Vars (comment out if issues)
+  # export RADV_FORCE_VRS=1  # VRS perf boost (toggle per-game if glitches)
+  export MANGOHUD=1  # Always-on HUD (disable per-game if needed)
+  EOF
+
+  # Reload shell
+  source ~/.zshrc
+
+  # Verify
+  sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope
+  gamemoded -t && echo "GameMode is working!"
   ```
 - **l) Audio and Software Enhancements**:
   ```bash
