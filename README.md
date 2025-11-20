@@ -3435,7 +3435,7 @@
 
 - Install a custom theme for GNOME:
   ```bash
-  paru -S --noconfirm adw-gtk3-git
+  # Review this video https://www.youtube.com/watch?v=3KhHVkL8yKM
   ```
 - Configure GNOME CSS for a dark theme:
   ```bash
