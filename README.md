@@ -1217,7 +1217,7 @@
   bluez bluez-utils fprintd thermald \
   \
   # Networking & Privacy
-  dnscrypt-proxy opensnitch wireguard-tools \
+  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
   \
   # CLI Tools
   atuin bat bandwhich bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
@@ -1227,9 +1227,6 @@
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
   libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode gamescope \
-  \
-  # Browsers
-  brave-browser mullvad-browser \
   \
   # General Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
@@ -1266,8 +1263,10 @@
   paru -S --needed \
     apparmor.d-git \
     alacritty-graphics \
-    libastal-meta  \
     aylurs-gtk-shell-git \
+    libastal-meta  \
+    mullvad-browser-bin \
+    trivalent-bin \
     kanagawa-icon-theme-git \
     kanagawa-gtk-theme-git \
     rose-pine-cursor \
