@@ -1149,7 +1149,7 @@
   # GNOME Adwaita, Orchis and Papirus
   gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
 
-  # Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, Clapper, etc)
+  # Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, etc)
   xdg-user-dirs-update 
   ```
 - Install **Paru and configure it**:
@@ -1367,7 +1367,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), ProtonUp-Qt (net.davidotek.pupgui2) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), ProtonUp-Qt (net.davidotek.pupgui2), Video Player (org.gnome.Showtime) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
