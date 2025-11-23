@@ -3163,6 +3163,8 @@
     ```bash
     journalctl -p 3 -xb
     journalctl -b -p err --since "1 hour ago"
+
+    # Review current security in place on systemd https://roguesecurity.dev/blog/systemd-hardening
     ```
 - **c) Check Snapshots**:
   - Verify Snapper snapshots:
