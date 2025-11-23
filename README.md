@@ -704,7 +704,7 @@
 
 ## Milestone 4: After Step 7 (Back up the LUKS header for recovery) - Can pause at this point
 
-## Step 8: Configure Boot, UKI, Secure Boot, and Hooks (Inside chroot)
+## Step 8: Configure Boot, UKI, Secure Boot, and Hooks (Last Step Inside chroot)
 
 - Install TPM tools:
   ```bash
