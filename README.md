@@ -2,9 +2,9 @@
 
 ## Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
 
-- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0**, **hardened-malloc** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
+- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
 - The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
-- **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup, performance penalties and linux-hardened does not support hibernation. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened can be explored.
+- **Observation**: The `linux-hardened` kernel and hardened malloc are avoided due to complexities with eGPU setup, performance penalties, more specific linux-hardened does not support hibernation, hardened malloc will make games crash randomly and Firefox's performance will significantly decrease because replacemant of jemalloc which is highly optimized for browser rendering. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened and hardened malloc can be explored.
 - **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
 
 ## Step 1: Verify Hardware
@@ -1276,11 +1276,10 @@
     rose-pine-alacritty-git \
     rose-pine-gtk-theme-full \
     stylepak-git \
-    run0-sudo-shim-git \
-    hardened_malloc
+    run0-sudo-shim-git
   ldconfig  # Update linker cache
   ```
-- Sign the Astal, AGS, fwupd, hardened_malloc and run0-sudo-shim
+- Sign the Astal, AGS, fwupd and run0-sudo-shim
   ```bash
   # Verify binaries exist before signing
   # Note: Astal is libs only (no binary); AGS installs /usr/bin/ags
@@ -1295,11 +1294,8 @@
 
   # Sign fwupd for Secure Boot once
   sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
-
-  # Sign hardened_malloc for Secure Boot once
-  sudo sbctl sign -s /usr/lib/libhardened_malloc*.so 2>/dev/null || true
   
-  # Append AGS/Astal, hardened_malloc and fwupd to existing 90-uki-sign.hook
+  # Append AGS/Astal and fwupd to existing 90-uki-sign.hook
   if ! grep -q "Target = aylurs-gtk-shell-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
   # Ensure kernel target exists (critical for UKI signing)
   if ! grep -q "Target = linux" /etc/pacman.d/hooks/90-uki-sign.hook; then
@@ -1314,13 +1310,12 @@
   Type = Package
   Target = libastal-meta
   Target = aylurs-gtk-shell-git
-  Target = hardened_malloc
   Target = fwupd
 
   [Action]
-  Description = Sign AGS/Astal, hardened_malloc and fwupd libs for Secure Boot with sbctl
+  Description = Sign AGS/Astal and fwupd libs for Secure Boot with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/libhardened_malloc*.so /usr/lib/fwupd/efi/fwupdx64.efi
+  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/fwupd/efi/fwupdx64.efi
   Depends = sbctl
   EOF
   fi
@@ -1376,7 +1371,6 @@
   flatpak override --user --socket=wayland --socket=x11
   # Allow GPU access for Steam:
   flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
-  # We do NOT preload hardened_malloc into Flatpaks.
   # It causes crashes due to ABI mismatches with the Flatpak runtime (glibc version differences).
   # Rely on Flatpak's bubblewrap sandbox for application isolation instead.
   # Flatpak GUI - Test
@@ -1497,8 +1491,10 @@
   ```bash
   sudo systemctl mask power-profiles-daemon
   sudo systemctl disable power-profiles-daemon
+  # Intel iGPU Power Saving
+  # NOTE: enable_psr (Panel Self Refresh) is omitted to prevent screen flickering on OLED/High-Refresh displays.
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
-  echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
+  echo 'options i915 enable_fbc=1' >> /etc/modprobe.d/i915.conf
   ```
 - Lenovo Battery Conservation Mode (60% Limit)
   ```bash
@@ -1548,6 +1544,9 @@
   # Replace '51413' with the actual port number from your torrent client.
   sudo ufw allow 51413/tcp
   sudo ufw allow 51413/udp
+  # GSConnect / KDE Connect (Required for phone pairing)
+  sudo ufw allow 1714:1764/udp
+  sudo ufw allow 1714:1764/tcp
   # Enables the firewall and applies the rules
   sudo ufw enable
   ```
@@ -1556,7 +1555,7 @@
   sudo tee /etc/environment > /dev/null <<'EOF'
   # WAYLAND (FORCE HIGH-PERFORMANCE)
   MOZ_ENABLE_WAYLAND=1
-  GDK_BACKEND=wayland
+  # GDK_BACKEND=wayland <-- Commented out to prevent Electron app crashes; use per-app if needed.
   CLUTTER_BACKEND=wayland
   QT_QPA_PLATFORM=wayland
   SDL_VIDEODRIVER=wayland
@@ -1671,6 +1670,7 @@
   usbguard allow-device <device-id> # For GSConnect and other known devices
   # If passed the USB test enable it:
   systemctl enable --now usbguard
+  echo "WARNING: Test Suspend/Resume immediately. If USB/Bluetooth fails after resume, run 'usbguard allow-device' for the specific ID."
   ```
 - Configure Lynis audit and create timer:
   ```bash
@@ -1701,11 +1701,46 @@
   mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
   systemctl enable --now aide-check.timer
   ```
-- Global Preload (Hardened Malloc - Light Variant)
+- Create systemd global hardening:
   ```bash
-  sudo tee /etc/ld.so.preload << EOF
-  /usr/lib/libhardened_malloc-light.so
+  sudo mkdir -p /etc/systemd/system.conf.d
+  sudo tee /etc/systemd/system.conf.d/10-hardening.conf > /dev/null <<'EOF'
+  [Manager]
+  # Timing (bumped to 90s for slower services like NetworkManager on WiFi)
+  DefaultTimeoutStartSec=90s
+  DefaultTimeoutStopSec=90s
+
+  [Service]
+  Restart=always
+  MemoryMax=512M
+  Sockets=http.socket https.socket
+
+  # Safe, invisible hardening — no breakage in 2025 Arch
+  DefaultRestrictRealtime=yes
+  DefaultLockPersonality=yes
+  DefaultRestrictSUIDSGID=yes
+  DefaultPrivateTmp=yes
+  DefaultPrivateDevices=yes
+  DefaultProtectClock=yes
+  DefaultProtectKernelTunables=yes
+  DefaultProtectKernelModules=yes
+  DefaultProtectKernelLogs=yes
+  DefaultProtectControlGroups=yes
+  DefaultNoNewPrivileges=yes
+  DefaultRemoveIPC=yes
+  DefaultUMask=0077
+  # REMOVED: DefaultProtectHome=read-only (Breaks Backups)
+  # REMOVED: DefaultMemoryDenyWriteExecute=yes (Breaks JIT/Browsers)
+
+  # Filesystem protections (strict but compatible)
+  DefaultProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now
+
+  [Install]
+  WantedBy=default.target
+  
   EOF
+
+  echo "Systemd global hardening applied — verify scores post-boot with 'systemd-analyze security'."
   ```
 - Configure sysctl hardening:
   ```bash
@@ -3248,27 +3283,6 @@
   # Check timer status
   systemctl status apparmor.d-update.timer --no-pager
 
-  # Create AppArmor abstraction for hardened_malloc
-  sudo mkdir -p /etc/apparmor.d/local
-  if [ ! -f /etc/apparmor.d/local/hardened_malloc.abstraction ]; then
-    sudo tee /etc/apparmor.d/local/hardened_malloc.abstraction > /dev/null <<'EOF'
-  # Hardened malloc preload support
-  /usr/lib/libhardened_malloc*.so mr,
-  EOF
-    echo "Created hardened_malloc abstraction"
-  else
-    echo "hardened_malloc abstraction already exists"
-  fi
-
-  # Create local tunable for hardened_malloc (this is the clean way)
-  sudo mkdir -p /etc/apparmor.d/tunables/local
-  if [ ! -f /etc/apparmor.d/tunables/local/hardened_malloc ]; then
-    echo '/usr/lib/libhardened_malloc*.so mr,' | sudo tee /etc/apparmor.d/tunables/local/hardened_malloc > /dev/null
-    echo "Created hardened_malloc local tunable"
-  else
-    echo "hardened_malloc local tunable already exists"
-  fi
-
   # Create local tunable for XDG (from your V1, still a good idea)
   if [ ! -f /etc/apparmor.d/tunables/local/xdg.conf ]; then
     echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf > /dev/null
@@ -3281,7 +3295,6 @@
   sudo apparmor_parser -r /etc/apparmor.d/
   # Verify no parse errors
   sudo aa-status | head -5 || echo "Warning: aa-status failed (check apparmor.service)"
-  echo "hardened_malloc whitelisted in AppArmor FSP."
 
   # Tune from logs (run after normal usage)
   echo "---"
