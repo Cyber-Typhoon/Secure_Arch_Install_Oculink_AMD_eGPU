@@ -2,9 +2,9 @@
 
 ## Arch Linux Setup Action Plan for Lenovo ThinkBook 14+ 2025 (AMD eGPU Focus)
 
-- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0**, **hardened-malloc** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
+- This guide provides a **comprehensive action plan** for installing and configuring **Arch Linux** on a **Lenovo ThinkBook 14+ 2025 Intel Core Ultra 7 255H** with **Intel iGPU (Arc 140T)**, no dGPU, using **GNOME Wayland**, **BTRFS**, **LUKS2**, **TPM2**, **AppArmor**, **systemd-boot with Unified Kernel Image (UKI)**, **Secure Boot**, **run0** and an **OCuP4V2 OCuLink GPU Dock ReDriver with an AMD eGPU**.
 - The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
-- **Observation**: The `linux-hardened` kernel is avoided due to complexities with eGPU setup, performance penalties and linux-hardened does not support hibernation. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened can be explored.
+- **Observation**: The `linux-hardened` kernel and hardened malloc are avoided due to complexities with eGPU setup, performance penalties, more specific linux-hardened does not support hibernation, hardened malloc will make games crash randomly and Firefox's performance will significantly decrease because replacemant of jemalloc which is highly optimized for browser rendering. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened and hardened malloc can be explored.
 - **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
 
 ## Step 1: Verify Hardware
@@ -425,8 +425,8 @@
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
   \
   # Graphics
-  mesa libva-mesa-driver mesa-demos vulkan-intel lib32-vulkan-intel \
-  vulkan-radeon lib32-vulkan-radeon intel-gpu-tools \
+  mesa libva-mesa-driver mesa-demos mesa-vdpau lib32-mesa-vdpau vulkan-intel lib32-vulkan-intel \
+  vulkan-radeon lib32-vulkan-radeon intel-gpu-tools lact \
   \
   # Audio
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
@@ -557,7 +557,7 @@
   ```bash
   systemctl enable NetworkManager
   systemctl enable systemd-timesyncd     
-  systemctl enable gdm                
+  systemctl enable gdm.service                
   systemctl enable bluetooth                  
   systemctl enable thermald               
   systemctl enable acpid                  
@@ -704,7 +704,7 @@
 
 ## Milestone 4: After Step 7 (Back up the LUKS header for recovery) - Can pause at this point
 
-## Step 8: Configure Boot, UKI, Secure Boot, and Hooks (Inside chroot)
+## Step 8: Configure Boot, UKI, Secure Boot, and Hooks (Last Step Inside chroot)
 
 - Install TPM tools:
   ```bash
@@ -857,7 +857,7 @@
   ```
   ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
 
-## Step 9: TPM Auto-Healing, Recovery USB, Windows Entry & Final Archive (Live System)
+## Step 9: TPM Auto-Healing, Recovery USB, Windows Entry & Final Archive (newly installed, booted Arch Linux OS, not the USB installer)
 
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
@@ -1140,8 +1140,17 @@
 
 - Install the **GNOME desktop environment**:
   ```bash
-  # Install Gnome
-  sudo pacman -S --needed gnome
+  # Core Desktop Environment (Shell, Compositor, Login Manager)
+  sudo pacman -S --needed mutter gnome-shell gdm gnome-control-center gnome-session gnome-settings-daemon \
+
+  # Install Essential Tools
+  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome localsearch libadwaita xdg-utils \
+
+  # GNOME Adwaita, Orchis and Papirus
+  gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
+
+  # Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, etc)
+  xdg-user-dirs-update 
   ```
 - Install **Paru and configure it**:
   ```bash   
@@ -1176,6 +1185,7 @@
   PgpFetch
   BottomUp
   RemoveMake
+  CleanAfter = true
   SudoLoop
   EditMenu = true
   CombinedUpgrade = false
@@ -1193,172 +1203,6 @@
   echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
   mkdir -p ~/.cache/paru-build
   ```
-- (DEPRECATED - Rebos is a too young project, too risky) Install Rebos (NixOS-like repeatability for any Linux distro.)
-  ```bash
-  # === REBOS: FULL DECLARATIVE SETUP (2025) ===
-  set -euo pipefail
-
-  # Install Rebos (Oglo repo)
-  if ! sudo pacman-key --list-keys 83F788B2E0576307 &>/dev/null; then
-    echo "Adding Oglo GPG key..."
-    sudo pacman-key --recv-key 83F788B2E0576307
-    sudo pacman-key --lsign-key 83F788B2E0576307
-  fi
-
-  if ! grep -q '^\[oglo\]' /etc/pacman.conf; then
-    echo "Adding [oglo] repository..."
-    sudo sed -i '/^#?\[options\]/a [oglo]\nSigLevel = PackageOptional\nServer = https://arch.oglo.dev/$repo/$arch' /etc/pacman.conf
-  fi
-
-  sudo pacman -Syy
-  paru -S --needed rebos
-
-  # Initialize Rebos
-  rebos init
-
-  # Create config structure
-  mkdir -p ~/.config/rebos/{managers,hooks}
-
-  # === managers/system.toml ===
-  cat > ~/.config/rebos/managers/system.toml << 'EOF'
-  add = "paru -S --needed #:? --noconfirm"
-  remove = "paru -Rns #:?"
-  sync = "paru -Sy"
-  upgrade = "paru -Syu --noconfirm"
-  plural_name = "system packages"
-  hook_name = "system_packages"
-  [config]
-  many_args = true
-  EOF
-
-  cat > ~/.config/rebos/managers/flatpak.toml << 'EOF'
-  add = "flatpak install --user -y flathub #:?"
-  remove = "flatpak uninstall --user #:?"
-  sync = "flatpak update --user -y"
-  upgrade = "flatpak update --user -y"
-  plural_name = "flatpak apps"
-  [config]
-  many_args = true
-  EOF
-
-  cat > ~/.config/rebos/managers/serv_startup.toml << 'EOF'
-  add = "sudo systemctl enable #:?"
-  remove = "sudo systemctl disable #:?"
-  sync = "true"
-  upgrade = "true"
-  plural_name = "startup services"
-  hook_name = "serv_startup"
-  [config]
-  many_args = true
-  EOF
-
-  cat > ~/.config/rebos/managers/serv_now.toml << 'EOF'
-  add = "sudo systemctl enable --now #:?"
-  remove = "sudo systemctl disable #:?"
-  sync = "true"
-  upgrade = "true"
-  plural_name = "immediate services"
-  hook_name = "serv_now"
-  [config]
-  many_args = true
-  EOF
-
-  # === gen.toml (MASTER BLUEPRINT) ===
-  cat > ~/.config/rebos/gen.toml << 'EOF'
-  # === REBOS SYSTEM BLUEPRINT ===
-  # Consolidate ALL packages, services, and timers here.
-  # Split into logical sections for clarity.
-
-  imports = [
-    "core", "security", "desktop", "egpu",
-  ]
-
-  [managers.system]
-  items = [
-  # Security & Hardening
-  "aide", "auditd", "bitwarden", "chkrootkit", "lynis", "rkhunter", "sshguard", "ufw", "usbguard",
-  
-  # System Monitoring
-  "baobab", "cpupower", "gnome-system-monitor", "logwatch", "tlp", "upower", "zram-generator",
-  
-  # Hardware
-  "bluez", "bluez-utils", "fprintd", "thermald", 
-  
-  # Networking & Privacy
-  "dnscrypt-proxy", "opensnitch", "wireguard-tools", 
-  
-  # CLI Tools
-  "atuin", "bat", "bottom", "broot", "delta", "dog", "dua-cli", "eza", "fd", "fzf", "gcc", "gdb", "git", "gitui", "glow", "gping",
-  "helix", "httpie", "hyfetch", "procs", "python-gobject", "rage", "ripgrep", "rustup", "starship", "tealdeer",
-  "xdg-ninja", "yazi", "zellij", "zoxide", "zsh-autosuggestions",
-  
-  # Multimedia (system)
-  "ffmpeg", "gstreamer", "gst-libav", "gst-plugins-bad", "gst-plugins-good", "gst-plugins-ugly",
-  "libva-utils", "libva-vdpau-driver", "vulkan-tools", "clinfo", "mangohud", "gamemode", "lib32-gamemode", "gamescope",
-  
-  # Browsers & OBS (native)
-  "brave-browser", "mullvad-browser", "obs-studio", 
-  
-  # Utilities
-  "bandwhich",
-  
-  # GNOME
-  "gnome-bluetooth", "gnome-software-plugin-flatpak", "gnome-tweaks", "gnome-shell-extensions",
-
-  # AUR Packages
-  "apparmor.d-git", "astal-git", "ags-git", "gdm-settings",
-  "systeroid-git", "run0-sudo-shim-git", "alacritty-graphics", "hardened_malloc"
-  ]
-
-  [managers.flatpak]
-  items = [
-  "com.github.tchx84.Flatseal", "org.torproject.torbrowser-launcher"
-  "org.gimp.GIMP", "io.github.realmazharhussain.GdmSettings",
-  "org.gnome.Lollypop"
-  ]
-  
-  [managers.serv_startup]
-  items = [
-  "gdm", "bluetooth", "ufw", "auditd", "systemd-timesyncd", "tlp",
-  "dnscrypt-proxy", "sshguard", "rkhunter", "chkrootkit",
-  "pipewire", "wireplumber", "pipewire-pulse"
-  ]
-
-  [managers.serv_now]
-  items = [ "fstrim.timer", "logwatch.timer" ]
-  EOF
-
-  # === manager_order.toml ===
-  cat > ~/.config/rebos/manager_order.toml << 'EOF'
-  begin = ["system"]
-  end = ["flatpak", "serv_startup", "serv_now"]
-  EOF
-
-  # Validate
-  echo "Validating Rebos config..."
-  rebos config check
-
-  # Build & apply
-  echo "Building and switching to declarative config..."
-  rebos config build
-  rebos config switch
-
-  # First backup
-  BACKUP_NAME="initial-declarative-$(date +%Y%m%d-%H%M%S)"
-  rebos backup create --name "$BACKUP_NAME"
-  echo "First backup created: $BACKUP_NAME"
-
-  # Validate Applicatins Installed
-  rebos status
-  # Should output something like this "system_packages: 124 installed, 0 to install, 0 to remove"
-
-  # Git version control
-  cd ~/.config/rebos
-  git init -q
-  git add .
-  git commit -m "Initial declarative Rebos config — $(date -Iseconds)" -q
-  echo "Rebos config now under Git version control."
-  ```
 - Install Pacman applications:
   ```bash
   # System packages (CLI + system-level)
@@ -1367,52 +1211,52 @@
   aide auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
-  baobab cpupower gnome-system-monitor logwatch tlp upower zram-generator \
+  gnome-system-monitor gnome-disk-utility logwatch tlp tlp-rdw upower zram-generator \
   \
   # Hardware
   bluez bluez-utils fprintd thermald \
   \
   # Networking & Privacy
-  dnscrypt-proxy opensnitch wireguard-tools \
+  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
   \
   # CLI Tools
-  atuin bat bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
+  atuin bat bandwhich bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
   helix httpie hyfetch linux-docs procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
   xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo mangohud gamemode lib32-gamemode gamescope \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
   \
-  # Browsers & OBS (native)
-  brave-browser mullvad-browser obs-studio \
+  # Games
+  steam mangohud gamemode lib32-gamemode gamescope \
   \
-  # Utilities
-  bandwhich \
+  # General Fonts (Emoji/symbol coverage + CJK support)
+  noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
+  ttf-roboto ttf-roboto-mono ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-fira-code \
+  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd \
   \
-  # GNOME
-  gnome-bluetooth gnome-tweaks gnome-shell-extensions gnome-firmware
+  # GNOME Extras
+  gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
+  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd ffmpegthumbnailer webp-pixbuf-loader libgsf
   ```
-- Remove unused, replaced and/or unsafe Gnome applications (Software App Store, Videos, Music, etc ...)
+- Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
-  sudo pacman -Rns gnome-software # Replaced by Bazaar
-  sudo pacman -Rns gnome-music # Replaced by Lollypop
-  sudo pacman -Rns totem # Replaced by Clapper
-  sudo pacman -Rns epiphany # Web browser; insecure for daily use
-  sudo pacman -Rns gnome-maps # Privacy: Uses GeoClue/Location services
-  sudo pacman -Rns gnome-weather # Privacy: Uses GeoClue/Location services
-  sudo pacman -Rns gnome-2048 gnome-chess gnome-klotski gnome-mahjongg gnome-mines gnome-sudoku aisleriot # Bloat unused games
-  sudo pacman -Rns eog # Image viewer; basic, but swap for modern (e.g., Loupe)
-  sudo pacman -Rns sushi # Quick previewer; leaks via remote album art/HTML fetches
-  ```
-- Permanently allow the bandwhich binary its required privileges
-  ```bash
-  # assign capabilities
   sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $(command -v bandwhich)
+  ```
+- Privacy measure to prevent laptop location identification:
+  ```bash
+  sudo systemctl mask geoclue.service
+  ```
+- Font rendering (subpixel + hinting):
+  ```bash
+  fc-cache -fv
+  gsettings set org.gnome.desktop.interface font-antialiasing 'rgba'
+  gsettings set org.gnome.desktop.interface font-hinting 'slight'
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm bluetooth ufw auditd systemd-timesyncd tlp fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse
+  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -1422,47 +1266,61 @@
   paru -S --needed \
     apparmor.d-git \
     alacritty-graphics \
-    astal-git \
-    ags-git \
-    gdm-settings \
-    run0-sudo-shim-git \
-    hardened_malloc
+    aylurs-gtk-shell-git \
+    libastal-meta  \
+    brave-bin \
+    kanagawa-icon-theme-git \
+    kanagawa-gtk-theme-git \
+    rose-pine-cursor \
+    rose-pine-alacritty-git \
+    rose-pine-gtk-theme-full \
+    stylepak-git \
+    run0-sudo-shim-git
   ldconfig  # Update linker cache
   ```
-- Sign the Astal, AGS and run0-sudo-shim
+- Sign the Astal, AGS, fwupd and run0-sudo-shim
   ```bash
   # Verify binaries exist before signing
-    [[ -f /usr/bin/astal && -f /usr/bin/ags ]] || { echo "ERROR: astal/ags not found!"; exit 1; }
+  # Note: Astal is libs only (no binary); AGS installs /usr/bin/ags
+  [[ -f /usr/bin/ags ]] || { echo "ERROR: ags binary not found!"; exit 1; }
   
-  # Sign astal/ags for Secure Boot once
-  sudo sbctl sign -s /usr/bin/astal /usr/bin/ags 2>/dev/null || true
+  # Sign AGS for Secure Boot once
+  sudo sbctl sign -s /usr/bin/ags 2>/dev/null || true
 
   # Sign run0-sudo-shim for sudo replacement
   sudo sbctl sign -s /usr/bin/sudo
   echo "run0-sudo-shim installed and signed"
+
+  # Sign fwupd for Secure Boot once
+  sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
   
-  # Append Astal/AGS and hardened_malloc to existing 90-uki-sign.hook
-  if ! grep -q "Target = astal-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
+  # Append AGS/Astal and fwupd to existing 90-uki-sign.hook
+  if ! grep -q "Target = aylurs-gtk-shell-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
+  # Ensure kernel target exists (critical for UKI signing)
+  if ! grep -q "Target = linux" /etc/pacman.d/hooks/90-uki-sign.hook; then
+    sed -i '/\[Trigger\]/a Target = linux\nTarget = linux-lts' /etc/pacman.d/hooks/90-uki-sign.hook || \
+    echo -e "\nTarget = linux\nTarget = linux-lts" | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
+  fi
   cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
 
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
-  Target = astal-git
-  Target = ags-git
-  Target = hardened_malloc
+  Target = libastal-meta
+  Target = aylurs-gtk-shell-git
+  Target = fwupd
 
   [Action]
-  Description = Sign astal/ags and hardened_malloc libs for Secure Boot with sbctl
+  Description = Sign AGS/Astal and fwupd libs for Secure Boot with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/astal /usr/bin/ags /usr/lib/libhardened_malloc*.so
+  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/fwupd/efi/fwupdx64.efi
   Depends = sbctl
   EOF
   fi
   
   # Test the hook after installation:
-  sudo sbctl verify /usr/bin/astal  #Should show "signed"
+  sudo sbctl verify /usr/bin/ags  #Should show "signed"
 
   # Auto-re-sign hook for run0-sudo-shim
   sudo tee /etc/pacman.d/hooks/90-run0-shim-sign.hook <<'EOF'
@@ -1503,7 +1361,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Clapper (com.github.rafostar.Clapper) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), ProtonUp-Qt (net.davidotek.pupgui2), Video Player (org.gnome.Showtime), Firefox Browser (org.mozilla.firefox) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1512,14 +1370,40 @@
   flatpak override --user --socket=wayland --socket=x11
   # Allow GPU access for Steam:
   flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
-  # Hardened Malloc in Flatpak Applications
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.torproject.torbrowser-launcher
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gimp.GIMP
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.gnome.Lollypop
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so org.mixxx.Mixxx
-  flatpak override --user --filesystem=/usr/lib/libhardened_malloc.so --env=LD_PRELOAD=/usr/lib/libhardened_malloc.so com.github.rafostar.Clapper
+  # It causes crashes due to ABI mismatches with the Flatpak runtime (glibc version differences).
+  # Rely on Flatpak's bubblewrap sandbox for application isolation instead.
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
+  ```
+- Install Theme Extensions for Flatpak via stylepak
+  ```bash
+  # Install themes system-wide (for all users) and for the current user
+  ./stylepak install-system
+  ./stylepak install-user
+
+  # Clear the theme storage cache to ensure the new themes are picked up
+  ./stylepak clear-cache
+  ```
+- Configure GTK4/Libadwaita Overrides for Flatpak Themes
+  ```bash
+  # Allow user Flatpak apps to READ the host user's GTK4 config (e.g., custom CSS)
+  flatpak override --user --filesystem=xdg-config/gtk-4.0:ro
+
+  # Optional: Allow system-installed Flatpak apps to READ the host system's GTK4 config
+  sudo flatpak override --filesystem=xdg-config/gtk-4.0:ro
+  ```
+- Install GSConnect from extensions.gnome.org
+  ```bash
+  echo "Install GSConnect from https://extensions.gnome.org/extension/1319/gsconnect/ using Extension Manager (preferred over AUR version)"
+  echo "After installing GSConnect via Extension Manager, enable it and restart GNOME Shell (Alt+F2 → r → Enter)"
+  ```
+- Enroll fingerprint if device has a reader
+  ```bash
+  if fprintd-enroll -f list | grep -q "no devices"; then
+    echo "No fingerprint reader detected"
+  else
+    echo "Fingerprint reader found! Run 'fprintd-enroll' to set it up (optional)"
+  fi
   ```
 - (OPTIONAL NOT RECOMMENDED) Setup Automated System/AUR Updates
   ```bash
@@ -1566,12 +1450,34 @@
   sudo systemctl list-unit-files | grep paru-update
   sudo systemctl status "paru-update@$USER.service"
   ```
+- Edit the configuration file (likely at ~/.config/alacritty/alacritty.toml or alacritty.yml):
+  ```bash
+  # Configure Alacritty font
+  mkdir -p ~/.config/alacritty
+  if [[ ! -f ~/.config/alacritty/alacritty.toml ]]; then
+    cat <<'EOF' > ~/.config/alacritty/alacritty.toml
+  [font.normal]
+  family = "JetBrainsMono Nerd Font"
+  style = "Regular"
+
+  [font.bold]
+  family = "JetBrainsMono Nerd Font"
+  style = "Bold"
+
+  [font.italic]
+  family = "JetBrainsMono Nerd Font"
+  style = "Italic"
+  EOF
+  else
+    echo "Alacritty config already exists – font not overwritten"
+  fi
+  ```
 - Final full system update + UKI rebuild
   ```bash
   sudo pacman -Syu                 # now safe – hooks are active
   sudo mkinitcpio -P               # regenerate UKI (covers new kernel)
   # REQUIRED: Manually sign the newly created UKI, as mkinitcpio -P does not trigger the Pacman hook.
-  sudo sbctl sign -s /boot/EFI/Linux/*.efi 
+  sudo sbctl sign -s /boot/EFI/Linux/*.efi /boot/EFI/Linux/*.EFI 2>/dev/null || true
   sudo sbctl verify                # sanity-check all signed files
   ```
 - Check Secure Boot Violations:
@@ -1584,8 +1490,10 @@
   ```bash
   sudo systemctl mask power-profiles-daemon
   sudo systemctl disable power-profiles-daemon
+  # Intel iGPU Power Saving
+  # NOTE: enable_psr (Panel Self Refresh) is omitted to prevent screen flickering on OLED/High-Refresh displays.
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
-  echo 'options i915 enable_fbc=1 enable_psr=1' >> /etc/modprobe.d/i915.conf
+  echo 'options i915 enable_fbc=1' >> /etc/modprobe.d/i915.conf
   ```
 - Lenovo Battery Conservation Mode (60% Limit)
   ```bash
@@ -1635,6 +1543,9 @@
   # Replace '51413' with the actual port number from your torrent client.
   sudo ufw allow 51413/tcp
   sudo ufw allow 51413/udp
+  # GSConnect / KDE Connect (Required for phone pairing)
+  sudo ufw allow 1714:1764/udp
+  sudo ufw allow 1714:1764/tcp
   # Enables the firewall and applies the rules
   sudo ufw enable
   ```
@@ -1643,7 +1554,7 @@
   sudo tee /etc/environment > /dev/null <<'EOF'
   # WAYLAND (FORCE HIGH-PERFORMANCE)
   MOZ_ENABLE_WAYLAND=1
-  GDK_BACKEND=wayland
+  # GDK_BACKEND=wayland <-- Commented out to prevent Electron app crashes; use per-app if needed.
   CLUTTER_BACKEND=wayland
   QT_QPA_PLATFORM=wayland
   SDL_VIDEODRIVER=wayland
@@ -1744,6 +1655,9 @@
   cert_refresh_delay = 240
   EOF
   systemctl restart dnscrypt-proxy
+  # Switch to the socket to prevents conflicts
+  sudo systemctl disable --now dnscrypt-proxy.service
+  sudo systemctl enable --now dnscrypt-proxy.socket
   # Test DNS resolution:
   dog archlinux.org
   ```
@@ -1755,6 +1669,7 @@
   usbguard allow-device <device-id> # For GSConnect and other known devices
   # If passed the USB test enable it:
   systemctl enable --now usbguard
+  echo "WARNING: Test Suspend/Resume immediately. If USB/Bluetooth fails after resume, run 'usbguard allow-device' for the specific ID."
   ```
 - Configure Lynis audit and create timer:
   ```bash
@@ -1784,6 +1699,47 @@
   aide --init
   mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
   systemctl enable --now aide-check.timer
+  ```
+- Create systemd global hardening:
+  ```bash
+  sudo mkdir -p /etc/systemd/system.conf.d
+  sudo tee /etc/systemd/system.conf.d/10-hardening.conf > /dev/null <<'EOF'
+  [Manager]
+  # Timing (bumped to 90s for slower services like NetworkManager on WiFi)
+  DefaultTimeoutStartSec=90s
+  DefaultTimeoutStopSec=90s
+
+  [Service]
+  Restart=always
+  MemoryMax=512M
+  Sockets=http.socket https.socket
+
+  # Safe, invisible hardening — no breakage in 2025 Arch
+  DefaultRestrictRealtime=yes
+  DefaultLockPersonality=yes
+  DefaultRestrictSUIDSGID=yes
+  DefaultPrivateTmp=yes
+  DefaultPrivateDevices=yes
+  DefaultProtectClock=yes
+  DefaultProtectKernelTunables=yes
+  DefaultProtectKernelModules=yes
+  DefaultProtectKernelLogs=yes
+  DefaultProtectControlGroups=yes
+  DefaultNoNewPrivileges=yes
+  DefaultRemoveIPC=yes
+  DefaultUMask=0077
+  # REMOVED: DefaultProtectHome=read-only (Breaks Backups)
+  # REMOVED: DefaultMemoryDenyWriteExecute=yes (Breaks JIT/Browsers)
+
+  # Filesystem protections (strict but compatible)
+  DefaultProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now
+
+  [Install]
+  WantedBy=default.target
+  
+  EOF
+
+  echo "Systemd global hardening applied — verify scores post-boot with 'systemd-analyze security'."
   ```
 - Configure sysctl hardening:
   ```bash
@@ -2013,7 +1969,7 @@
   echo "       ausearch -m avc -ts recent | tail -20"
   echo "  3. Tune interactively:"
   echo "       sudo aa-logprof"
-  echo "       sudo aa-genprof <binary>  # e.g., astal, supergfxctl, obs-studio"
+  echo "       sudo aa-genprof <binary>  # e.g., Astal, supergfxctl"
   echo "  4. After tuning → ENFORCE:"
   echo "       sudo just fsp-enforce"
   echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
@@ -2219,12 +2175,11 @@
   Target = qemu
   Target = libvirt
   Target = supergfxctl
-  # Target = rebos (DEPRECATED - Rebos is a too young project, too risky)
 
   [Action]
   Description = Sign VFIO/eGPU binaries with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl # /usr/bin/rebos (DEPRECATED - Rebos is a too young project, too risky)
+  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl
   Depends = sbctl
   EOF
     echo "Added structured signing hook."
@@ -2488,32 +2443,10 @@
   Exec = /usr/bin/snapper --config data create --description "Post-pacman update" --type post
   EOF
   ```
-  - (DEPRECATED - Rebos is a too young project, too risky) Create Rebos pacman hook for updates
-  ```bash
-  if ! [ -f /etc/pacman.d/hooks/99-rebos-gen.hook ]; then
-  cat << 'EOF' | sudo tee /etc/pacman.d/hooks/99-rebos-gen.hook
-  [Trigger]
-  Operation = Upgrade
-  Operation = Install
-  Type = Package
-  Target = rebos
-
-  [Action]
-  Description = Regenerate Rebos manifest after rebos updates
-  When = PostTransaction
-  Exec = /usr/bin/rebos gen base
-  Depends = rebos
-  EOF
-    echo "Added Rebos manifest auto-regeneration hook."
-  else
-    echo "Rebos hook already exists. Skipping."
-  fi
-  ```
   - Set permissions for hooks:
   ```bash
   chmod 644 /etc/pacman.d/hooks/50-snapper-pre-update.hook
   chmod 644 /etc/pacman.d/hooks/51-snapper-post-update.hook
-  # chmod 644 /etc/pacman.d/hooks/99-rebos-gen.hook # (DEPRECATED - Rebos is a too young project, too risky)
   ```
   - Verify configuration:
   ```bash 
@@ -2554,7 +2487,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup ~/.config/rebos (DEPRECATED - Rebos is a too young project, too risky)
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
   ```
 - Add user-specific dotfiles
   ```bash
@@ -2563,9 +2496,8 @@
   dconf dump /org/gnome/shell/extensions/ > ~/.config/gnome-shell-extensions.dconf
   flatpak override --user --export > ~/.config/flatpak-overrides
   chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
-  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/astal
+  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/ags
   chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
-  # chezmoi add ~/.config/rebos # (DEPRECATED - Rebos is a too young project, too risky)
   ```
 - DRI/Mesa config: Disable vblank sync for lowest GL latency (games/benchmarks)
   ```bash
@@ -2596,7 +2528,7 @@
   sudo chezmoi add /etc/systemd/system/arch-news.timer /etc/systemd/system/arch-news.service
   sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
   sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
-  sudo chezmoi add /etc/systemd/system/astal-widgets.service
+  sudo chezmoi add /etc/systemd/system/ags-widgets.service
   sudo chezmoi add /etc/pacman.d/hooks/90-uki-sign.hook
   sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
   sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
@@ -2824,18 +2756,18 @@
 - AppArmor Tuning Milestone (Run After Normal Use)
   ```bash
   echo "=== APARMOR TUNING ==="
-  echo "Use system normally (eGPU, browsers, OBS, AGS) for 1–2 hours."
+  echo "Use system normally (eGPU, browsers, AGS) for 1–2 hours."
   echo "Then run:"
 
   sudo ausearch -m avc -ts boot | audit2allow
   sudo aa-logprof
 
-  # For AGS/Astal:
-  sudo aa-genprof astal
-  # → In another terminal: astal -- ags -c ~/.config/ags/config.js
+  # For Astal/AGS:
+  sudo aa-genprof ags
+  # → In another terminal: ags -c ~/.config/ags/config.js
   # → Exercise UI, then Ctrl+C and finish aa-genprof
 
-  echo "Repeat for: ags, supergfxctl, boltctl, qemu-system-x86_64"
+  echo "Repeat for: AGS, supergfxctl, boltctl, qemu-system-x86_64"
 
   echo "After tuning: reboot and verify no denials in journalctl -u apparmor"
   ```
@@ -3154,67 +3086,6 @@
   EOF
   sudo chmod +x /usr/local/bin/restic-backup.sh
   ```
-- (DEPRECATED - Rebos is a too young project, too risky) Create a Rebos backup script
-  ```bash
-  sudo tee /usr/local/bin/rebos-backup.sh > /dev/null <<'EOF'
-  #!/usr/bin/env bash
-  set -euo pipefail
-
-  # === CONFIG ===
-  USER="$SUDO_USER"
-  if [[ -z "$USER" ]]; then
-    echo "Error: Must be run with sudo or via a system service that sets SUDO_USER." >&2
-    exit 1
-  fi
-
-  REBOS_CONFIG="/home/$USER/.config/rebos"
-  BACKUP_NAME="weekly-$(date +%Y%m%d-%H%M%S)"
-  LOG="/var/log/rebos-backup.log"
-
-  # === ENSURE LOG IS WRITABLE BY USER ===
-  sudo touch "$LOG"
-  sudo chown root:adm "$LOG"
-  sudo chmod 664 "$LOG"
-
-  # === LOGGING (Root) ===
-  log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
-
-  log "Starting Rebos backup for user: $USER → $BACKUP_NAME"
-
-  # === RUN AS USER ===
-  sudo -u "$USER" bash <<EOS
-  set -euo pipefail
-
-  REBOS_CONFIG="$REBOS_CONFIG"
-  BACKUP_NAME="$BACKUP_NAME"
-  LOG="$LOG"
-
-  log_output() { cat | tee -a "\$LOG"; }
-
-  echo "Running rebos gen base..." | log_output
-  rebos gen base --output "\$REBOS_CONFIG/base.toml" | log_output
-  echo "Manifest regenerated" | log_output
-
-  if [ -d "\$REBOS_CONFIG/.git" ]; then
-    cd "\$REBOS_CONFIG"
-    git add base.toml
-    git commit -m "Auto: weekly manifest - \$BACKUP_NAME" || echo "No git changes" | log_output
-  fi
-
-  echo "Creating backup..." | log_output
-  rebos backup create --name "\$BACKUP_NAME" | log_output
-  echo "Backup created: \$BACKUP_NAME" | log_output
-
-  echo "Pruning old backups..." | log_output
-  rebos backup prune --keep-last 8 --keep-tagged monthly:4 | log_output
-  echo "Pruned old backups" | log_output
-  EOS
-
-  log "Rebos backup completed: $BACKUP_NAME"
-  EOF
-
-  sudo chmod +x /usr/local/bin/rebos-backup.sh
-  ```  
 - Systemd Service & Timer:
   ```bash
   sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
@@ -3305,8 +3176,6 @@
   /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
   systemctl list-timers --all
   journalctl -u restic-backup.timer -n 20
-  # journalctl -u rebos-backup.service -n 20 (DEPRECATED - Rebos is a too young project, too risky)
-  # rebos backup list (DEPRECATED - Rebos is a too young project, too risky)
 
   # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
   # Check status any time:  restic snapshots --repo <path>
@@ -3328,6 +3197,8 @@
     ```bash
     journalctl -p 3 -xb
     journalctl -b -p err --since "1 hour ago"
+
+    # Review current security in place on systemd https://roguesecurity.dev/blog/systemd-hardening
     ```
 - **c) Check Snapshots**:
   - Verify Snapper snapshots:
@@ -3411,27 +3282,6 @@
   # Check timer status
   systemctl status apparmor.d-update.timer --no-pager
 
-  # Create AppArmor abstraction for hardened_malloc
-  sudo mkdir -p /etc/apparmor.d/local
-  if [ ! -f /etc/apparmor.d/local/hardened_malloc.abstraction ]; then
-    sudo tee /etc/apparmor.d/local/hardened_malloc.abstraction > /dev/null <<'EOF'
-  # Hardened malloc preload support
-  /usr/lib/libhardened_malloc*.so mr,
-  EOF
-    echo "Created hardened_malloc abstraction"
-  else
-    echo "hardened_malloc abstraction already exists"
-  fi
-
-  # Create local tunable for hardened_malloc (this is the clean way)
-  sudo mkdir -p /etc/apparmor.d/tunables/local
-  if [ ! -f /etc/apparmor.d/tunables/local/hardened_malloc ]; then
-    echo '/usr/lib/libhardened_malloc*.so mr,' | sudo tee /etc/apparmor.d/tunables/local/hardened_malloc > /dev/null
-    echo "Created hardened_malloc local tunable"
-  else
-    echo "hardened_malloc local tunable already exists"
-  fi
-
   # Create local tunable for XDG (from your V1, still a good idea)
   if [ ! -f /etc/apparmor.d/tunables/local/xdg.conf ]; then
     echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf > /dev/null
@@ -3444,7 +3294,6 @@
   sudo apparmor_parser -r /etc/apparmor.d/
   # Verify no parse errors
   sudo aa-status | head -5 || echo "Warning: aa-status failed (check apparmor.service)"
-  echo "hardened_malloc whitelisted in AppArmor FSP."
 
   # Tune from logs (run after normal usage)
   echo "---"
@@ -3510,11 +3359,51 @@
   # For Linux Native Games:
   gamemoderun mangohud %command%
   # Best Performance / Lowest Latency (Competitive, requires manual vsync control)
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco vkbasalt __GLX_VENDOR_LIBRARY_NAME=nvidia %command%
+  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco %command%
 
   # Optimal Performance / Features (Recommended for Wayland/Freesync/VRR users)
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 --fsr -r 144 -- %command%
+  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr --adaptive-sync -- %command%
+  # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
+  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr -r 240 -- %command%
+  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 -F fsr -r 144 -- %command%
+
+  # Tune games individually using the application "Scopebuddy"
+
+  # GameMode pacman hook
+  sudo tee /etc/pacman.d/hooks/91-gaming-sign.hook <<'EOF'
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = steam
+  Target = mangohud
+  Target = gamemode
+  Target = lib32-gamemode
+  Target = gamescope
+
+  [Action]
+  Description = Sign gaming binaries for Secure Boot
+  When = PostTransaction
+  Exec = /bin/sh -c '/usr/bin/sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true'
+  Depends = sbctl
+  EOF
+
+  sudo sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true
+  
+  # Environment variables (add to ~/.zshrc for system-wide effect):
+  cat >> ~/.zshrc <<'EOF'
+  # Gaming Env Vars (comment out if issues)
+  # export RADV_FORCE_VRS=1  # VRS perf boost (toggle per-game if glitches)
+  export MANGOHUD=1  # Always-on HUD (disable per-game if needed)
+  EOF
+
+  # Reload shell
+  source ~/.zshrc
+
+  # Verify
+  sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope
+  gamemoded -t && echo "GameMode is working!"
   ```
 - **l) Audio and Software Enhancements**:
   ```bash
@@ -3560,7 +3449,7 @@
 
 - Install a custom theme for GNOME:
   ```bash
-  paru -S --noconfirm adw-gtk3-git
+  # Review this video https://www.youtube.com/watch?v=3KhHVkL8yKM
   ```
 - Configure GNOME CSS for a dark theme:
   ```bash
@@ -3609,7 +3498,7 @@
   ```
 - Logwatch
   ```bash
-  // ~/.config/ags/widgets/logwatch.ts
+  // ~/.config/astal/widgets/logwatch.ts
   import { Widget, Utils } from 'astal/gtk3';
 
   export default () => Widget.Box({
