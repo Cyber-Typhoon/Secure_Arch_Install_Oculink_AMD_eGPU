@@ -1229,7 +1229,7 @@
   libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
   \
   # Browsers, Email-Client and Virtual Machine
-  firefox thunderbird virt-manager \
+  firefox torbrowser-launcher thunderbird virt-manager \
   \
   # Games
   steam mangohud gamemode lib32-gamemode gamescope \
@@ -1394,21 +1394,6 @@
 
   # Optional: Allow system-installed Flatpak apps to READ the host system's GTK4 config
   sudo flatpak override --filesystem=xdg-config/gtk-4.0:ro
-  ```
-- Install Tor Browser from https://www.torproject.org/download
-  ```bash
-  # Download the Linux .tar.xz file
-  # Verify the file's signature:
-  gpg --auto-key-locate nodefault,wkd --locate-keys torbrowser@torproject.org # Fetching the Tor Developers key
-  gpg --output ./tor.keyring --export 0x"INSERT THE KEY GENERATED IN THE PREVIOUS STEP (without the double quotes)" # After importing the key, you can save it to a file (identifying it by its fingerprint)
-  gpgv --keyring ./tor.keyring ~/Downloads/tor-browser-linux-x86_64-"INSERT THE CURRENT VERSION YOU DOWNLOADED".tar.xz.asc ~/Downloads/tor-browser-linux-x86_64-"INSERT THE CURRENT VERSION YOU DOWNLOADED".tar.xz
-  # Output should be as follow - gpgv: Good signature from "Tor Browser Developers (signing key) <torbrowser@torproject.org>"
-  # Refreshing the PGP key
-  gpg --refresh-keys "INSERT THE KEY HERE"
-  # Graphical method - Extract the archive using an archive manager.
-  # Navigate to the Tor Browser directory.
-  # Click on the start-tor-browser.desktop file to launch the browser.
-  # After installation open the Tor Browser and activate the automatic updates. 
   ```
 - Install GSConnect from extensions.gnome.org
   ```bash
