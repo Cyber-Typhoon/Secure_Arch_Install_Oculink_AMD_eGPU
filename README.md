@@ -1228,7 +1228,7 @@
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
   libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
   \
-  # Browsers, Email-Client and Virtual Machine
+  # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
   firefox torbrowser-launcher thunderbird virt-manager \
   \
   # Games
