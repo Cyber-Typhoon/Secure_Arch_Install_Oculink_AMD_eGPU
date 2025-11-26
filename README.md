@@ -1228,13 +1228,13 @@
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
   libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
   \
-  # Browsers
-  firefox \
+  # Browsers, Email-Client and Virtual Machine
+  firefox thunderbird virt-manager \
   \
   # Games
   steam mangohud gamemode lib32-gamemode gamescope \
   \
-  # General Fonts (Emoji/symbol coverage + CJK support)
+  # Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
   ttf-roboto ttf-roboto-mono ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-fira-code \
   ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd \
@@ -1364,7 +1364,7 @@
   flatpak run io.github.kolunmi.Bazaar
 
   # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Thunderbird (org.mozilla.Thunderbird), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), ProtonUp-Qt (net.davidotek.pupgui2), Video Player (org.gnome.Showtime) and Tor Browser (org.torproject.torbrowser-launcher). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Virtual Machine Manager (org.virt_manager.virt-manager), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), ProtonUp-Qt (net.davidotek.pupgui2) and Video Player (org.gnome.Showtime). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1394,6 +1394,21 @@
 
   # Optional: Allow system-installed Flatpak apps to READ the host system's GTK4 config
   sudo flatpak override --filesystem=xdg-config/gtk-4.0:ro
+  ```
+- Install Tor Browser from https://www.torproject.org/download
+  ```bash
+  # Download the Linux .tar.xz file
+  # Verify the file's signature:
+  gpg --auto-key-locate nodefault,wkd --locate-keys torbrowser@torproject.org # Fetching the Tor Developers key
+  gpg --output ./tor.keyring --export 0x"INSERT THE KEY GENERATED IN THE PREVIOUS STEP (without the double quotes)" # After importing the key, you can save it to a file (identifying it by its fingerprint)
+  gpgv --keyring ./tor.keyring ~/Downloads/tor-browser-linux-x86_64-"INSERT THE CURRENT VERSION YOU DOWNLOADED".tar.xz.asc ~/Downloads/tor-browser-linux-x86_64-"INSERT THE CURRENT VERSION YOU DOWNLOADED".tar.xz
+  # Output should be as follow - gpgv: Good signature from "Tor Browser Developers (signing key) <torbrowser@torproject.org>"
+  # Refreshing the PGP key
+  gpg --refresh-keys "INSERT THE KEY HERE"
+  # Graphical method - Extract the archive using an archive manager.
+  # Navigate to the Tor Browser directory.
+  # Click on the start-tor-browser.desktop file to launch the browser.
+  # After installation open the Tor Browser and activate the automatic updates. 
   ```
 - Install GSConnect from extensions.gnome.org
   ```bash
