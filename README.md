@@ -425,8 +425,8 @@
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
   \
   # Graphics
-  mesa libva-mesa-driver mesa-demos mesa-vdpau lib32-mesa-vdpau vulkan-intel lib32-vulkan-intel \
-  vulkan-radeon lib32-vulkan-radeon intel-gpu-tools lact \
+  mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-iced-loader lib32-vulkab-icd-loader \
+  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader intel-gpu-tools lact \
   \
   # Audio
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
