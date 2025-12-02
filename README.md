@@ -3407,6 +3407,8 @@
   # Reload shell
   source ~/.zshrc
 
+  # Open Steam Client and make sure to "Enable" Steam Overlay
+
   # Verify
   sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope
   gamemoded -t && echo "GameMode is working!"
