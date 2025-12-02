@@ -505,7 +505,7 @@
   ```
 - Force-refresh package database and keyring:
   ```bash
-  pacman -Sy --noconfirm
+  pacman -Syu --noconfirm
   pacman-key --init
   pacman-key --populate archlinux
   ```
@@ -1148,10 +1148,11 @@
 
   # GNOME Adwaita, Orchis and Papirus
   gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
-
-  # Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, etc)
-  xdg-user-dirs-update 
   ```
+- Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, etc) (NO SUDO)
+  ```bash
+  xdg-user-dirs-update
+  ``` 
 - Install **Paru and configure it**:
   ```bash   
   # Clone & build in a clean temp dir
@@ -1174,7 +1175,7 @@
   namcap paru-*.pkg.tar.zst || true
   
   # Install the audited package
-  sudo pacman -U paru-*.pkg.tar.zst --noconfirm
+  sudo pacman -U paru-*.pkg.tar.zst
   )
   rm -rf "$TMP_PARU"
 
@@ -1280,7 +1281,8 @@
     rose-pine-gtk-theme-full \
     stylepak-git \
     run0-sudo-shim-git
-  ldconfig  # Update linker cache
+  # Update linker cache (Requires Sudo)
+  sudo ldconfig
   ```
 - Sign the Astal, AGS, fwupd and run0-sudo-shim
   ```bash
@@ -1351,7 +1353,7 @@
   cat << 'EOF' | sudo tee /etc/gdm/custom.conf
   [daemon]
   WaylandEnable=true
-  DefaultSession=gnome-wayland.desktop
+  DefaultSession=gnome.desktop
   EOF
   sudo systemctl restart gdm # or reboot
   ```
@@ -1382,8 +1384,8 @@
 - Install Theme Extensions for Flatpak via stylepak
   ```bash
   # Install themes system-wide (for all users) and for the current user
-  ./stylepak install-system
-  ./stylepak install-user
+  sudo ./stylepak install-system # Run system install with Sudo
+  ./stylepak install-user # Run user install (no sudo)
 
   # Clear the theme storage cache to ensure the new themes are picked up
   ./stylepak clear-cache
