@@ -772,7 +772,7 @@
   [Daemon]
   Theme=bgrt
   ShowDelay=0
-  # DeviceScale=2  # Uncomment for HiDPI (e.g., 4K/Retina); test post-install regenerate the initramfs "mkinitcpio -p"
+  DeviceScale=2  # Uncommented for HiDPI (e.g., 4K/Retina); test post-install regenerate the initramfs "mkinitcpio -p"
   EOF
   echo "Configured Plymouth for immediate display (ShowDelay=0) and HiDPI (DeviceScale=2)."
 
