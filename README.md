@@ -1230,7 +1230,7 @@
   libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
   \
   # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
-  firefox torbrowser-launcher thunderbird virt-manager \
+  torbrowser-launcher thunderbird virt-manager \
   \
   # Games
   steam mangohud gamemode lib32-gamemode gamescope \
@@ -1258,6 +1258,44 @@
   gsettings set org.gnome.desktop.interface font-antialiasing 'rgba'
   gsettings set org.gnome.desktop.interface font-hinting 'slight'
   ```
+- Install Mullvad Browser (Updates are going to be managed via browser):
+  ```bash
+  # Download the Linux .tar.xz file: https://mullvad.net/en/download/browser/linux-x86_64/latest
+  # Verify the file's signature
+  gpg --auto-key-locate nodefault,wkd --locate-keys torbrowser@torproject.org
+  gpg --fingerprint --fingerprint torbrowser@torproject.org
+  # Double-check that you have the correct key, visit the Tor Browser website: https://support.torproject.org/tor-browser/getting-started/verifying-tor-browser/#618e1a509a4f4d3dbea11b7651b26f71
+  # Sign it with your own key
+  gpg --gen-key
+  # Enter your "Real name" (use a fake name if you want to be anonymous) and an "Email address" and enter "O". Then enter a password and click on OK.
+  gpg --sign-key torbrowser@torproject.org
+  # You will see a long message with some revoked keys and in the end it shows the following:
+  # pub  rsa4096/4E2C6E8793298290
+  #   created: 2014-12-15  expires: 2027-07-15  usage: C   
+  #   trust: unknown       validity: unknown
+  # Primary key fingerprint: EF6E 286D DA85 EA2A 4BA7  DE68 4E2C 6E87 9329 8290
+  #
+  #   Tor Browser Developers (signing key) <torbrowser@torproject.org>
+  # Enter "y" to sign it and then enter your pgp key password.
+  # Extract the download:
+  #  Open the Downloads folder.
+  #  Right click on mullvad-browser-linux-x86_64-X.X.X.tar.xz.
+  #  Click on Extract Here (Ubuntu) or Extract (Fedora).
+  # Make sure to place the signature file and the browser install file in the same folder.
+  # Verify the Mullvad Browser
+  # Navigate into the folder where the files are with the cd command and then run the following command:
+  gpg --verify mullvad-browser-*.asc
+  # Starting the Mullvad Browser
+  #  Open the Downloads folder.
+  #  Open the decompressed mullvad-browser-linux-x86_64-X.X.X folder.
+  #  Open the mullvad-browser folder.
+  #  Open the Browser folder.
+  #  Right-click on start-mullvad-browser.
+  #  Click on Run as a Program.  
+  ```
+This key is due to expire on 2027-07-15.
+Are you sure that you want to sign this key with your
+key "xxx <xxx@xxx.xx>" (xxx)
 - Enable essential services:
   ```bash
   sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
