@@ -1706,13 +1706,65 @@
   ```
 - Configure usbguard with GSConnect exception:
   ```bash
-  usbguard generate-policy > /etc/usbguard/rules.conf
-  # Test usbguard rules before enabling:
-  usbguard list-devices | grep -i "GSConnect\|KDEConnect" # Identify GSConnect device ID
-  usbguard allow-device <device-id> # For GSConnect and other known devices
-  # If passed the USB test enable it:
-  systemctl enable --now usbguard
-  echo "WARNING: Test Suspend/Resume immediately. If USB/Bluetooth fails after resume, run 'usbguard allow-device' for the specific ID."
+  # Generate initial policy for currently connected devices (keyboard, mouse, etc.)
+  sudo sh -c usbguard generate-policy > /etc/usbguard/rules.conf
+
+  # Recommended daemon settings (make resume and Bluetooth happier)
+  sudo mkdir -p /etc/usbguard
+  cat <<EOF | sudo tee /etc/usbguard/usbguard-daemon.conf
+  # Allow currently present devices after resume (prevents most Bluetooth/GSConnect breakage)
+  PresentDevicePolicy=keep
+
+  # New devices get the full policy check (not just auto-blocked without notification)
+  InsertedDevicePolicy=apply-policy
+
+  # Slightly more forgiving default for new devices (still blocks, but you get a notification)
+  ImplicitPolicyTarget=block
+
+  # Allow users in wheel group to talk to the daemon directly (complements Polkit)
+  IPCAllowedGroups=wheel
+  EOF
+
+  # Correct & complete Polkit rule (fixed typo + all current actions as of usbguard 1.1+)
+  cat <<'EOF' | sudo tee /etc/polkit-1/rules.d/70-usbguard.rules
+  polkit.addRule(function(action, subject) {
+    if (/^org\.usbguard\./.test(action.id) &&
+        subject.active === true &&
+        subject.local === true &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+  });
+  EOF
+
+  # Enable both the main daemon and the DBus service (required for GNOME/GSConnect dialogs)
+  sudo systemctl enable --now usbguard.service usbguard-dbus.service
+
+  # GNOME privacy settings – block only on lock screen
+  gsettings set org.gnome.desktop.privacy usb-protection true || true
+  gsettings set org.gnome.desktop.privacy usb-protection-level 'lockscreen'
+
+  # Helpful instructions
+  cat <<EOS
+  # USBGuard is now active with a safe daily-driver configuration.
+
+  # Next steps for GSConnect:
+  # Unlock your session
+  # Pair your phone in GSConnect → it will pop up a USBGuard notification
+  # Click "Allow" (or run: usbguard allow-device <id> if it doesn't appear)
+  # The rule is automatically made permanent
+
+  # After first suspend/resume:
+  #  - If Bluetooth/GSConnect stops working, run:
+  #       usbguard list-devices | grep -i bluetooth
+  #       usbguard allow-device <id>
+  #  - Then make it permanent with:
+  #       usbguard allow-device <id> --permanent
+
+  # To see current blocked devices at any time:
+  # usbguard list-devices --blocked
+
+  EOS
   ```
 - Configure Lynis audit and create timer:
   ```bash
