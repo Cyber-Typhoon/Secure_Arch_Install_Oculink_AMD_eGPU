@@ -1276,6 +1276,9 @@
   # Primary key fingerprint: EF6E 286D DA85 EA2A 4BA7  DE68 4E2C 6E87 9329 8290
   #
   #   Tor Browser Developers (signing key) <torbrowser@torproject.org>
+  # This key is due to expire on 2027-07-15.
+  # Are you sure that you want to sign this key with your
+  # key "xxx <xxx@xxx.xx>" (xxx)
   # Enter "y" to sign it and then enter your pgp key password.
   # Extract the download:
   #  Open the Downloads folder.
@@ -1293,9 +1296,6 @@
   #  Right-click on start-mullvad-browser.
   #  Click on Run as a Program.  
   ```
-This key is due to expire on 2027-07-15.
-Are you sure that you want to sign this key with your
-key "xxx <xxx@xxx.xx>" (xxx)
 - Enable essential services:
   ```bash
   sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
