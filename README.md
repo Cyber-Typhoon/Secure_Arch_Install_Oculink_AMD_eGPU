@@ -1704,7 +1704,7 @@
   # Test DNS resolution:
   dog archlinux.org
   ```
-- Configure usbguard with GSConnect exception:
+- Configure USBGuard:
   ```bash
   # Generate initial policy for currently connected devices (keyboard, mouse, etc.)
   sudo sh -c usbguard generate-policy > /etc/usbguard/rules.conf
