@@ -438,7 +438,7 @@
   networkmanager openssh rsync reflector arch-install-scripts wpa_supplicant \
   \
   # User / DE
-  zsh git jq flatpak gdm pacman-contrib devtools micro man-db man-pages
+  zsh git jq flatpak pacman-contrib devtools micro man-db man-pages
   ```
 - Create Gentoo prep directories (In case you want to migrate to Gentoo in the future):
   ```bash
@@ -556,8 +556,7 @@
 - Enable essential services
   ```bash
   systemctl enable NetworkManager
-  systemctl enable systemd-timesyncd     
-  systemctl enable gdm.service                
+  systemctl enable systemd-timesyncd                   
   systemctl enable bluetooth                  
   systemctl enable thermald               
   systemctl enable acpid                  
