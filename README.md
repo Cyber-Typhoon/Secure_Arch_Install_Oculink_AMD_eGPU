@@ -1832,7 +1832,7 @@
   Type=oneshot
   User=root
   # Run the audit with the official --cronjob flag and skip for consistency
-  ExecStart=/usr/bin/lynis audit system --cronjob --skip-test SSH-7408
+  ExecStart=/usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139 
   # Save the human-readable report summary (MUST run first)
   ExecStartPost=/usr/bin/lynis show warnings >> /var/log/lynis/lynis-report-$(date +%F).txt
   ExecStartPost=/usr/bin/lynis show suggestions >> /var/log/lynis/lynis-report-$(date +%F).txt
@@ -1863,7 +1863,7 @@
 
   # Run Initial Audit Manually (Aligned with service for consistency)
   echo "Running initial Lynis audit now..."
-  sudo /usr/bin/lynis audit system --cronjob --skip-test SSH-7408
+  sudo /usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139
   # Capture report summary and archive files immediately after
   sudo /usr/bin/lynis show warnings >> /var/log/lynis/lynis-report-$(date +%F).txt
   sudo /usr/bin/lynis show suggestions >> /var/log/lynis/lynis-report-$(date +%F).txt
