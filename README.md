@@ -1679,30 +1679,66 @@
   ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
+  # Prevent systemd-resolved conflict (Critical for dnscrypt socket)
+  # systemd-resolved listens on 53stub, which can block dnscrypt.
+  sudo systemctl disable --now systemd-resolved
+  sudo rm -f /etc/resolv.conf
+  # Create a new resolv.conf pointing to localhost (dnscrypt)
+  echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
+  # Lock it so NetworkManager doesn't overwrite it
+  sudo chattr +i /etc/resolv.conf
+
+  # Configure NetworkManager to use local DNS (Backup to file locking)
   CONN=$(nmcli -t -f NAME,TYPE connection show --active | grep wifi | cut -d: -f1)
-  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv4.dns "127.0.0.1"
+  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv4.dns "127.0.0.1" ipv4.ignore-auto-dns yes
   [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv6.dns "::1" ipv6.ignore-auto-dns yes
+
+  # Create Optimized Config
   cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+  # Server List: Privacy + Blocking focused
   server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock']
+
+  # Listen Addresses
   listen_addresses = ['127.0.0.1:53', '[::1]:53']
-  max_clients = 512
+
+  # Protocol Support
+  max_clients = 2500    # Increased for heavy multitasking
   ipv4_servers = true
   ipv6_servers = true
   dnscrypt_servers = true
   doh_servers = true
+
+  # Security
   require_dnssec = true
   require_nolog = true
   require_nofilter = false
+
+  # Performance & Load Balancing
   force_tcp = false
-  timeout = 3000
-  cert_refresh_delay = 240
+  timeout = 2000        # Lower timeout for faster failover
+  lb_strategy = 'p2'    # 'p2' balances randomly between the top 2 fastest servers
+
+  # Laptop/Roaming Tweaks
+  netprobe_timeout = 5  # Detect network changes faster (default is 60s)
+  keepalive = 30        # Keep connections open slightly longer
+
+  # Caching (Critical for desktop responsiveness)
+  cache = true
+  cache_size = 4096     # Store more records in RAM
+  cache_min_ttl = 2400  # Force minimum TTL to reduce lookups
+  cache_max_ttl = 86400
+  cache_neg_min_ttl = 60
   EOF
-  systemctl start dnscrypt-proxy
-  # Switch to the socket to prevents conflicts
-  sudo systemctl disable --now dnscrypt-proxy.service
-  sudo systemctl enable --now dnscrypt-proxy.socket
+
+  # Enable Socket Activation (Resource Efficient)
+  # Do not enable the service directly; enable the socket.
+  sudo systemctl enable dnscrypt-proxy.socket
+  sudo systemctl start dnscrypt-proxy.socket
+
   # Test DNS resolution:
-  dog archlinux.org
+  echo "Waiting for DNS to initialize..."
+  sleep 2
+  dog archlinux.org || echo "DNS Test Failed - Check journalctl -u dnscrypt-proxy"
   ```
 - Configure USBGuard:
   ```bash
