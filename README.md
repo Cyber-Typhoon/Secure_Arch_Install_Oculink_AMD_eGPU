@@ -3355,6 +3355,13 @@
   lynis audit system > /root/lynis-report-$(date +%F).txt
   rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
+
+  # Systemd Security Score (from RogueSecurity recommendations)
+  # Check the exposure score of critical services. Lower is better (0.0 is perfect).
+  systemd-analyze security --no-pager | head -20 > /root/systemd-score-$(date +%F).txt
+  # detailed check on a specific service if needed:
+  # systemd-analyze security user@1000.service
+  # https://roguesecurity.dev/blog/systemd-hardening
   ```
 - **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
   ```bash
