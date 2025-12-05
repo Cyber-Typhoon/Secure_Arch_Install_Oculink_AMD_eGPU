@@ -1259,7 +1259,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer dnscrypt-proxy sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
+  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -1697,7 +1697,7 @@
   timeout = 3000
   cert_refresh_delay = 240
   EOF
-  systemctl restart dnscrypt-proxy
+  systemctl start dnscrypt-proxy
   # Switch to the socket to prevents conflicts
   sudo systemctl disable --now dnscrypt-proxy.service
   sudo systemctl enable --now dnscrypt-proxy.socket
