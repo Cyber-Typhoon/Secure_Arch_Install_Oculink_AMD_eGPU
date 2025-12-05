@@ -3700,6 +3700,68 @@
     ],
   });
   ```
+- Namspace Audit Widget
+  ```bash
+  // ~/.config/ags/widgets/namespace-monitor.ts
+  import { Widget, Utils } from 'astal/gtk3';
+
+  // Command to check for processes sharing the *global* Mount or PID namespace
+  // and exclude known safe system processes (PID 1, kernel threads, kthreadd etc.)
+  // -n: namespace ID; -t: type; -o: output fields
+  const NS_AUDIT_CMD = [
+    'lsns',
+    '--noheading',
+    '--output', 'PID,USER,COMMAND,NSFS',
+    '|', 
+    'awk', 
+    `{
+        // $4 (NSFS) is the inode of the namespace. 
+        // 4026531836 is the inode of the *global* mount namespace on most systems.
+        // 4026531835 is the inode of the *global* PID namespace on most systems.
+        // This script is simplified for demonstration. In a real environment, 
+        // you'd typically look for specific processes/users or compare NSFS.
+        
+        // A simple, effective check: count entries and alert on unusual spikes.
+        // For this visual indicator, we will count the number of custom PID namespaces (PID != 4026531835)
+        
+        if ($2 != "root" && $1 > 1) { // Exclude root/kernel PIDs for simplicity
+            print $0;
+        }
+    }`
+  ];
+
+  export default () => Widget.Box({
+    className: "namespace-monitor",
+    spacing: 6,
+    children: [
+        Widget.Icon({ 
+            icon: "preferences-system-security-symbolic" // Security icon 
+        }),
+        Widget.Label({
+            // This label will run a simplified audit and count isolated processes
+            // The actual check runs 'lsns' and pipes it to 'wc -l' to count lines.
+            // A higher count of namespaces is generally good (more isolation), but 
+            // the label should be about *status* rather than just count.
+            label: Utils.poll(10000, NS_AUDIT_CMD.join(' '), (out) => {
+                const lines = out.split('\n').filter(line => line.trim() !== '');
+                const ns_count = lines.length;
+                
+                if (ns_count > 100) {
+                    return `Isolation: ${ns_count} OK`;
+                } else if (ns_count > 50) {
+                    // A dynamic threshold based on your setup.
+                    return `Isolation: ${ns_count} (Normal)`;
+                }
+                return `Isolation: ${ns_count} (Low Count)`;
+            }),
+        }),
+        Widget.Button({
+            label: "Details",
+            onClicked: () => Utils.execAsync(['foot', '-e', 'bash', '-c', 'lsns -t pid,mnt | less']),
+        }),
+    ],
+  });
+  ```
 - Logwatch
   ```bash
   // ~/.config/astal/widgets/logwatch.ts
