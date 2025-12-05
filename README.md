@@ -1208,7 +1208,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  aide auditd bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
+  aide auditd arch-audit bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility logwatch tlp tlp-rdw upower zram-generator \
@@ -1283,11 +1283,13 @@
   # Update linker cache (Requires Sudo)
   sudo ldconfig
   ```
-- Sign the Astal, AGS, fwupd and run0-sudo-shim
+- Sign the Astal, AGS, fwupd, arch-audit and run0-sudo-shim
   ```bash
   # Verify binaries exist before signing
   # Note: Astal is libs only (no binary); AGS installs /usr/bin/ags
   [[ -f /usr/bin/ags ]] || { echo "ERROR: ags binary not found!"; exit 1; }
+  [[ -f /usr/bin/arch-audit ]] || { echo "ERROR: arch-audit binary not found!"; exit 1; }
+  [[ -f /usr/bin/sudo ]] || { echo "ERROR: run0-sudo-shim (sudo) binary not found!"; exit 1; }
   
   # Sign AGS for Secure Boot once
   sudo sbctl sign -s /usr/bin/ags 2>/dev/null || true
@@ -1298,8 +1300,11 @@
 
   # Sign fwupd for Secure Boot once
   sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
+
+  # Sign arch-audit for Secure Boot
+  sudo sbctl sign -s /usr/bin/arch-audit 2>/dev/null || true
   
-  # Append AGS/Astal and fwupd to existing 90-uki-sign.hook
+  # Append AGS/Astal, fwupd and arch-audit to existing 90-uki-sign.hook
   if ! grep -q "Target = aylurs-gtk-shell-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
   # Ensure kernel target exists (critical for UKI signing)
   if ! grep -q "Target = linux" /etc/pacman.d/hooks/90-uki-sign.hook; then
@@ -1315,11 +1320,12 @@
   Target = libastal-meta
   Target = aylurs-gtk-shell-git
   Target = fwupd
+  Target = arch-audit
 
   [Action]
-  Description = Sign AGS/Astal and fwupd libs for Secure Boot with sbctl
+  Description = Sign AGS/Astal, fwupd and arch-audit libs for Secure Boot with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/fwupd/efi/fwupdx64.efi
+  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/fwupd/efi/fwupdx64.efi /usr/bin/arch-audit
   Depends = sbctl
   EOF
   fi
@@ -1344,6 +1350,7 @@
 
   # Test the run0-sudo-shim
   sudo -v && echo "polkit cache OK"
+  sudo sbctl verify /usr/bin/arch-audit && echo "Arch-audit Secure Boot OK" # <-- Added this check
   sudo sbctl verify /usr/bin/sudo && echo "Secure Boot OK"
   type sudo && echo "shim is in place"
   ```
