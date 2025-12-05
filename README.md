@@ -1813,7 +1813,6 @@
   DefaultRestrictRealtime=yes
   DefaultLockPersonality=yes
   DefaultRestrictSUIDSGID=yes
-  DefaultPrivateTmp=yes
   DefaultPrivateDevices=yes
   DefaultProtectClock=yes
   DefaultProtectKernelTunables=yes
@@ -1823,11 +1822,12 @@
   DefaultNoNewPrivileges=yes
   DefaultRemoveIPC=yes
   DefaultUMask=0077
+  # REMOVED: DefaultPrivateTmp=yes ["Ghost" issues. Applications might fail to launch, audio might glitch, or inter-app features (like drag-and-drop or clipboard sharing between sandboxed apps) might fail silently.]
   # REMOVED: DefaultProtectHome=read-only (Breaks Backups)
   # REMOVED: DefaultMemoryDenyWriteExecute=yes (Breaks JIT/Browsers)
 
   # Filesystem protections (strict but compatible)
-  DefaultProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now
+  # REMOVED: DefaultProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now [This makes /usr and /boot read-only for all services. While good for security, this often conflicts with updaters (like fwupd), driver managers (like dkms for your specific eGPU setup), or log rotation tools that aren't perfectly configured.]
 
   [Install]
   WantedBy=default.target
@@ -1843,7 +1843,7 @@
   net.ipv4.conf.default.rp_filter=1
   net.ipv4.conf.all.rp_filter=1
   net.ipv4.tcp_syncookies=1
-  net.ipv4.ip_forward=0
+  net.ipv4.ip_forward=1                # updated to 1 from 0 for USB tethering/hotspot/VMs
   net.ipv4.conf.all.accept_redirects=0
   net.ipv6.conf.all.accept_redirects=0
   net.ipv4.conf.default.accept_redirects=0
@@ -1855,8 +1855,19 @@
   net.ipv4.conf.default.accept_source_route=0
   net.ipv6.conf.default.accept_source_route=0
   net.ipv4.conf.all.log_martians=1
+  net.ipv6.conf.all.log_martians=1
+  net.ipv6.conf.default.log_martians=1
   net.ipv4.icmp_ignore_bogus_error_responses=1
   net.ipv4.icmp_echo_ignore_broadcasts=1
+  # net.ipv6.conf.all.autoconf=0                          # USED IN SERVER ONLY 
+  # net.ipv6.conf.default.autoconf=0                      # USED IN SERVER ONLY
+  # net.ipv6.conf.all.accept_ra=0                         # USED IN SERVER ONLY
+  # net.ipv6.conf.default.accept_ra=0                     # USED IN SERVER ONLY
+  # net.ipv6.conf.default.accept_ra_rt_info_max_plen=0    # USED IN SERVER ONLY
+  # net.ipv6.conf.all.router_solicitations=0              # USED IN SERVER ONLY
+  # net.ipv6.conf.default.router_solicitations=0          # USED IN SERVER ONLY
+  # net.ipv6.conf.all.use_tempaddr=2                      # USED IN SERVER ONLY
+  # net.ipv6.conf.default.use_tempaddr=2                  # USED IN SERVER ONLY
   net.core.netdev_max_backlog=4096
   net.core.bpf_jit_harden=2
 
