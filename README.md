@@ -1802,7 +1802,7 @@
 
   EOS
   ```
-- Configure Lynis audit and create timer:
+- Configure Lynis audit and log management:
   ```bash
   # Create a dedicated, secure log directory
   sudo mkdir -p /var/log/lynis
