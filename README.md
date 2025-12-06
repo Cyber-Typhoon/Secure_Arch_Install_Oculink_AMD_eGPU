@@ -2318,38 +2318,47 @@
   ```bash
   cat << 'EOF' | sudo tee /etc/systemd/zram-generator.conf
   [zram0]
-  zram-size = min(ram / 2, 4096)
+  zram-size = min(ram / 2, 8192)
   compression-algorithm = zstd
+  swap-priority = 100
   EOF
   sudo systemctl daemon-reload
-  systemctl enable --now systemd-zram-setup@zram0.service # Conflicts with TLP’s zram on some kernels?
+
+  # Remove old conflicting services first (very common source of silent failure)
+  sudo systemctl disable --now zramswap.service 2>/dev/null || true
+  sudo systemctl disable --now zram-config.service 2>/dev/null || true
+  sudo systemctl mask zramswap.service 2>/dev/null || true
+
+  # TLP sometimes ships its own zram module on older distros
+  sudo systemctl disable --now tlp-zram.service 2>/dev/null || true
+
+  # Now enable the modern generator-based one
+  systemctl enable --now systemd-zram-setup@zram0.service 
   ```
 - Memory/scheduler tweaks:
   ```bash
   sudo tee /etc/tmpfiles.d/consistent-response-time-for-gaming.conf > /dev/null <<'EOF'
   # Memory/Jitter Reduction (Arch Wiki Gaming)
   w /proc/sys/vm/compaction_proactiveness - - - - 0
-  w /proc/sys/vm/watermark_boost_factor - - - - 1
-  w /proc/sys/vm/min_free_kbytes - - - - 1048576
-  w /proc/sys/vm/watermark_scale_factor - - - - 500
+  w /proc/sys/vm/min_free_kbytes - - - - 204800
   w /proc/sys/vm/swappiness - - - - 10
-  w /sys/kernel/mm/lru_gen/enabled - - - - 5
+  w /sys/kernel/mm/lru_gen/enabled - - - - 7
   w /proc/sys/vm/zone_reclaim_mode - - - - 0
   w /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
   w /sys/kernel/mm/transparent_hugepage/shmem_enabled - - - - advise
-  w /sys/kernel/mm/transparent_hugepage/defrag - - - - never
+  w /sys/kernel/mm/transparent_hugepage/khugepaged/defrag - - - - 0
   w /proc/sys/vm/page_lock_unfairness - - - - 1
   w /proc/sys/kernel/sched_child_runs_first - - - - 0
   w /proc/sys/kernel/sched_autogroup_enabled - - - - 1
   w /proc/sys/kernel/sched_migration_cost_ns - - - - 500000
-  w /proc/sys/kernel/sched_nr_migrate - - - - 8
+  w /proc/sys/kernel/sched_nr_migrate - - - - 32
   EOF
   sudo systemd-tmpfiles --create
   ```
-- Configure fwupd for Firmware Updates (Chroot-Safe):
+- Configure udisk for Firmware Updates:
   ```bash
   # Install and enable
-  pacman -S fwupd udisks2
+  pacman -S udisks2
   systemctl enable --now udisks2.service
 
   # Secure Boot: Allow capsule updates
@@ -2364,8 +2373,15 @@
   ```
 - Configure opensnitch:
   ```bash
-  systemctl enable --now opensnitch
+  # Enable and start the daemon
+  sudo systemctl enable --now opensnitchd.service
+
+  # Launch the GUI to configure/unpause (unpause to enable blocking!)
   opensnitch-ui
+
+  # Verify
+  systemctl status opensnitchd.service
+  journalctl -u opensnitchd.service -f # Tail logs for connection attempts
   ```
 - Enable FSP in COMPLAIN mode
   ```bash
