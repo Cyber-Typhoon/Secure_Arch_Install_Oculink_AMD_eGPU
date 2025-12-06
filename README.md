@@ -753,6 +753,10 @@
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
   # If when we start using the laptop we experience random freezes add i915.enable_dc=0, test if resolves, if not update intel_idle.max_cstate=1. Source: https://wiki.archlinux.org/title/Intel_graphics#Crash/freeze_on_low_power_Intel_CPUs
+  # i915.enable_psr=0 → prevents random black screens on Meteor Lake OLED panels
+  # pcie_bus_perf,realloc=1 → required for stable >200 W power delivery over OCuLink
+  # processor.max_cstate=1 intel_idle.max_cstate=1 → stops random freezes when eGPU is plugged
+  # add this after iommu,strict=1 in case AMD eGPU has some issues amdgpu.dcdebugmask=0x4 amdgpu.gpu_recovery=1 amdgpu.noretry=0 \
 
   # LTS preset (atomic copy, just rename the UKI)
   sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
@@ -2034,44 +2038,53 @@
   ```
 - Create systemd global hardening:
   ```bash
-  sudo mkdir -p /etc/systemd/system.conf.d
+  sudo mkdir -p /etc/systemd/{system.conf.d,user.conf.d}
+
+  # system.conf.d
   sudo tee /etc/systemd/system.conf.d/10-hardening.conf > /dev/null <<'EOF'
   [Manager]
   # Timing (bumped to 90s for slower services like NetworkManager on WiFi)
   DefaultTimeoutStartSec=90s
   DefaultTimeoutStopSec=90s
-
+  DefaultLimitNOFILE=65536
+  DefaultLimitNPROC=32768
+  EOF
+  
+  # Service defaults
+  sudo tee /etc/systemd/system.conf.d/99-security-defaults.conf > /dev/null <<'EOF'
   [Service]
-  Restart=always
-  MemoryMax=512M
-  Sockets=http.socket https.socket
-
-  # Safe, invisible hardening — no breakage in 2025 Arch
-  DefaultRestrictRealtime=yes
-  DefaultLockPersonality=yes
-  DefaultRestrictSUIDSGID=yes
-  DefaultPrivateDevices=yes
-  DefaultProtectClock=yes
-  DefaultProtectKernelTunables=yes
-  DefaultProtectKernelModules=yes
-  DefaultProtectKernelLogs=yes
-  DefaultProtectControlGroups=yes
-  DefaultNoNewPrivileges=yes
-  DefaultRemoveIPC=yes
-  DefaultUMask=0077
-  # REMOVED: DefaultPrivateTmp=yes ["Ghost" issues. Applications might fail to launch, audio might glitch, or inter-app features (like drag-and-drop or clipboard sharing between sandboxed apps) might fail silently.]
-  # REMOVED: DefaultProtectHome=read-only (Breaks Backups)
-  # REMOVED: DefaultMemoryDenyWriteExecute=yes (Breaks JIT/Browsers)
+  ProtectSystem=full
+  NoNewPrivileges=yes
+  RestrictSUIDSGID=yes
+  ProtectKernelTunables=yes
+  ProtectKernelModules=yes
+  ProtectKernelLogs=yes
+  ProtectClock=yes
+  ProtectControlGroups=yes
+  ProtectHostname=yes
+  LockPersonality=yes
+  RestrictRealtime=yes
+  RestrictNamespaces=yes
+  PrivateDevices=yes
+  PrivateUsers=yes
+  RemoveIPC=yes
+  MemoryDenyWriteExecute=yes
+  RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+  SystemCallArchitectures=native
+  RestrictNamespaces=~ipc mnt pid user uts cgroup
+  UMask=0077
+  # REMOVED: PrivateTmp=yes ["Ghost" issues. Applications might fail to launch, audio might glitch, or inter-app features (like drag-and-drop or clipboard sharing between sandboxed apps) might fail silently.]
+  # REMOVED: ProtectHome=read-only (Breaks Backups)
+  # REMOVED: MemoryDenyWriteExecute=yes (Breaks JIT/Browsers)
 
   # Filesystem protections (strict but compatible)
-  # REMOVED: DefaultProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now [This makes /usr and /boot read-only for all services. While good for security, this often conflicts with updaters (like fwupd), driver managers (like dkms for your specific eGPU setup), or log rotation tools that aren't perfectly configured.]
-
-  [Install]
-  WantedBy=default.target
-  
+  # REMOVED: ProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now [This makes /usr and /boot read-only for all services. While good for security, this often conflicts with updaters (like fwupd), driver managers (like dkms for your specific eGPU setup), or log rotation tools that aren't perfectly configured.]
   EOF
 
   echo "Systemd global hardening applied — verify scores post-boot with 'systemd-analyze security'."
+
+  sudo systemctl daemon-reload
+  systemd-analyze security --threshold=7.0
   ```
 - Configure sysctl hardening:
   ```bash
@@ -2127,7 +2140,7 @@
   kernel.modules_disabled=0            # MUST BE 0 for eGPU/WiFi (Default is fine, but ensures we don't accidentally disable it)
 
   # === SANDBOXING (Flatpak/Steam) ===
-  user.max_user_namespaces=16384       # REQUIRED for sandboxing (Flatpak, Steam, Chrome)
+  user.max_user_namespaces=32768       # REQUIRED for sandboxing (Flatpak, Steam, Chrome)
 
   # === FILE SYSTEM PROTECTIONS ===
   fs.protected_symlinks=1
@@ -2236,7 +2249,7 @@
   compression-algorithm = zstd
   EOF
   sudo systemctl daemon-reload
-  systemctl enable --now systemd-zram-setup@zram0.service
+  systemctl enable --now systemd-zram-setup@zram0.service # Conflicts with TLP’s zram on some kernels?
   ```
 - Memory/scheduler tweaks:
   ```bash
@@ -2270,7 +2283,7 @@
   echo '[uefi_capsule]\nDisableShimForSecureBoot=true' >> /etc/fwupd/fwupd.conf
 
   # Sign fwupd EFI binary
-  sbctl sign -s /efi/EFI/arch/fwupdx64.efi
+  sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi
 
   # Verify setup (NO update checks)
   fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" && echo "fwupd: UEFI device detected"
