@@ -2229,18 +2229,90 @@
   #!/usr/bin/env bash
   set -euo pipefail
 
+  # Colors for output
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  NC='\033[0m' # No Color
+
   AUDIT_FILE="/data/suid_audit.txt"
+  LOG_FILE="/data/suid_audit.log"
+  TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
   mkdir -p "$(dirname "$AUDIT_FILE")"
+  mkdir -p "$(dirname "$LOG_FILE")"
 
-  # Find SUID files, skip special filesystems
-  find / -xdev -type f -perm -u+s 2>/dev/null > "$AUDIT_FILE"
+  log() {
+    echo -e "${TIMESTAMP} - $1" | tee -a "$LOG_FILE"
+  }
 
-  # Example: remove SUID from ping and give capability instead
-  PING_BIN="/usr/bin/ping"
-  if [[ -f "$PING_BIN" ]]; then
-    chmod u-s "$PING_BIN"
-    setcap cap_net_raw+ep "$PING_BIN"
+  log "${GREEN}Starting SUID/SGID audit${NC}"
+
+  # Full audit of all SUID and SGID files (including SGID which is often forgotten)
+  log "Generating full list of SUID/SGID files..."
+  {
+    echo "=== SUID/SGID Audit Report - $TIMESTAMP ==="
+    echo "Hostname: $(hostname)"
+    echo "Kernel: $(uname -r)"
+    echo
+    echo "SUID files (u+s):"
+    find / -xdev -type f -perm -u+s 2>/dev/null | sort
+    echo
+    echo "SGID files (g+s):"
+    find / -xdev -type f -perm -g+s 2>/dev/null | sort
+    echo
+    echo "Total SUID files: $(find / -xdev -type f -perm -u+s 2>/dev/null | wc -l)"
+    echo "Total SGID files: $(find / -xdev -type f -perm -g+s 2>/dev/null | wc -l)"
+  } > "$AUDIT_FILE"
+
+  log "${GREEN}Audit saved to $AUDIT_FILE${NC}"
+
+  # Known good vs suspicious SUID binaries (customize per distro!)
+  declare -A KNOWN_GOOD_SUID=(
+    ["/bin/su"]="yes"
+    ["/bin/mount"]="yes"
+    ["/bin/umount"]="yes"
+    ["/bin/ping"]="yes"      # we'll replace this
+    ["/usr/bin/sudo"]="yes"
+    ["/usr/bin/passwd"]="yes"
+    ["/usr/bin/chsh"]="yes"
+    ["/usr/bin/chfn"]="yes"
+    ["/usr/bin/newgrp"]="yes"
+    ["/usr/bin/gpasswd"]="yes"
+    ["/usr/lib/polkit-1/polkit-agent-helper-1"]="yes"
+    ["/usr/lib/x86_64-linux-gnu/libexec/polkit-agent-helper-1"]="yes"
+  )
+
+  log "${YELLOW}Checking for unexpected SUID binaries...${NC}"
+  while IFS= read -r file; do
+    if [[ -z "$file" ]]; then continue; fi
+    
+    if [[ -z "${KNOWN_GOOD_SUID[$file]:-}" ]]; then
+        log "${RED}WARNING: Unexpected SUID binary found: $file${NC}"
+        echo "UNEXPECTED SUID: $file" >> "$AUDIT_FILE.unexpected"
+    fi
+  done < <(find / -xdev -type f -perm -u+s 2>/dev/null)
+
+  # Safer ping replacement with capabilities (only if setcap exists)
+  if command -v setcap >/dev/null 2>&1; then
+    PING_BIN=$(command -v ping || echo "")
+    if [[ -n "$PING_BIN" && -f "$PING_BIN" ]]; then
+        if [[ $(stat -c "%A" "$PING_BIN" 2>/dev/null || echo "") == *s* ]]; then
+            log "Replacing SUID bit on ping with Linux capabilities..."
+            if chmod u-s "$PING_BIN" && setcap cap_net_raw+ep "$PING_BIN"; then
+                log "${GREEN}Successfully applied cap_net_raw+ep to $PING_BIN${NC}"
+            else
+                log "${RED}Failed to set capabilities on ping${NC}"
+            fi
+        else
+            log "ping already has capabilities or no SUID bit"
+        fi
+    fi
+  else
+    log "${YELLOW}setcap not available - cannot replace ping SUID with capabilities${NC}"
   fi
+
+  log "${GREEN}SUID audit completed. Check $AUDIT_FILE and $LOG_FILE${NC}"
   ```
 - Configure zram:
   ```bash
