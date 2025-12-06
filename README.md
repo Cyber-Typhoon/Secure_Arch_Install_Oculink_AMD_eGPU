@@ -1208,7 +1208,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  aide audit arch-audit bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
+  audit arch-audit bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility logwatch tlp tlp-rdw upower zram-generator \
@@ -1267,6 +1267,7 @@
   ```bash
   # AUR applications:
   paru -S --needed \
+    aide \
     apparmor.d-git \
     alacritty-graphics \
     aylurs-gtk-shell-git \
@@ -1936,9 +1937,77 @@
   ```
 - Configure AIDE:
   ```bash
-  aide --init
-  mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  # Backup default config
+  cp /etc/aide.conf /etc/aide.conf.bak
+
+  # Customize aide.conf for hardened setup (focus on critical paths, strong hashes)
+  cat << 'EOF' >> /etc/aide.conf
+
+  # Global settings for better reports and compression
+  verbose=20
+  gzip_dbout=yes
+  report_ignore_changed_attrs=b  # Ignore block changes (BTRFS-friendly)
+  report_force_attrs=u+g         # Always show user/group in reports
+
+  # Custom group: Strong security checks (attributes + strong hashes)
+  SecGroup = p+i+n+u+g+s+m+c+acl+xattrs+sha512+sha256
+
+  # Monitor critical paths
+  /boot SecGroup
+  /etc SecGroup
+  /usr/bin SecGroup
+  /usr/sbin SecGroup
+  /usr/lib SecGroup
+  /var/lib SecGroup  # For pacman db, but exclude /var/lib/aide (self-db)
+
+  /etc/apparmor.d SecGroup  # AppArmor profiles
+  /etc/systemd SecGroup     # Systemd configs (e.g., hardening)
+  !/var/log                 # Exclude logs (volatile)
+  /!/tmp                    # Exclude temp files
+  !/proc                    # Exclude procfs
+  !/dev                     # Exclude devices (but warn on dead symlinks)
+  !/home                    # Exclude user home (add if needed)
+  /!/var/spool              # Exclude spools
+
+  # Warn on dead symlinks for security
+  warn_dead_symlinks=yes
+  EOF
+  
+  # Validate config
+  aide -D || { echo "Config error - check /etc/aide.conf"; exit 1; }
+  echo "AIDE config customized and validated."
+
+  # Initialize with verbose output
+  aide --init --verbose=20
+
+  # Move new DB to production
+  mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz  # Note: .gz if gzip_dbout=yes
+
+  # Run initial check to verify
+  aide --check || { echo "Initial check failed - investigate changes"; }
+  
+  # Enable timer for daily checks
   systemctl enable --now aide-check.timer
+
+  # Override service for notifications (e.g., email if mailx installed)
+  mkdir -p /etc/systemd/system/aide-check.service.d
+  cat << 'EOF' > /etc/systemd/system/aide-check.service.d/notify.conf
+  [Service]
+  ExecStartPost=/usr/bin/bash -c 'aide --check | mail -s "AIDE Check Report" root'  # Requires mailx; or use journalctl alerts
+  EOF
+  systemctl daemon-reload
+
+  # Pacman hook to auto-update DB after upgrades (convenience: no manual mv/review unless daily check alerts)
+  cat << 'EOF' > /etc/pacman.d/hooks/99-aide-update.hook
+  [Trigger]
+  Operation = Upgrade
+  Type = Package
+  Target = *
+  [Action]
+  Description = Auto-update AIDE database after upgrades
+  When = PostTransaction
+  Exec = /usr/bin/bash -c '/usr/bin/aide --update | tee /var/log/aide/aide-update-report-$(date +%F).txt; mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz'
+  EOF
   ```
 - Create systemd global hardening:
   ```bash
