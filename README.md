@@ -1208,7 +1208,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  aide arch-audit bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
+  aide audit arch-audit bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility logwatch tlp tlp-rdw upower zram-generator \
@@ -1259,7 +1259,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw auditd systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -1677,12 +1677,68 @@
   ```
 - Configure auditd:
   ```bash
-  cat << 'EOF' > /etc/audit/rules.d/audit.rules
-  -w /etc/passwd -p wa -k passwd_changes
-  -w /etc/shadow -p wa -k shadow_changes
-  -a always,exit -F arch=b64 -S execve -k exec
+  cat << 'EOF' > /etc/audit/rules.d/99-security.rules
+  ## Delete all existing rules first (good practice in the last file)
+  -D
+  ## Buffer & failure mode
+  -b 8192
+  -f 1
+  --failure silent
+
+  ## Make rules immutable (-e 2)
+  -e 2
+
+  ## Identity & authentication files
+  -w /etc/passwd      -p wa -k identity
+  -w /etc/shadow      -p wa -k identity
+  -w /etc/group       -p wa -k identity
+  -w /etc/gshadow     -p wa -k identity
+  -w /etc/sudoers     -p wa -k sudoers
+  -w /etc/sudoers.d/  -p wa -k sudoers
+
+  ## System configuration & network
+  -w /etc/hosts          -p wa -k network
+  -w /etc/resolv.conf    -p wa -k network
+  -w /etc/hostname       -p wa -k network
+  -w /etc/fstab          -p wa -k storage
+  -w /etc/crypttab       -p wa -k crypto
+
+  ## Kernel & boot
+  -w /boot/              -p wa -k boot
+  -w /usr/lib/modules/   -p wa -k modules   # kernel module changes
+
+  ## Security frameworks
+  -w /etc/apparmor/      -p wa -k apparmor
+  -w /etc/apparmor.d/    -p wa -k apparmor
+  -w /etc/usbguard/rules.conf -p wa -k usbguard
+
+  ## Privilege escalation & interesting failures
+  -a always,exit -F arch=b64 -S execve -F euid=0 -k root_exec
+  -a always,exit -F arch=b64 -S mount,setuid,setreuid -F exit=-EPERM -k priv_fail
+  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/sudo -k sudo_usage
+  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/run0 -k sudo_usage
+  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/pkexec -k pkexec_usage
+
+  ## Full command line logging (64-bit only – this is the money rule)
+  -a always,exit -F arch=b64 -S execve -k all_execs
+
+  ## Time changes (very useful for forensics)
+  -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time_change
+  -w /etc/localtime -p wa -k time_change
   EOF
-  systemctl restart auditd
+
+  # Commands that should be executed once
+  # Load the new rules
+  sudo augenrules --load          # or: sudo auditctl -R /etc/audit/rules.d/*
+
+  # Verify immutable flag shows "immutable"
+  sudo auditctl -s | grep enabled.*2
+
+  # Check for syntax errors
+  sudo auditctl -l | grep -i error && echo "ERROR" || echo "Rules OK"
+
+  # Make it survive reboot
+  sudo systemctl enable --now auditd
   ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
@@ -3462,6 +3518,22 @@
   # detailed check on a specific service if needed:
   # systemd-analyze security user@1000.service
   # https://roguesecurity.dev/blog/systemd-hardening
+
+  # Auditd queries that can be executed any time
+  # All sudo/run0 usage
+  ausearch -k sudo_usage --format text
+
+  # All commands executed as root
+  ausearch -k root_exec
+
+  # Every single command executed (great for post-mortem)
+  ausearch -k all_execs -i
+
+  # Privilege-escalation failures
+  ausearch -k priv_fail
+
+  # Changes to identity files
+  ausearch -k identity
   ```
 - **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
   ```bash
