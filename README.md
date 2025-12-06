@@ -2164,8 +2164,8 @@
   kernel.sched_nr_migrate=128
 
   # === I/O SMOOTHNESS (Smoothness/Latency) ===
-  vm.dirty_bytes=268435456
-  vm.dirty_background_bytes=67108864
+  vm.dirty_bytes=100000000
+  vm.dirty_background_bytes=50000000
   vm.dirty_writeback_centisecs=1500
 
   # === SWAP (Hibernation Readahead) ===
