@@ -2075,7 +2075,7 @@
   UMask=0077
   # REMOVED: PrivateTmp=yes ["Ghost" issues. Applications might fail to launch, audio might glitch, or inter-app features (like drag-and-drop or clipboard sharing between sandboxed apps) might fail silently.]
   # REMOVED: ProtectHome=read-only (Breaks Backups)
-  # REMOVED: MemoryDenyWriteExecute=yes (Breaks JIT/Browsers)
+  # REMOVED: This was previously removed MemoryDenyWriteExecute=yes (Breaks JIT/Browsers) but it seems that we should be fine now so we are keeping it.
 
   # Filesystem protections (strict but compatible)
   # REMOVED: ProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now [This makes /usr and /boot read-only for all services. While good for security, this often conflicts with updaters (like fwupd), driver managers (like dkms for your specific eGPU setup), or log rotation tools that aren't perfectly configured.]
