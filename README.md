@@ -3792,7 +3792,8 @@
   cat /etc/gentoo-prep/desired-use-flags.txt >> /etc/portage/make.conf
 
   # USE flags for modern Intel/AMD/Wayland setup:
-  xe intel-media amdgpu vulkan pipewire flatpak
+  # xe intel-media amdgpu vulkan pipewire flatpak
+  # Append to /etc/gentoo-prep/desired-use-flags.txt: xe intel-media amdgpu vulkan pipewire flatpak. Run emerge --info | grep -E 'xe|amdgpu' post-migration test chroot.
 
   # Packages
   # Use arch-packages.txt + mapping to build @world
