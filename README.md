@@ -1550,43 +1550,6 @@
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
   echo 'options i915 enable_fbc=1' >> /etc/modprobe.d/i915.conf
   ```
-- Lenovo Battery Conservation Mode (60% Limit)
-  ```bash
-  echo "Setting up Lenovo Battery Conservation Mode..."
-
-  # Load module (idempotent)
-  sudo modprobe ideapad_laptop 2>/dev/null || echo "Module not available (non-Lenovo?)"
-
-  # Find sysfs path (robust: handles VPC2004:00, VPC2006:00, etc.)
-  CONSERVATION_PATH=$(find /sys/bus/platform/drivers/ideapad_acpi -name conservation_mode 2>/dev/null | head -n1)
-
-  if [[ -n "$CONSERVATION_PATH" ]]; then
-  # Enable by default (persists across reboots)
-    echo 1 | sudo tee "$CONSERVATION_PATH" > /dev/null
-    echo "Conservation Mode ENABLED (stops at ~60%; path: $CONSERVATION_PATH)"
-
-    # Install GNOME extension for GUI toggle
-    paru -S --noconfirm gnome-shell-extension-ideapad
-    echo "GNOME extension installed — enable in Extensions app (extensions.gnome.org/local)"
-
-    # Passwordless sudo for extension (wheel group; run0-shim compatible)
-    sudo tee /etc/sudoers.d/ideapad-conservation > /dev/null << 'EOF'
-    # Allow wheel users to toggle battery conservation without password
-    %wheel ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
-  EOF
-    sudo chmod 440 /etc/sudoers.d/ideapad-conservation
-    echo "Passwordless sudo enabled for extension"
-
-    # Quick status
-    echo "Current status: $(cat "$CONSERVATION_PATH")"
-  else
-    echo "WARNING: Conservation mode not supported (no sysfs path found)."
-  fi
-  # If we experience issues where laptop resets when suspending with lid close create a modprobe configuration file to blacklist the module:
-  # echo "blacklist ideapad_laptop" | sudo tee /etc/modprobe.d/ideapad_suspend_fix.conf
-  # sudo mkinitcpio -P
-  # This will turn off the option to use power conservation mode and in this case set limits in the TLP in Step 12
-  ```
 - Default deny incoming network via firewall (ufw):
   ```bash
   # Disables the SSH daemon and stops it immediately, removing the risk
@@ -1617,8 +1580,8 @@
   XDG_SESSION_TYPE=wayland
 
   # PATH HARDENING (SYSTEM-WIDE ONLY)
+  # # Avoid global PATH overrides to prevent breaking admin tools.
   # User paths ($HOME/.local/bin) added in ~/.zshrc
-  PATH=/usr/local/bin:/usr/bin:/bin
   EOF
   #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
   LIBVA_DRIVER_NAME=radeonsi
@@ -1724,9 +1687,6 @@
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/run0 -k sudo_usage
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/pkexec -k pkexec_usage
 
-  ## Full command line logging (64-bit only – this is the money rule)
-  -a always,exit -F arch=b64 -S execve -k all_execs
-
   ## Time changes (very useful for forensics)
   -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time_change
   -w /etc/localtime -p wa -k time_change
@@ -1741,6 +1701,25 @@
 
   # Check for syntax errors
   sudo auditctl -l | grep -i error && echo "ERROR" || echo "Rules OK"
+
+  # Remove old logs
+  cat << 'EOF' | sudo tee /etc/logrotate.d/audit
+  /var/log/audit/audit.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+    postrotate
+        /usr/bin/systemctl kill -s HUP auditd.service >/dev/null 2>&1 || true
+    endscript
+  }
+  EOF
+
+  # Validate the logs remotions
+  sudo augenrules --check
 
   # Make it survive reboot
   sudo systemctl enable --now auditd
@@ -1764,7 +1743,7 @@
   # Create Optimized Config
   cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml
   # Server List: Privacy + Blocking focused
-  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock']
+  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock', 'cloudflare']
 
   # Listen Addresses
   listen_addresses = ['127.0.0.1:53', '[::1]:53']
@@ -1964,6 +1943,12 @@
   /usr/lib SecGroup
   /var/lib SecGroup  # For pacman db, but exclude /var/lib/aide (self-db)
 
+  # Excludes for volatile subdirs
+  !/var/lib/flatpak
+  !/var/lib/systemd/coredump  # If using systemd-coredump
+  !/var/lib/docker  # If Docker installed later
+  !/var/lib/pacman/sync  # Pacman DB sync files change often
+
   /etc/apparmor.d SecGroup  # AppArmor profiles
   /etc/systemd SecGroup     # Systemd configs (e.g., hardening)
   !/var/log                 # Exclude logs (volatile)
@@ -2063,14 +2048,12 @@
   ProtectHostname=yes
   LockPersonality=yes
   RestrictRealtime=yes
-  RestrictNamespaces=yes
   PrivateDevices=yes
   PrivateUsers=yes
   RemoveIPC=yes
   MemoryDenyWriteExecute=yes
   RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
   SystemCallArchitectures=native
-  RestrictNamespaces=~ipc mnt pid user uts cgroup
   UMask=0077
   # REMOVED: PrivateTmp=yes ["Ghost" issues. Applications might fail to launch, audio might glitch, or inter-app features (like drag-and-drop or clipboard sharing between sandboxed apps) might fail silently.]
   # REMOVED: ProtectHome=read-only (Breaks Backups)
@@ -2332,6 +2315,12 @@
   # TLP sometimes ships its own zram module on older distros
   sudo systemctl disable --now tlp-zram.service 2>/dev/null || true
 
+  # Broader cleanup
+  for unit in $(systemctl list-unit-files --plain | grep -i zram | awk '{print $1}'); do
+    sudo systemctl disable --now "$unit" 2>/dev/null || true
+    sudo systemctl mask "$unit" 2>/dev/null || true
+  done
+
   # Now enable the modern generator-based one
   systemctl enable --now systemd-zram-setup@zram0.service 
   ```
@@ -2382,6 +2371,8 @@
   # Verify
   systemctl status opensnitchd.service
   journalctl -u opensnitchd.service -f # Tail logs for connection attempts
+
+  # Will annoy you the first 30–60 min until you allow Firefox, Steam, Signal, etc. But that is the point. Just keep the GUI open the first day.
   ```
 - Enable FSP in COMPLAIN mode
   ```bash
@@ -2511,8 +2502,8 @@
   # To temporarily charge to 80% (e.g., for travel):
   # 1. Disable Conservation Mode via the GNOME Extension (or CLI: echo 0 | sudo tee .../conservation_mode)
   # 2. Uncomment the two lines below:
-  # START_CHARGE_THRESH_BAT0=75
-  # STOP_CHARGE_THRESH_BAT0=80
+  # START_CHARGE_THRESH_BAT0=55
+  # STOP_CHARGE_THRESH_BAT0=60
   # 3. Restart TLP: sudo systemctl restart tlp
   # Remember to reverse the change (comment out lines 2-3) and re-enable Conservation Mode (toggle to 1) after your trip.
   EOF
