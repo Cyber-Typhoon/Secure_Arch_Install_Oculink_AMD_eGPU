@@ -351,7 +351,7 @@
   - **Edit ESP (/boot) Entry**:
     - Add `umask=0077` for security:
       ```bash
-      UUID=$ARCH_ESP_UUID /boot vfat umask=0077 0 2
+      UUID=$ARCH_ESP_UUID /boot vfat defaults,noatime,umask=0077,dmask=0077,fmask=0077 0 2
       ```
   - **Edit Windows ESP Entry**:
     - Use `noauto` and `x-systemd.automount` for manual mounting:
@@ -509,9 +509,10 @@
   pacman-key --init
   pacman-key --populate archlinux
   ```
-- Add the `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
+- Add the `xe` ánd `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
   ```bash
-  echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
+  # Load 'xe' first. 'i915' is kept as a fallback but likely won't bind to the iGPU if xe claims it.
+  echo 'MODULES=(xe i915)' >> /etc/mkinitcpio.conf
   mkinitcpio -P
   ```
 
@@ -752,6 +753,7 @@
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
+  # Remove any i915.* parameters. You generally do not need xe.force_probe on Arch Linux kernels (6.12+) as Meteor Lake is now stable, but if the GPU isn't detected, you can add xe.force_probe=8086:7d55
   # If when we start using the laptop we experience random freezes add i915.enable_dc=0, test if resolves, if not update intel_idle.max_cstate=1. Source: https://wiki.archlinux.org/title/Intel_graphics#Crash/freeze_on_low_power_Intel_CPUs
   # i915.enable_psr=0 → prevents random black screens on Meteor Lake OLED panels
   # pcie_bus_perf,realloc=1 → required for stable >200 W power delivery over OCuLink
@@ -1288,76 +1290,46 @@
   # Update linker cache (Requires Sudo)
   sudo ldconfig
   ```
-- Sign the Astal, AGS, fwupd, arch-audit and run0-sudo-shim
+- Sign the fwupd and run0-sudo-shim
   ```bash
-  # Verify binaries exist before signing
-  # Note: Astal is libs only (no binary); AGS installs /usr/bin/ags
-  [[ -f /usr/bin/ags ]] || { echo "ERROR: ags binary not found!"; exit 1; }
-  [[ -f /usr/bin/arch-audit ]] || { echo "ERROR: arch-audit binary not found!"; exit 1; }
-  [[ -f /usr/bin/sudo ]] || { echo "ERROR: run0-sudo-shim (sudo) binary not found!"; exit 1; }
-  
-  # Sign AGS for Secure Boot once
-  sudo sbctl sign -s /usr/bin/ags 2>/dev/null || true
+  # Sign fwupd EFI binary for Secure Boot (once; hook handles updates)
+  if [[ -f /usr/lib/fwupd/efi/fwupdx64.efi ]]; then
+    sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
+    echo "fwupd EFI signed for Secure Boot"
+  else
+    echo "WARNING: fwupd EFI binary not found – install fwupd first"
+  fi
 
-  # Sign run0-sudo-shim for sudo replacement
-  sudo sbctl sign -s /usr/bin/sudo
-  echo "run0-sudo-shim installed and signed"
-
-  # Sign fwupd for Secure Boot once
-  sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
-
-  # Sign arch-audit for Secure Boot
-  sudo sbctl sign -s /usr/bin/arch-audit 2>/dev/null || true
-  
-  # Append AGS/Astal, fwupd and arch-audit to existing 90-uki-sign.hook
-  if ! grep -q "Target = aylurs-gtk-shell-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
-  # Ensure kernel target exists (critical for UKI signing)
+  # Append fwupd trigger to existing 90-uki-sign.hook (ensure kernel targets)
   if ! grep -q "Target = linux" /etc/pacman.d/hooks/90-uki-sign.hook; then
     sed -i '/\[Trigger\]/a Target = linux\nTarget = linux-lts' /etc/pacman.d/hooks/90-uki-sign.hook || \
     echo -e "\nTarget = linux\nTarget = linux-lts" | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
   fi
-  cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
-
+  if ! grep -q "Target = fwupd" /etc/pacman.d/hooks/90-uki-sign.hook; then
+    cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
-  Target = libastal-meta
-  Target = aylurs-gtk-shell-git
   Target = fwupd
-  Target = arch-audit
-
   [Action]
-  Description = Sign AGS/Astal, fwupd and arch-audit libs for Secure Boot with sbctl
+  Description = Sign fwupd EFI for Secure Boot
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/fwupd/efi/fwupdx64.efi /usr/bin/arch-audit
+  Exec = /usr/bin/sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi
   Depends = sbctl
   EOF
   fi
-  
-  # Test the hook after installation:
-  sudo sbctl verify /usr/bin/ags  #Should show "signed"
 
-  # Auto-re-sign hook for run0-sudo-shim
-  sudo tee /etc/pacman.d/hooks/90-run0-shim-sign.hook <<'EOF'
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = run0-sudo-shim-git
+  # Test fwupd signing
+  sudo sbctl verify /usr/lib/fwupd/efi/fwupdx64.efi  # Should show "signed"
 
-  [Action]
-  Description = Sign the sudo shim for Secure Boot
-  When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/sudo
-  Depends = sbctl
-  EOF
-
-  # Test the run0-sudo-shim
-  sudo -v && echo "polkit cache OK"
-  sudo sbctl verify /usr/bin/arch-audit && echo "Arch-audit Secure Boot OK" # <-- Added this check
-  sudo sbctl verify /usr/bin/sudo && echo "Secure Boot OK"
-  type sudo && echo "shim is in place"
+  # For run0-sudo-shim: No Secure Boot signing needed (userspace ELF)
+  if command -v sudo >/dev/null 2>&1 && [[ "$(sudo --version 2>/dev/null | head -n1)" == *"run0-sudo-shim"* ]]; then
+  echo "run0-sudo-shim is in place"
+  sudo -v && echo "polkit cache OK (15-min reuse for run0)"
+  else
+  echo "ERROR: run0-sudo-shim not installed – install via paru -S run0-sudo-shim-git"
+  fi
   ```
 - Configure GDM for Wayland:
   ```bash
