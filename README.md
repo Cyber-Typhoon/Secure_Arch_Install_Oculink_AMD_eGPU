@@ -1989,6 +1989,18 @@
   # Enable timer for daily checks
   systemctl enable --now aide-check.timer
 
+  # Pacman hook to auto-update DB after upgrades (convenience: no manual mv/review unless daily check alerts)
+  cat << 'EOF' > /etc/pacman.d/hooks/99-aide-update.hook
+  [Trigger]
+  Operation = Upgrade
+  Type = Package
+  Target = *
+  [Action]
+  Description = Auto-update AIDE database after upgrades
+  When = PostTransaction
+  Exec = /usr/bin/bash -c '/usr/bin/aide --update | tee /var/log/aide/aide-update-report-$(date +%F).txt; mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz'
+  EOF
+
   # Override: write clean JSON report + trigger desktop notification + update AGS widget
   sudo mkdir -p /etc/systemd/system/aide-check.service.d
 
@@ -2019,18 +2031,6 @@
   EOF
 
   sudo systemctl daemon-reload
-
-  # Pacman hook to auto-update DB after upgrades (convenience: no manual mv/review unless daily check alerts)
-  cat << 'EOF' > /etc/pacman.d/hooks/99-aide-update.hook
-  [Trigger]
-  Operation = Upgrade
-  Type = Package
-  Target = *
-  [Action]
-  Description = Auto-update AIDE database after upgrades
-  When = PostTransaction
-  Exec = /usr/bin/bash -c '/usr/bin/aide --update | tee /var/log/aide/aide-update-report-$(date +%F).txt; mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz'
-  EOF
   ```
 - Create systemd global hardening:
   ```bash
