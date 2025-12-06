@@ -289,6 +289,14 @@
     - **@var**, @var_lib, @log**: Disables Copy-on-Write (`nodatacow`, `noatime`) for performance on frequently written data.
     - **@swap**: Ensures swapfile compatibility with hibernation (`nodatacow`, `noatime`).
     - **@srv, @data**: Provides flexible storage with compression (`zstd:3`) for server or user data.
+  - Set a qgroup limit (e.g., 100GB) on the @snapshots subvolume
+    ```bash
+    btrfs quota enable /mnt
+    btrfs qgroup create 0/1 /mnt/.snapshots        # 0/1 is an arbitrary but safe ID
+    btrfs qgroup limit 100G 0/1 /mnt/.snapshots
+    # Optional: make it permanent in fstab so it survives reinstalls
+    echo "qgroup 0/1 limit 50G /.snapshots" >> /mnt/etc/fstab
+    ```
 - **e) Configure Swap File**:
   - Create a swap file on the `@swap` subvolume:
     ```bash
@@ -744,7 +752,7 @@
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 amdgpu.gpu_recovery=1 \
   hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always mitigations=auto \
   slab_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
@@ -757,6 +765,7 @@
   # pcie_bus_perf,realloc=1 → required for stable >200 W power delivery over OCuLink
   # processor.max_cstate=1 intel_idle.max_cstate=1 → stops random freezes when eGPU is plugged
   # add this after iommu,strict=1 in case AMD eGPU has some issues amdgpu.dcdebugmask=0x4 amdgpu.gpu_recovery=1 amdgpu.noretry=0 \
+  # consider adding intel_iommu=igfx_off if you run into problems using the Xe iGPU for display and the AMD eGPU for rendering
 
   # LTS preset (atomic copy, just rename the UKI)
   sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
@@ -823,6 +832,7 @@
   Operation = Upgrade
   Type = Package
   Target = linux*
+  Target = linux-firmware
   Target = systemd
   Target = mkinitcpio
   Target = plymouth
@@ -1541,6 +1551,7 @@
   SDL_VIDEODRIVER=wayland
   ELECTRON_OZONE_PLATFORM_HINT=auto
   XDG_SESSION_TYPE=wayland
+  # For Proton: PROTON_USE_WINED3D=1 env if DX12 issues.
 
   # PATH HARDENING (SYSTEM-WIDE ONLY)
   # # Avoid global PATH overrides to prevent breaking admin tools.
@@ -2698,6 +2709,15 @@
     dmesg | grep -i amdgpu  # Check driver loading
     glxinfo | grep -i renderer  # Verify GPU rendering
     ```
+  - DIAGNOSTIC: Check IOMMU groups after connecting eGPU
+    ```bash
+    find /sys/kernel/iommu_groups/ -type l | sort | grep 1002:
+
+    # CONDITIONAL FIX: If the AMD GPU is not in its own group:
+    # Get the AMD GPU PCI ID (e.g., from 'lspci -nnk'): 1002:xxxx
+    # Add the following to linux.preset default_options:
+    # vfio-pci.ids=1002:xxxx
+    ```
   - (Optional) If for some reason the Oculink performance has some latency issues consider adding some script for setpci like CachyOS does - https://wiki.cachyos.org/features/cachyos_settings/#helper-scripts
     ```bash
     #!/usr/bin/env sh
@@ -3771,6 +3791,9 @@
   # USE flags
   cat /etc/gentoo-prep/desired-use-flags.txt >> /etc/portage/make.conf
 
+  # USE flags for modern Intel/AMD/Wayland setup:
+  xe intel-media amdgpu vulkan pipewire flatpak
+
   # Packages
   # Use arch-packages.txt + mapping to build @world
   ```
@@ -3824,6 +3847,10 @@
   source ~/.zshrc
 
   # Open Steam Client and make sure to "Enable" Steam Overlay
+
+  # Disable Steam telemetry for privacy (create or edit the file)
+  mkdir -p ~/.steam/
+  echo "STEAM_DISABLE_TELEMETRY=1" >> ~/.steam/steam.cfg
 
   # Verify
   sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope
