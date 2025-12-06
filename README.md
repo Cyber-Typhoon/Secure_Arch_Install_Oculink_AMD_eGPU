@@ -1989,13 +1989,36 @@
   # Enable timer for daily checks
   systemctl enable --now aide-check.timer
 
-  # Override service for notifications (e.g., email if mailx installed)
-  mkdir -p /etc/systemd/system/aide-check.service.d
-  cat << 'EOF' > /etc/systemd/system/aide-check.service.d/notify.conf
+  # Override: write clean JSON report + trigger desktop notification + update AGS widget
+  sudo mkdir -p /etc/systemd/system/aide-check.service.d
+
+  cat << 'EOF' | sudo tee /etc/systemd/system/aide-check.service.d/99-widget-notify.conf
   [Service]
-  ExecStartPost=/usr/bin/bash -c 'aide --check | mail -s "AIDE Check Report" root'  # Requires mailx; or use journalctl alerts
+  # Run the actual check and capture structured output
+  ExecStartPost=/usr/bin/bash -c '\
+  set -euo pipefail; \
+  REPORT_FILE="/var/log/aide/last-check-$(date +%%Y%m%d-%H%M%S).txt"; \
+  JSON_FILE="/run/aide-status.json"; \
+  \
+  if aide --check > "$REPORT_FILE" 2>&1; then \
+    STATUS="clean"; \
+    SUMMARY="AIDE: System integrity verified — no changes detected"; \
+    notify-desktop --urgency=low --icon=security-high "AIDE Check" "$SUMMARY"; \
+  else \
+    STATUS="alert"; \
+    SUMMARY="AIDE: Potential unauthorized changes detected!"; \
+    notify-desktop --urgency=critical --icon=security-high --expire-time=0 "AIDE Alert" "$SUMMARY"; \
+    # Also make a loud sound so you really notice it \
+    canberra-gtk-play -i dialog-warning & \
+  fi; \
+  \
+  # Write tiny JSON for AGS/Astal widget (readable by any user in the graphical session) \
+  echo "{\"status\":\"$STATUS\",\"timestamp\":\"$(date -Iseconds)\",\"report\":\"$REPORT_FILE\"}" | \
+    tee "$JSON_FILE"; \
+  chmod 644 "$JSON_FILE"'
   EOF
-  systemctl daemon-reload
+
+  sudo systemctl daemon-reload
 
   # Pacman hook to auto-update DB after upgrades (convenience: no manual mv/review unless daily check alerts)
   cat << 'EOF' > /etc/pacman.d/hooks/99-aide-update.hook
@@ -3901,6 +3924,69 @@
             onClicked: () => Utils.execAsync(['foot', '-e', 'bash', '-c', 'lsns -t pid,mnt | less']),
         }),
     ],
+  });
+  ```
+- AIDE Astal/AGS Widget
+  ```bash
+  // ~/.config/ags/widgets/aide-monitor.ts
+  const aideStatusFile = "/run/aide-status.json";
+
+  const AideWidget = () =>
+  Widget.Box({
+    class_name: "aide-monitor",
+    tooltip_text: "AIDE integrity status",
+    children: [
+      Widget.Icon({
+        icon: "security-high-symbolic",
+        size: 18,
+      }),
+      Widget.Label({
+        label: Utils.watch(
+          { status: "unknown", timestamp: "" },
+          aideStatusFile,
+          () => {
+            try {
+              const data = JSON.parse(Utils.readFile(aideStatusFile) || "{}");
+              return data.status === "clean"
+                ? "Clean"
+                : data.status === "alert"
+                ? "ALERT"
+                : "Unknown";
+            } catch {
+              return "No data";
+            }
+          }
+        ),
+        class_name: Utils.watch("clean", aideStatusFile, () => {
+          try {
+            const data = JSON.parse(Utils.readFile(aideStatusFile) || "{}");
+            return data.status === "clean"
+              ? "aide-clean"
+              : data.status === "alert"
+              ? "aide-alert"
+              : "";
+          } catch {
+            return "";
+          }
+        }),
+      }),
+    ],
+  });
+
+  // Then just import and add AideWidget() to your bar/panel
+  # CSS Style
+  .aide-clean {
+  color: @success_color;
+  }
+  .aide-alert {
+    color: @error_color;
+    font-weight: bold;
+    animation: blink 1s infinite alternate; 
+  }
+  # Click the widget to open the latest report
+  AideWidget().on("button-press-event", () => {
+  Utils.execAsync(`xdg-open ${Utils.readFile("/run/aide-status.json")?.match(/"report":"([^"]+)"/)?.[1] || "/var/log/aide"}`)
+    .catch(() => App.toggleWindow("whatever-your-sidebar-is"));
   });
   ```
 - Logwatch
