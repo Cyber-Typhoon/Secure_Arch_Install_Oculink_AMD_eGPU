@@ -2047,7 +2047,6 @@
   DefaultTimeoutStartSec=90s
   DefaultTimeoutStopSec=90s
   DefaultLimitNOFILE=65536
-  DefaultLimitNPROC=32768
   EOF
   
   # Service defaults
@@ -2109,6 +2108,8 @@
   net.ipv6.conf.default.log_martians=1
   net.ipv4.icmp_ignore_bogus_error_responses=1
   net.ipv4.icmp_echo_ignore_broadcasts=1
+  net.ipv4.tcp_rfc1337=1
+  net.ipv4.ping_group_range=0 2147483647
   # net.ipv6.conf.all.autoconf=0                          # USED IN SERVER ONLY 
   # net.ipv6.conf.default.autoconf=0                      # USED IN SERVER ONLY
   # net.ipv6.conf.all.accept_ra=0                         # USED IN SERVER ONLY
@@ -2132,8 +2133,8 @@
   vm.unprivileged_userfaultfd = 0      # Disable dangerous userfaultfd
   dev.tty.ldisc_autoload = 0           # Disable tty line discipline autoloading
   dev.tty.legacy_tiocsti = 0           # Disable TIOCSTI (key injection)
-  kernel.warn_limit = 1                # Reboot on excessive warnings
-  kernel.oops_limit = 1                # Reboot on excessive oopses
+  kernel.warn_limit = 10                # Reboot on excessive warnings
+  kernel.oops_limit = 10                # Reboot on excessive oopses
 
   # === COMPATIBILITY HARDENING ===
   kernel.unprivileged_bpf_disabled=0   # MUST BE 0 for Games/Tracing
