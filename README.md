@@ -2218,7 +2218,7 @@
   w /sys/kernel/mm/transparent_hugepage/khugepaged/defrag  - - - - 0
 
   # Full MGLRU (multi-gen LRU) – gives 5–12 % better 1% lows on Zen 4/Meteor Lake
-  w /sys/kernel/mm/lru_gen/enabled                         - - - - 5
+  w /sys/kernel/mm/lru_gen/enabled                         - - - - 7
   EOF
 
   # Apply immediately apply
