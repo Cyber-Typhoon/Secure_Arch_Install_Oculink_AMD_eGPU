@@ -744,12 +744,10 @@
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc iommu.passthrough=0 iommu.strict=1 \
-  hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always \
-  mitigations=auto \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 \
+  hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always mitigations=auto \
   slab_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
-  amdgpu.dc=1 amdgpu.dpm=1 intel_idle.max_cstate=2 \
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
@@ -834,13 +832,6 @@
   When = PostTransaction
   Exec = /usr/bin/bash -c 'mkinitcpio -P; bootctl update && sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI /boot/EFI/Linux/arch*.efi 2>/dev/null || true'
   EOF
-
-  # Note: Although fstab uses umask=0077, these steps ensure the permissions are tight immediately.
-  # Set ownership to root:root recursively
-  chown -R root:root /boot
-  # Set permissions: 700 (owner only can read/write/execute) recursively
-  chmod -R 700 /boot
-  echo "Secured /boot directory permissions (700)."
 
   # Verification Checks
   grep HOOKS /etc/mkinitcpio.conf
