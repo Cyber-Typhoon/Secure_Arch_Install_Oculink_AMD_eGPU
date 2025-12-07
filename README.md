@@ -788,10 +788,24 @@
   EOF
   echo "Configured Plymouth for immediate display (ShowDelay=0) and HiDPI (DeviceScale=2)."
 
+  # Kernel Hardening: Blacklist Unused Modules
+  # Hardware-specific check:
+  lsmod | grep -E 'firewire|pcspkr|cramfs|hfs|btusb'
+  # Create a configuration file
+  micro /etc/modprobe.d/99-local-blacklist.conf
+  # Prevents firewire core and all dependent modules from loading
+  install firewire-core /bin/true
+  # Prevents the PC speaker module (for system beep)
+  install pcspkr /bin/true
+  # Blacklist legacy filesystems if not needed
+  install cramfs /bin/true
+  install hfs /bin/true
+  install hfsplus /bin/true 
+
   # Generate UKI
   # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
   mkinitcpio -P
-  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi"
+  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi" 
 
   # Install `systemd-boot`:
   # Creates /boot/loader/, installs systemd-bootx64.efi.
@@ -1848,12 +1862,19 @@
   [Unit]
   Description=Run Lynis audit
   After=network-online.target
+  ConditionVirtualization=!container
 
   [Service]
   Type=oneshot
   User=root
   # Run the audit with the official --cronjob flag and skip for consistency
-  ExecStart=/usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139 
+  # REMOVED: ExecStart=/usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139
+  ExecStart=/usr/bin/lynis audit system --quick --warnings --deeppen --auditor "Automated Audit" --logfile /var/log/lynis/lynis.log --report-file /var/log/lynis/lynis-report.dat --skip-test SSH-7408,BOOT-5122,BOOT-5139
+  StandardOutput=journal
+  StandardError=journal
+  ProtectSystem=full
+  ProtectHome=true
+  PrivateTmp=true
   # Save the human-readable report summary (MUST run first)
   ExecStartPost=/usr/bin/lynis show warnings >> /var/log/lynis/lynis-report-$(date +%F).txt
   ExecStartPost=/usr/bin/lynis show suggestions >> /var/log/lynis/lynis-report-$(date +%F).txt
@@ -2347,6 +2368,26 @@
   journalctl -u opensnitchd.service -f # Tail logs for connection attempts
 
   # Will annoy you the first 30–60 min until you allow Firefox, Steam, Signal, etc. But that is the point. Just keep the GUI open the first day.
+  ```
+- Binary Hardening: Replace Setuid with Capabilities
+  ```bash
+  # Find all setuid binaries on your system to create a baseline for review:
+  find / -type f -perm /4000 2>/dev/null > /root/setuid-binaries.list
+  cat /root/setuid-binaries.list
+
+  # Review the list, focusing on common targets like /usr/bin/ping and /usr/bin/mount.
+  # For most modern systems, the most common candidate for this hardening is ping, which requires elevated privileges only to create a raw socket.
+  # Remove the setuid bit from the ping binary:
+  sudo chmod u-s /usr/bin/ping
+  # Verify the 's' is gone:
+  ls -l /usr/bin/ping
+
+  # Apply the minimal required capability (CAP_NET_RAW):
+  # Set the capability: 'p' means Permitted set
+  sudo setcap cap_net_raw+p /usr/bin/ping
+  # Verify the capability is set:
+  getcap /usr/bin/ping
+  # Test: The ping command should still function for unprivileged users. Repeat this process for any other minimal-privilege setuid binaries you identify.
   ```
 - Enable FSP in COMPLAIN mode
   ```bash
