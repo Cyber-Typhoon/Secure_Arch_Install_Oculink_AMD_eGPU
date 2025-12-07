@@ -2439,9 +2439,6 @@
   # Enable ALL PowerPlay features (fan curves, overclocking, power limits, zero-RPM, etc.)
   options amdgpu ppfeaturemask=0xffffffff
 
-  # After setup, verify with (should show "Speed 16GT/s (ok), Width x4"). If stuck at lower, tweak pcie_gen_cap to 0x40000
-  lspci -vv -s $(lspci | awk '/VGA.*AMD/{print $1}') | grep LnkSta
-
   # Force PCIe Gen4 max capability (most Thunderbolt 4/5 enclosures are Gen4 x4)
   # 0x80000 = advertise Gen4 support up to Gen4, driver will negotiate down if needed
   options amdgpu pcie_gen_cap=0x80000
@@ -2473,8 +2470,159 @@
   ```bash
   sbctl sign --all
   find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
+  reboot
+
+  # After Reboot
+  # Validate AMD GPU once connected (Should output "AMD Radeon ...")
+  DRI_PRIME=1 glxinfo | grep renderer
+
+  # After setup, verify with (should show "Speed 16GT/s (ok), Width x4"). If stuck at lower, tweak pcie_gen_cap to 0x40000
+  lspci -vv -s $(lspci | awk '/VGA.*AMD/{print $1}') | grep LnkSta
   ```
-- Install and configure `supergfxctl` for GPU switching:
+- Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
+  ```bash
+  # === AUTOMATION: Performance Profile Switching (AC vs. Battery) ===
+
+  # Create the shell script to toggle the performance mode (run as root by udev)
+  sudo tee /usr/local/bin/thinklmi-power-switcher << 'EOF'
+  #!/bin/bash
+
+  # Without this, fast AC plug/unplug storms can run the script multiple times
+  LOCKFILE="/var/run/thinklmi-switcher.lock"
+  # Simple flock to prevent overlapping runs
+  exec 200>"$LOCKFILE"
+  flock -n 200 || exit 0
+
+  # Path to the ThinkLMI file
+  PERF_MODE_PATH="/sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value"
+
+  # Check if the path exists (ensure kernel module is loaded)
+  if [ ! -f "$PERF_MODE_PATH" ]; then
+    echo "ThinkLMI performance_mode path not found: $PERF_MODE_PATH" >&2
+    exit 1
+  fi
+
+  case "$1" in
+    ac)
+        # Max performance (Geek Mode) when plugged in (docked)
+        echo "Setting ThinkLMI to extreme_performance (AC Power)"
+        echo "extreme_performance" > "$PERF_MODE_PATH"
+        ;;
+    battery)
+        # Quiet Mode for maximum battery life when unplugged
+        echo "Setting ThinkLMI to quiet_mode (Battery Power)"
+        echo "quiet_mode" > "$PERF_MODE_PATH"
+        ;;
+    *)
+        echo "Usage: $0 {ac|battery}" >&2
+        exit 1
+        ;;
+  esac
+  EOF
+
+  # Make the script executable
+  sudo chmod +x /usr/local/bin/thinklmi-power-switcher
+
+  # Create the udev rule to trigger the script on AC status change
+  sudo tee /etc/udev/rules.d/99-thinklmi-power.rules << 'EOF'
+  # When AC adapter status changes to 'online' (1)
+  SUBSYSTEM=="power_supply", ATTR{online}=="1", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher ac"
+
+  # When AC adapter status changes to 'offline' (0)
+  SUBSYSTEM=="power_supply", ATTR{online}=="0", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher battery"
+  EOF
+
+  # Reload udev rules to make the change active immediately
+  sudo udevadm control --reload-rules
+
+  # Execute the script once to set the initial state (based on current power status)
+  # This will find the current power state and apply the corresponding profile.
+  if [ "$(cat /sys/class/power_supply/AC*/online 2>/dev/null | head -1)" = "1" ]; then
+    sudo /usr/local/bin/thinklmi-power-switcher ac
+  else
+    sudo /usr/local/bin/thinklmi-power-switcher battery
+  fi
+
+  # === Configure TLP for auto-switching and eGPU compatibility ===
+  
+  # Create the proper drop-in directory (once)
+  sudo mkdir -p /etc/tlp.d
+
+  # Write your custom overrides safely (this will never be overwritten by pacman updates)
+  sudo tee /etc/tlp.d/99-thinkbook-egpu.conf << 'EOF'
+  # === GPU: Prevent TLP from touching runtime PM (critical for OCuLink eGPU hotplug) ===
+  RUNTIME_PM_BLACKLIST="amdgpu xe"     # xe = Intel Arc iGPU (Core Ultra), amdgpu = eGPU
+
+  # === Maximum performance on AC (mimics Lenovo Vantage "Extreme Performance") ===
+  CPU_SCALING_GOVERNOR_ON_AC=performance
+  CPU_ENERGY_PERF_POLICY_ON_AC=performance
+
+  # Quieter/Slower on Battery (Consistent with ThinkLMI 'quiet_mode')
+  CPU_SCALING_GOVERNOR_ON_BAT=powersave
+  CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power
+
+  # === Do not fight with Lenovo's native battery charge control ===
+  # (TLP has ignored vendor-specific thresholds by default since 2023, but being explicit is fine)
+  START_CHARGE_THRESH_BAT0=""
+  STOP_CHARGE_THRESH_BAT0=""
+  
+  EOF
+
+  # Apply
+  sudo systemctl restart tlp
+
+  # === Performance Mode: Auto-Switching via UDEV ===
+
+  # LIST available modes on your specific hardware (e.g., quiet_mode, balanced, extreme_performance)
+  echo "Available Lenovo Power Modes:"
+  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/valid_values
+
+  # If want to set manually one time the "Extreme Performance" profile
+  # This is the Linux equivalent of Lenovo Vantage's "Geek Power Mode"
+  # echo extreme_performance | sudo tee /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
+
+  # VERIFY the change
+  echo "Current Active Mode:"
+  tlp-stat -s            # Should show "performance" governor
+  tlp-stat -p            # PL1/PL2 should be high (60–120 W depending on cooling)
+  tlp-stat -g            # Confirm runtime PM blacklist applied
+  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
+
+  # Manual Option in case don't want to automate with UDEV
+  # Manual GUI button to toggle the mode on demand, create a desktop entry or a simple custom GNOME extension that runs the following commands:
+  # Extreme Performance:
+  # pkexec /bin/sh -c 'echo extreme_performance > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
+  # Quiet Mode:
+  # pkexec /bin/sh -c 'echo quiet_mode > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
+  ```
+- Configure systemd-logind for reliable GPU switching
+  ```bash
+  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
+  systemctl restart systemd-logind
+  ```
+- Install bolt for Thunderbolt 4 management (OCuLink usually bypasses this)
+  ```bash
+  pacman -S --needed bolt
+  systemctl enable --now bolt
+  # Configure auto-connection for Thunderbolt devices
+  # (Note: OCuLink typically appears as raw PCIe and doesn't use bolt/Thunderbolt security)
+  sudo mkdir -p /etc/boltd
+  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
+  
+  # Check for devices (Use this only if connecting via USB4/TB4 port)
+  boltctl list
+
+  # If a device shows as 'unauthorized', copy its UUID:
+  # grep -i oculink
+  # boltctl authorize <uuid>
+  ```
+- (OPTIONAL - TEST) Install switcheroo-control for GPU integration
+  ```bash
+  # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP OPTIONAL ITEMS
+  pacman -S --needed switcheroo-control
+  systemctl enable --now switcheroo-control
+  ```
+- (OPTIONAL - TEST) Install and configure `supergfxctl` for GPU switching:
   ```bash
   paru -S supergfxctl
   # Enable the service FIRST (it will auto-generate a working default config)
@@ -2509,7 +2657,7 @@
   # If probe error -22: Try kernel param 'amdgpu.noretry=0' in /etc/mkinitcpio.d/linux.preset, then mkinitcpio -P
   # hotplug_type use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
   ```
-- Install supergfxctl-gex for GUI switching
+- (OPTIONAL - TEST) Install supergfxctl-gex for GUI switching
   ```bash
   # GUI Installation of supergfxctl-gex
   echo "NOTE: supergfxctl-gex is installed via the GNOME Extensions website, not the AUR."
@@ -2522,22 +2670,6 @@
   echo "4. After installation, log out and log back in (or press Alt+F2, then 'r', then Enter) to see the GUI icon."
   echo "--------------------------------------------------------------------------------"
   ```
-- Install switcheroo-control for GPU integration
-  ```bash
-  pacman -S --needed switcheroo-control
-  systemctl enable --now switcheroo-control
-  ```
-- Install bolt for OCuLink/Thunderbolt management
-  ```bash
-  pacman -S --needed bolt
-  systemctl enable --now bolt
-  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
-  boltctl list | grep -i oculink && boltctl authorize <uuid> # Replace with OCuLink device UUID
-  ```
-- Enable PCIe hotplug
-  ```bash
-  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
-  ```
 - (DEPRECATED - Fallback Only) Create a udev rule for eGPU hotplug support:
   ```bash
   # Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
@@ -2546,35 +2678,6 @@
   SUBSYSTEM=="pci", ACTION=="add", ATTRS{vendor}=="0x1002", RUN+="/usr/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
   EOF
   udevadm control --reload-rules && udevadm trigger
-  ```
-- Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
-  ```bash
-  sudo tee -a /etc/tlp.conf > /dev/null << 'EOF'
-  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915" # This exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
-  CPU_ENERGY_PERF_POLICY_ON_AC=performance
-  CPU_MAX_PERF_ON_AC=100
-  CPU_MIN_PERF_ON_AC=50
-  CPU_SCALING_GOVERNOR_ON_AC=performance
-  # Battery Conservation. Disable TLP's native battery care to prevent conflicts with the GNOME extension.
-  # The GNOME extension now has exclusive control over the conservation_mode file.
-  BAT_CARE_VENDOR=none
-  # === OPTIONAL: 80% CHARGE THRESHOLD OVERRIDE ===
-  # To temporarily charge to 80% (e.g., for travel):
-  # 1. Disable Conservation Mode via the GNOME Extension (or CLI: echo 0 | sudo tee .../conservation_mode)
-  # 2. Uncomment the two lines below:
-  # START_CHARGE_THRESH_BAT0=55
-  # STOP_CHARGE_THRESH_BAT0=60
-  # 3. Restart TLP: sudo systemctl restart tlp
-  # Remember to reverse the change (comment out lines 2-3) and re-enable Conservation Mode (toggle to 1) after your trip.
-  EOF
-  systemctl restart tlp
-  tlp-stat -p # Check TDP >60W on AC
-  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
-  ```
-- Configure systemd-logind for reliable GPU switching
-  ```bash
-  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
-  systemctl restart systemd-logind
   ```
 - (DEPRECATED - Fallback Only) Install all-ways-egpu if eGPU isn’t primary
   ```bash
