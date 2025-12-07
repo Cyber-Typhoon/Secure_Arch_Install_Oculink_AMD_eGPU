@@ -3225,29 +3225,6 @@
   # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
   # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
   ```
-- Lenovo Conservation Mode Validation
-  ```bash
-  echo "Current conservation mode status (Expected: 1):"
-  cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode 2>/dev/null || echo "Not supported"
-
-  # TLP Check (Confirms TLP is disabled from battery care)
-  echo "TLP Battery Care Check (Expected: 'none' vendor):"
-  tlp-stat -b | grep -i 'Care Vendor'
-
-  # Toggle Test (Confirms manual control works and TLP does not override after 10s)
-  echo "Testing manual toggle (Off/On cycle)..."
-
-  # Toggle OFF (Charge to 100%)
-  echo 0 | sudo tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
-  echo "Conservation mode set to 0 (OFF). Status: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode)"
-  sleep 10
-  # Re-check TLP status to ensure it did NOT override the '0'
-  echo "Status after 10s delay: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode) (Should still be 0)"
-
-  # Toggle back ON (Limit charge to ~60%)
-  echo 1 | sudo tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
-  echo "Conservation mode set back to 1 (ON). Status: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode)"
-  ```
 - Forcepad Issues
   ```bash
   # If touchpad is with issue try this kernel patch https://github.com/ty2/goodix-gt7868q-linux-driver
