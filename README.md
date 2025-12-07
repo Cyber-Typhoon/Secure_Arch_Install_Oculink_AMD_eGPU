@@ -2439,6 +2439,9 @@
   # Enable ALL PowerPlay features (fan curves, overclocking, power limits, zero-RPM, etc.)
   options amdgpu ppfeaturemask=0xffffffff
 
+  # After setup, verify with (should show "Speed 16GT/s (ok), Width x4"). If stuck at lower, tweak pcie_gen_cap to 0x40000
+  lspci -vv -s $(lspci | awk '/VGA.*AMD/{print $1}') | grep LnkSta
+
   # Force PCIe Gen4 max capability (most Thunderbolt 4/5 enclosures are Gen4 x4)
   # 0x80000 = advertise Gen4 support up to Gen4, driver will negotiate down if needed
   options amdgpu pcie_gen_cap=0x80000
