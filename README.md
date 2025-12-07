@@ -2430,23 +2430,41 @@
 
 - Install AMD drivers and microcode:
   ```bash
-  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip libva-vdpau-driver
+  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip
   ```
-- Configure early KMS
+- amdgpu Module configuration and early KMS
   ```bash
-  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
-  mkinitcpio -P
-  # if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter. Example: options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1. Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
-  lspci -vv | grep -i "LnkSta.*Speed.*Width"  # Should show "Speed 16GT/s, Width x4"
-  if ! lspci -vv | grep -i "LnkSta" | grep -q "Speed 16GT/s, Width x4"; then
-    echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
-    echo "NOTE: If issues persist, add to /boot/loader/entries/arch.conf: 'amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1'"
-    mkinitcpio -P
-  fi
-  ```
-- Set AMD power management options
-  ```bash
-  echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
+  # === AMD eGPU: Full recommended amdgpu module configuration ===
+  sudo tee /etc/modprobe.d/amdgpu.conf <<'EOF'
+  # Enable ALL PowerPlay features (fan curves, overclocking, power limits, zero-RPM, etc.)
+  options amdgpu ppfeaturemask=0xffffffff
+
+  # Force PCIe Gen4 max capability (most Thunderbolt 4/5 enclosures are Gen4 x4)
+  # 0x80000 = advertise Gen4 support up to Gen4, driver will negotiate down if needed
+  options amdgpu pcie_gen_cap=0x80000
+
+  # (OPTIONAL - START WITHOUT) Better hot-plug handling on Thunderbolt/USB4 (fixes black screen on plug-in for many)
+  # options amdgpu dcdebugmask=0x4
+
+  # (OPTIONAL - START WITHOUT) Recommended for stability with most eGPU enclosures
+  # options amdgpu vm_update_mode=3
+
+  # Optional: enable RAS (error correction/reporting) on RDNA2/RDNA3 — harmless if unsupported
+  options amdgpu ras_enable=1
+  EOF
+
+  # === Early KMS: load xe (iGPU), i915 (fallback), and amdgpu at boot ===
+  sudo sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
+  echo 'MODULES=(xe i915 amdgpu)' | sudo tee -a /etc/mkinitcpio.conf
+
+  # Regenerate initramfs so everything loads early (critical for eGPU at login screen)
+  sudo mkinitcpio -P
+
+  # Optional but very useful: add these kernel parameters
+  # Especially important if you still don’t get full 16 GT/s ×4 after the above
+  # Example line to add to your bootloader entry:
+  # options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x80000 pcie_ports=native pciehp.pciehp_force=1.
+  # Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x80000' | sudo tee -a /etc/modprobe.d/amdgpu.conf
   ```
 - Sign kernel modules for Secure Boot
   ```bash
@@ -2456,26 +2474,50 @@
 - Install and configure `supergfxctl` for GPU switching:
   ```bash
   paru -S supergfxctl
-  cat << 'EOF' > /etc/supergfxd.conf
+  # Enable the service FIRST (it will auto-generate a working default config)
+  sudo systemctl enable --now supergfxd
+  # Override only the options we need
+  sudo mkdir -p /etc/supergfxd.conf.d
+  sudo tee /etc/supergfxd.conf.d/99-egpu.conf <<'EOF'
+  {
   "mode": "Hybrid",
-  "vfio_enable": true,
+  "vfio_enable": false,  # CRITICAL: Must be false for AMD eGPU Hybrid mode
   "vfio_save": false,
   "always_reboot": false,
-  "no_logind": true,
+  "no_logind": false,
   "logout_timeout_s": 180,
-  "hotplug_type": "Std" # Use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
+  "hotplug_type": "Std"  # Standard hotplug works well for OCuLink/TB4/5
+  }
   EOF
-  systemctl enable --now supergfxd
+
+  # Install the profile script for desktop environment compatibility (Wayland/Gnome)
+  sudo supergfxctl --install-profile-script
+
+  # Fallback to iGPU if eGPU fails
+  supergfxctl -m Integrated  
+
+  # Secure Boot signing for the binaries
+  # Note: sbctl can sign multiple files in one call.
+  sbctl sign -s /usr/bin/supergfxctl /usr/lib/supergfxd
+
+  # Reboot to apply all changes (KMS, modprobe, and supergfxd)
+  sudo reboot
+
   # If probe error -22: Try kernel param 'amdgpu.noretry=0' in /etc/mkinitcpio.d/linux.preset, then mkinitcpio -P
-  supergfxctl -m Integrated  # Fallback to iGPU if eGPU fails
-  sbctl sign -s /usr/bin/supergfxctl
-  sbctl sign -s /usr/lib/supergfxctl/supergfxd
+  # hotplug_type use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
   ```
-- Install supergfxctl-gex for GUI switching (do NOT run as root or sudo)
+- Install supergfxctl-gex for GUI switching
   ```bash
-  pacman -S --needed gnome-shell-extension
-  gnome-extensions enable supergfxctl-gex@asus-linux.org
-  echo "NOTE: supergfxctl-gex provides a GUI for GPU switching in GNOME."
+  # GUI Installation of supergfxctl-gex
+  echo "NOTE: supergfxctl-gex is installed via the GNOME Extensions website, not the AUR."
+  # GUI installation
+  echo "--------------------------------------------------------------------------------"
+  echo "MANUAL STEP REQUIRED:"
+  echo "1. Log into your GNOME desktop session."
+  echo "2. Open your web browser and navigate to: https://extensions.gnome.org/extension/5344/supergfxctl-gex/"
+  echo "3. Toggle the switch to 'ON' to install and enable the extension."
+  echo "4. After installation, log out and log back in (or press Alt+F2, then 'r', then Enter) to see the GUI icon."
+  echo "--------------------------------------------------------------------------------"
   ```
 - Install switcheroo-control for GPU integration
   ```bash
