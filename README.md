@@ -752,7 +752,7 @@
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 amdgpu.gpu_recovery=1 \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 \
   hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always mitigations=auto \
   slab_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
