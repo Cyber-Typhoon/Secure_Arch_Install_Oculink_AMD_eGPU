@@ -434,7 +434,7 @@
   \
   # Graphics
   mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-iced-loader lib32-vulkab-icd-loader \
-  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader intel-gpu-tools lact \
+  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo intel-gpu-tools lact \
   \
   # Audio
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
@@ -2621,9 +2621,91 @@
   # grep -i oculink
   # boltctl authorize <uuid>
   ```
+- Enable VRR for 4K OLED
+  ```bash
+  # === Enable VRR in GNOME Mutter (Wayland) ===
+  # Enable Variable Refresh Rate support
+  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
+
+  # NOTE: Actual VRR range configuration is handled via GNOME Control Center
+  # (Settings -> Displays) after this flag is enabled.
+
+  # === Verify PRIME Offload (iGPU vs. eGPU) ===
+  echo "--- OpenGL (glxinfo) Verification ---"
+  # Verify iGPU (Intel Arc) is the default:
+  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
+  # Verify eGPU (AMD) is selected for offload:
+  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
+  
+  echo "--- Vulkan (vulkaninfo) Verification ---"
+  # Vulkan is the modern standard; ensure it sees the eGPU
+  # Install 'vulkan-tools' package if 'vulkaninfo' is not found.
+  # Output should list your AMD eGPU (e.g., 'AMD Radeon RX 7900 XT')
+  # Verify VRR support on the eGPU:
+  DRI_PRIME=1 vulkaninfo | grep "deviceName"
+
+  # Check video decode capabilities
+  echo "--- Video Acceleration Check (VDPau/Radeonsi) ---"
+  DRI_PRIME=1 vdpauinfo | grep -i radeonsi 
+
+  # If VRR fails, check dmesg for amdgpu errors:
+  dmesg | grep -i amdgpu
+
+  # === Confirm Display Settings (Wayland) ===
+  # The following is a Wayland-native check tool (wlr-randr) often useful,
+  # but configuration must be done in GNOME Control Center for Mutter.
+  echo "--- Wayland Refresh Rate Check ---"
+  # Check if wlr-randr is available and confirm refresh rate range:
+  if command -v wlr-randr &> /dev/null; then
+    wlr-randr
+  else
+    echo "wlr-randr not found. Check display settings in GNOME Control Center."
+  fi
+  # Ensure 4K OLED is set to its maximum refresh rate and VRR range in the GUI:
+  # Launch 'gnome-control-center' (Settings) -> Displays -> Resolution/Refresh Rate
+  # Set the desired resolution and confirm the refresh rate (e.g., 120Hz) is available.
+
+  # === Check AppArmor Denials (Crucial for VFIO/Passthrough) ===
+  echo "--- AppArmor Denial Checks ---"
+  # Check AppArmor denials specifically related to systems that touch PCI/GPU resources
+  journalctl -u apparmor | grep -i "supergfxctl\|qemu\|libvirtd\|amdgpu"
+  
+  # Log denials to a file for review
+  journalctl -u apparmor | grep -i DENIED > /var/log/apparmor-denials.log
+  # echo "NOTE: If AppArmor denials are found, generate profiles with 'aa-genprof qemu-system-x86_64' and customize rules for /dev/dri/*, /dev/vfio/*, and /sys/bus/pci/* access."
+
+  # DO NOT ENFORCE YET — FSP is in COMPLAIN mode
+  # Denials will be logged to /var/log/apparmor-denials.log
+  # Note: Full AppArmor.d policy will be enforced in later Step 18 via 'just fsp-enforce
+  ```
+- Enable gamemoded
+  ```bash
+  # Enable GameMode
+  systemctl --user enable --now gamemoded
+
+  # Usage and Conflicts
+  echo "GameMode enabled. Use 'gamemoderun' prefix for performance uplift."
+  # Launch example for Steam:
+  # Launch Options: gamemoderun %command%
+
+  echo "ALERT: GameMode is not recommended alongside advanced schedulers like Ananicy-cpp. Ananicy-cpp is not used in the plan at the momment"
+  echo "Choose one: simple performance via GameMode, or complex system-wide tuning via Ananicy-cpp."
+  echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). See optional script example below if applicable."
+  ```
+- Performance optimization template (add to Steam/Lutris)
+  ```bash
+  LD_BIND_NOW=1 gamemoderun mangohud %command%
+
+  # Verify Gaming Settings
+  sysctl -a | grep vm.swappiness # (should be 10)
+  cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
+  DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
+  # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
+  # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
+  ```
 - (OPTIONAL - TEST) Install and configure `supergfxctl` for GPU switching:
   ```bash
-  # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP OPTIONAL ITEMS
+  # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP THIS OPTIONAL ITEM.
   paru -S supergfxctl
   # Enable the service FIRST (it will auto-generate a working default config)
   sudo systemctl enable --now supergfxd
@@ -2802,56 +2884,6 @@
   else
     echo "Signing hook already exists."
   fi
-  ```
-- Enable VRR for 4K OLED
-  ```bash
-  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
-
-  # Verify VRR is active:
-  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
-  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
-
-  # Verify VRR support on the eGPU:
-  DRI_PRIME=1 vdpauinfo | grep -i radeonsi #Confirms AMD driver
-
-  # If VRR fails, check dmesg for amdgpu errors:
-  dmesg | grep -i amdgpu
-
-  # Ensure 4K OLED is set to its maximum refresh rate and VRR range:
-  xrandr --output <output-name> --mode 3840x2160 --rate 120 #replace output name with HDMI-1 or DP-1 (check via 'xrandr')
-  # In Wayland, confirm VRR:
-  wlr-randr --output <output-name> #check refresh rate range
-
-  # Check AppArmor denials
-  journalctl -u apparmor | grep -i "supergfxctl\|qemu\|libvirtd"
-  # echo "NOTE: If AppArmor denials are found, generate profiles with 'aa-genprof supergfxctl' or 'aa-genprof qemu-system-x86_64' and customize rules for /dev/dri/*, /dev/vfio/*, and /sys/bus/pci/* access."
-
-  # Log denials to a file for review
-  journalctl -u apparmor | grep -i DENIED > /var/log/apparmor-denials.log
-
-  # DO NOT ENFORCE YET — FSP is in COMPLAIN mode
-  # Denials will be logged to /var/log/apparmor-denials.log
-  # Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
-  ```
-- Pacman hook for binary verification
-  ```bash
-  cat << 'EOF' > /etc/pacman.d/hooks/90-pacman-verify.hook
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = *
-  [Action]
-  Description = Verifying package file integrity
-  When = PostTransaction
-  Exec = /usr/bin/pacman -Qkk
-  EOF
-  chmod 644 /etc/pacman.d/hooks/90-pacman-verify.hook
-  ```
-- Enable gamemoded
-  ```bash
-  systemctl --user enable --now gamemoded
-  # Launch: gamemoderun %command% in Steam
   ```
 - Verify eGPU setup
   ```bash
@@ -3419,18 +3451,6 @@
   echo "run0 validation complete in chroot."
   echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
   ```
-- Gaming Launch Template (add to Steam/Lutris)
-  ```bash
-  export LD_BIND_NOW=1
-  gamemoderun mangohud %command%  # (Install GameMode below)
-
-  # Verify Gaming Settings
-  sysctl -a | grep vm.swappiness # (should be 10)
-  cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
-  DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
-  # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
-  # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
-  ```
 - Forcepad Issues
   ```bash
   # If touchpad is with issue try this kernel patch https://github.com/ty2/goodix-gt7868q-linux-driver
@@ -3983,21 +4003,41 @@
   ```
 - **k) Tunning Games**:
   ```bash
+  # Mangohud and Gamescope Alert
+  echo "ALERT: DO NOT USE Mangohud if you are using Gamescope. They conflict."
+  echo "Use Gamescope's built-in overlay functionality instead."
+
+  # Mangohud Configuration Tip
+  echo "TIP: Use the MANGOHUD_CONFIG environment variable for per-game HUD customization."
+  # Example: Shows FPS and CPU temperature in the top left
+  # Launch Options: MANGOHUD_CONFIG="position=top-left,cpu_temp,fps" gamemoderun %command%
+
+  # MangoHud Tips - Set template config via env for convenience (e.g., in ~/.bash_profile)
+  MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco %command%
+  # Toggle overlay: Default hotkey Shift+F1 (configurable)
+  # ALERT: Do not use traditional MangoHud with Gamescope—it's unsupported. Use Gamescope's --mangoapp flag instead (e.g., gamescope --mangoapp -f -- %command%).
+  # For FPS caps with VRR: Set to refresh_rate - 3 (e.g., 117 for 120Hz) to avoid VSync stutter.
+  # For AMD shaders: Add RADV_PERFTEST=aco for faster compilation (e.g., RADV_PERFTEST=aco gamemoderun %command%)
+
   # Steam/Lutris/Heroic add in launch options:
   gamemoderun %command%
-  # For Linux Native Games:
+
+  # Base Command (Recommended minimum for all games)
   gamemoderun mangohud %command%
+  
+  # Linux Native Games (Best performance, includes ACO compiler)
   # Best Performance / Lowest Latency (Competitive, requires manual vsync control)
   LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco %command%
 
   # Optimal Performance / Features (Recommended for Wayland/Freesync/VRR users)
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr --adaptive-sync -- %command%
+  LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 --fsr-sharpness 1 --adaptive-sync -- %command%
+  
   # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
-  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr -r 240 -- %command%
-  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 -F fsr -r 144 -- %command%
+  echo "# If issues with VRR, try fixed refresh rate ('-r 144' instead of '--adaptive-sync'):"
+  echo "# LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 144 -- %command%"
 
-  # Tune games individually using the application "Scopebuddy"
+  # Tune games individually using the application "Scopebuddy" (GUI for Gamescope settings)
 
   # GameMode pacman hook
   sudo tee /etc/pacman.d/hooks/91-gaming-sign.hook <<'EOF'
@@ -4022,9 +4062,11 @@
   
   # Environment variables (add to ~/.zshrc for system-wide effect):
   cat >> ~/.zshrc <<'EOF'
+  # Environment variables (add to ~/.zshrc for system-wide effect):
+  cat >> ~/.zshrc <<'EOF'
   # Gaming Env Vars (comment out if issues)
   # export RADV_FORCE_VRS=1  # VRS perf boost (toggle per-game if glitches)
-  export MANGOHUD=1  # Always-on HUD (disable per-game if needed)
+  # export MANGOHUD=1        # Always-on HUD (Setting this globally is NOT recommended due to conflicts)
   EOF
 
   # Reload shell
@@ -4069,10 +4111,14 @@
   # Re-generate the UKI
   sudo mkinitcpio -P
   ```
-- **n) Final Reboot & Lock**:
+- **n) Binary verification**:
   ```bash
-  mkinitcpio -P
-  
+  # This is a manual verification. Do not create a hook to run this because it degrades performance.
+  sudo pacman -Qkk | grep -i 'mismatch\|warning' # Only prints explicit errors
+  # Explote adding this as event refreshing daily an widget in the Astal/AGS step 19
+  ```
+- **o) Final Reboot & Lock**:
+  ```bash
   # Sign only unsigned EFI binaries
   sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
 
