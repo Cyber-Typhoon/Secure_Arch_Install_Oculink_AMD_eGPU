@@ -289,6 +289,14 @@
     - **@var**, @var_lib, @log**: Disables Copy-on-Write (`nodatacow`, `noatime`) for performance on frequently written data.
     - **@swap**: Ensures swapfile compatibility with hibernation (`nodatacow`, `noatime`).
     - **@srv, @data**: Provides flexible storage with compression (`zstd:3`) for server or user data.
+  - Set a qgroup limit (e.g., 100GB) on the @snapshots subvolume
+    ```bash
+    btrfs quota enable /mnt
+    btrfs qgroup create 0/1 /mnt/.snapshots        # 0/1 is an arbitrary but safe ID
+    btrfs qgroup limit 100G 0/1 /mnt/.snapshots
+    # Optional: make it permanent in fstab so it survives reinstalls
+    echo "qgroup 0/1 limit 50G /.snapshots" >> /mnt/etc/fstab
+    ```
 - **e) Configure Swap File**:
   - Create a swap file on the `@swap` subvolume:
     ```bash
@@ -351,7 +359,7 @@
   - **Edit ESP (/boot) Entry**:
     - Add `umask=0077` for security:
       ```bash
-      UUID=$ARCH_ESP_UUID /boot vfat umask=0077 0 2
+      UUID=$ARCH_ESP_UUID /boot vfat defaults,noatime,umask=0077,dmask=0077,fmask=0077 0 2
       ```
   - **Edit Windows ESP Entry**:
     - Use `noauto` and `x-systemd.automount` for manual mounting:
@@ -426,7 +434,7 @@
   \
   # Graphics
   mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-iced-loader lib32-vulkab-icd-loader \
-  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader intel-gpu-tools lact \
+  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo intel-gpu-tools lact \
   \
   # Audio
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
@@ -509,9 +517,10 @@
   pacman-key --init
   pacman-key --populate archlinux
   ```
-- Add the `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
+- Add the `xe` ánd `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
   ```bash
-  echo 'MODULES=(i915)' >> /etc/mkinitcpio.conf
+  # Load 'xe' first. 'i915' is kept as a fallback but likely won't bind to the iGPU if xe claims it.
+  echo 'MODULES=(xe i915)' >> /etc/mkinitcpio.conf
   mkinitcpio -P
   ```
 
@@ -743,20 +752,20 @@
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf,realloc iommu.passthrough=0 iommu.strict=1 \
-  hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always \
-  mitigations=auto \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 \
+  hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always mitigations=auto \
   slab_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
-  amdgpu.dc=1 amdgpu.dpm=1 intel_idle.max_cstate=2 \
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
+  # Remove any i915.* parameters. You generally do not need xe.force_probe on Arch Linux kernels (6.12+) as Meteor Lake is now stable, but if the GPU isn't detected, you can add xe.force_probe=8086:7d55
   # If when we start using the laptop we experience random freezes add i915.enable_dc=0, test if resolves, if not update intel_idle.max_cstate=1. Source: https://wiki.archlinux.org/title/Intel_graphics#Crash/freeze_on_low_power_Intel_CPUs
   # i915.enable_psr=0 → prevents random black screens on Meteor Lake OLED panels
   # pcie_bus_perf,realloc=1 → required for stable >200 W power delivery over OCuLink
   # processor.max_cstate=1 intel_idle.max_cstate=1 → stops random freezes when eGPU is plugged
   # add this after iommu,strict=1 in case AMD eGPU has some issues amdgpu.dcdebugmask=0x4 amdgpu.gpu_recovery=1 amdgpu.noretry=0 \
+  # consider adding intel_iommu=igfx_off if you run into problems using the Xe iGPU for display and the AMD eGPU for rendering
 
   # LTS preset (atomic copy, just rename the UKI)
   sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
@@ -779,10 +788,24 @@
   EOF
   echo "Configured Plymouth for immediate display (ShowDelay=0) and HiDPI (DeviceScale=2)."
 
+  # Kernel Hardening: Blacklist Unused Modules
+  # Hardware-specific check:
+  lsmod | grep -E 'firewire|pcspkr|cramfs|hfs|btusb'
+  # Create a configuration file
+  micro /etc/modprobe.d/99-local-blacklist.conf
+  # Prevents firewire core and all dependent modules from loading
+  install firewire-core /bin/true
+  # Prevents the PC speaker module (for system beep)
+  install pcspkr /bin/true
+  # Blacklist legacy filesystems if not needed
+  install cramfs /bin/true
+  install hfs /bin/true
+  install hfsplus /bin/true 
+
   # Generate UKI
   # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
   mkinitcpio -P
-  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi"
+  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi" 
 
   # Install `systemd-boot`:
   # Creates /boot/loader/, installs systemd-bootx64.efi.
@@ -823,6 +846,7 @@
   Operation = Upgrade
   Type = Package
   Target = linux*
+  Target = linux-firmware
   Target = systemd
   Target = mkinitcpio
   Target = plymouth
@@ -832,13 +856,6 @@
   When = PostTransaction
   Exec = /usr/bin/bash -c 'mkinitcpio -P; bootctl update && sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI /boot/EFI/Linux/arch*.efi 2>/dev/null || true'
   EOF
-
-  # Note: Although fstab uses umask=0077, these steps ensure the permissions are tight immediately.
-  # Set ownership to root:root recursively
-  chown -R root:root /boot
-  # Set permissions: 700 (owner only can read/write/execute) recursively
-  chmod -R 700 /boot
-  echo "Secured /boot directory permissions (700)."
 
   # Verification Checks
   grep HOOKS /etc/mkinitcpio.conf
@@ -1288,76 +1305,46 @@
   # Update linker cache (Requires Sudo)
   sudo ldconfig
   ```
-- Sign the Astal, AGS, fwupd, arch-audit and run0-sudo-shim
+- Sign the fwupd and run0-sudo-shim
   ```bash
-  # Verify binaries exist before signing
-  # Note: Astal is libs only (no binary); AGS installs /usr/bin/ags
-  [[ -f /usr/bin/ags ]] || { echo "ERROR: ags binary not found!"; exit 1; }
-  [[ -f /usr/bin/arch-audit ]] || { echo "ERROR: arch-audit binary not found!"; exit 1; }
-  [[ -f /usr/bin/sudo ]] || { echo "ERROR: run0-sudo-shim (sudo) binary not found!"; exit 1; }
-  
-  # Sign AGS for Secure Boot once
-  sudo sbctl sign -s /usr/bin/ags 2>/dev/null || true
+  # Sign fwupd EFI binary for Secure Boot (once; hook handles updates)
+  if [[ -f /usr/lib/fwupd/efi/fwupdx64.efi ]]; then
+    sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
+    echo "fwupd EFI signed for Secure Boot"
+  else
+    echo "WARNING: fwupd EFI binary not found – install fwupd first"
+  fi
 
-  # Sign run0-sudo-shim for sudo replacement
-  sudo sbctl sign -s /usr/bin/sudo
-  echo "run0-sudo-shim installed and signed"
-
-  # Sign fwupd for Secure Boot once
-  sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi 2>/dev/null || true
-
-  # Sign arch-audit for Secure Boot
-  sudo sbctl sign -s /usr/bin/arch-audit 2>/dev/null || true
-  
-  # Append AGS/Astal, fwupd and arch-audit to existing 90-uki-sign.hook
-  if ! grep -q "Target = aylurs-gtk-shell-git" /etc/pacman.d/hooks/90-uki-sign.hook; then
-  # Ensure kernel target exists (critical for UKI signing)
+  # Append fwupd trigger to existing 90-uki-sign.hook (ensure kernel targets)
   if ! grep -q "Target = linux" /etc/pacman.d/hooks/90-uki-sign.hook; then
     sed -i '/\[Trigger\]/a Target = linux\nTarget = linux-lts' /etc/pacman.d/hooks/90-uki-sign.hook || \
     echo -e "\nTarget = linux\nTarget = linux-lts" | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
   fi
-  cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
-
+  if ! grep -q "Target = fwupd" /etc/pacman.d/hooks/90-uki-sign.hook; then
+    cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
-  Target = libastal-meta
-  Target = aylurs-gtk-shell-git
   Target = fwupd
-  Target = arch-audit
-
   [Action]
-  Description = Sign AGS/Astal, fwupd and arch-audit libs for Secure Boot with sbctl
+  Description = Sign fwupd EFI for Secure Boot
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/ags /usr/lib/fwupd/efi/fwupdx64.efi /usr/bin/arch-audit
+  Exec = /usr/bin/sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi
   Depends = sbctl
   EOF
   fi
-  
-  # Test the hook after installation:
-  sudo sbctl verify /usr/bin/ags  #Should show "signed"
 
-  # Auto-re-sign hook for run0-sudo-shim
-  sudo tee /etc/pacman.d/hooks/90-run0-shim-sign.hook <<'EOF'
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = run0-sudo-shim-git
+  # Test fwupd signing
+  sudo sbctl verify /usr/lib/fwupd/efi/fwupdx64.efi  # Should show "signed"
 
-  [Action]
-  Description = Sign the sudo shim for Secure Boot
-  When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/sudo
-  Depends = sbctl
-  EOF
-
-  # Test the run0-sudo-shim
-  sudo -v && echo "polkit cache OK"
-  sudo sbctl verify /usr/bin/arch-audit && echo "Arch-audit Secure Boot OK" # <-- Added this check
-  sudo sbctl verify /usr/bin/sudo && echo "Secure Boot OK"
-  type sudo && echo "shim is in place"
+  # For run0-sudo-shim: No Secure Boot signing needed (userspace ELF)
+  if command -v sudo >/dev/null 2>&1 && [[ "$(sudo --version 2>/dev/null | head -n1)" == *"run0-sudo-shim"* ]]; then
+  echo "run0-sudo-shim is in place"
+  sudo -v && echo "polkit cache OK (15-min reuse for run0)"
+  else
+  echo "ERROR: run0-sudo-shim not installed – install via paru -S run0-sudo-shim-git"
+  fi
   ```
 - Configure GDM for Wayland:
   ```bash
@@ -1550,43 +1537,6 @@
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
   echo 'options i915 enable_fbc=1' >> /etc/modprobe.d/i915.conf
   ```
-- Lenovo Battery Conservation Mode (60% Limit)
-  ```bash
-  echo "Setting up Lenovo Battery Conservation Mode..."
-
-  # Load module (idempotent)
-  sudo modprobe ideapad_laptop 2>/dev/null || echo "Module not available (non-Lenovo?)"
-
-  # Find sysfs path (robust: handles VPC2004:00, VPC2006:00, etc.)
-  CONSERVATION_PATH=$(find /sys/bus/platform/drivers/ideapad_acpi -name conservation_mode 2>/dev/null | head -n1)
-
-  if [[ -n "$CONSERVATION_PATH" ]]; then
-  # Enable by default (persists across reboots)
-    echo 1 | sudo tee "$CONSERVATION_PATH" > /dev/null
-    echo "Conservation Mode ENABLED (stops at ~60%; path: $CONSERVATION_PATH)"
-
-    # Install GNOME extension for GUI toggle
-    paru -S --noconfirm gnome-shell-extension-ideapad
-    echo "GNOME extension installed — enable in Extensions app (extensions.gnome.org/local)"
-
-    # Passwordless sudo for extension (wheel group; run0-shim compatible)
-    sudo tee /etc/sudoers.d/ideapad-conservation > /dev/null << 'EOF'
-    # Allow wheel users to toggle battery conservation without password
-    %wheel ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
-  EOF
-    sudo chmod 440 /etc/sudoers.d/ideapad-conservation
-    echo "Passwordless sudo enabled for extension"
-
-    # Quick status
-    echo "Current status: $(cat "$CONSERVATION_PATH")"
-  else
-    echo "WARNING: Conservation mode not supported (no sysfs path found)."
-  fi
-  # If we experience issues where laptop resets when suspending with lid close create a modprobe configuration file to blacklist the module:
-  # echo "blacklist ideapad_laptop" | sudo tee /etc/modprobe.d/ideapad_suspend_fix.conf
-  # sudo mkinitcpio -P
-  # This will turn off the option to use power conservation mode and in this case set limits in the TLP in Step 12
-  ```
 - Default deny incoming network via firewall (ufw):
   ```bash
   # Disables the SSH daemon and stops it immediately, removing the risk
@@ -1615,10 +1565,11 @@
   SDL_VIDEODRIVER=wayland
   ELECTRON_OZONE_PLATFORM_HINT=auto
   XDG_SESSION_TYPE=wayland
+  # For Proton: PROTON_USE_WINED3D=1 env if DX12 issues.
 
   # PATH HARDENING (SYSTEM-WIDE ONLY)
+  # # Avoid global PATH overrides to prevent breaking admin tools.
   # User paths ($HOME/.local/bin) added in ~/.zshrc
-  PATH=/usr/local/bin:/usr/bin:/bin
   EOF
   #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
   LIBVA_DRIVER_NAME=radeonsi
@@ -1724,9 +1675,6 @@
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/run0 -k sudo_usage
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/pkexec -k pkexec_usage
 
-  ## Full command line logging (64-bit only – this is the money rule)
-  -a always,exit -F arch=b64 -S execve -k all_execs
-
   ## Time changes (very useful for forensics)
   -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time_change
   -w /etc/localtime -p wa -k time_change
@@ -1741,6 +1689,25 @@
 
   # Check for syntax errors
   sudo auditctl -l | grep -i error && echo "ERROR" || echo "Rules OK"
+
+  # Remove old logs
+  cat << 'EOF' | sudo tee /etc/logrotate.d/audit
+  /var/log/audit/audit.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+    postrotate
+        /usr/bin/systemctl kill -s HUP auditd.service >/dev/null 2>&1 || true
+    endscript
+  }
+  EOF
+
+  # Validate the logs remotions
+  sudo augenrules --check
 
   # Make it survive reboot
   sudo systemctl enable --now auditd
@@ -1764,7 +1731,7 @@
   # Create Optimized Config
   cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml
   # Server List: Privacy + Blocking focused
-  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock']
+  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock', 'cloudflare']
 
   # Listen Addresses
   listen_addresses = ['127.0.0.1:53', '[::1]:53']
@@ -1895,12 +1862,19 @@
   [Unit]
   Description=Run Lynis audit
   After=network-online.target
+  ConditionVirtualization=!container
 
   [Service]
   Type=oneshot
   User=root
   # Run the audit with the official --cronjob flag and skip for consistency
-  ExecStart=/usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139 
+  # REMOVED: ExecStart=/usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139
+  ExecStart=/usr/bin/lynis audit system --quick --warnings --deeppen --auditor "Automated Audit" --logfile /var/log/lynis/lynis.log --report-file /var/log/lynis/lynis-report.dat --skip-test SSH-7408,BOOT-5122,BOOT-5139
+  StandardOutput=journal
+  StandardError=journal
+  ProtectSystem=full
+  ProtectHome=true
+  PrivateTmp=true
   # Save the human-readable report summary (MUST run first)
   ExecStartPost=/usr/bin/lynis show warnings >> /var/log/lynis/lynis-report-$(date +%F).txt
   ExecStartPost=/usr/bin/lynis show suggestions >> /var/log/lynis/lynis-report-$(date +%F).txt
@@ -1963,6 +1937,12 @@
   /usr/sbin SecGroup
   /usr/lib SecGroup
   /var/lib SecGroup  # For pacman db, but exclude /var/lib/aide (self-db)
+
+  # Excludes for volatile subdirs
+  !/var/lib/flatpak
+  !/var/lib/systemd/coredump  # If using systemd-coredump
+  !/var/lib/docker  # If Docker installed later
+  !/var/lib/pacman/sync  # Pacman DB sync files change often
 
   /etc/apparmor.d SecGroup  # AppArmor profiles
   /etc/systemd SecGroup     # Systemd configs (e.g., hardening)
@@ -2063,14 +2043,12 @@
   ProtectHostname=yes
   LockPersonality=yes
   RestrictRealtime=yes
-  RestrictNamespaces=yes
   PrivateDevices=yes
   PrivateUsers=yes
   RemoveIPC=yes
   MemoryDenyWriteExecute=yes
   RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
   SystemCallArchitectures=native
-  RestrictNamespaces=~ipc mnt pid user uts cgroup
   UMask=0077
   # REMOVED: PrivateTmp=yes ["Ghost" issues. Applications might fail to launch, audio might glitch, or inter-app features (like drag-and-drop or clipboard sharing between sandboxed apps) might fail silently.]
   # REMOVED: ProtectHome=read-only (Breaks Backups)
@@ -2332,6 +2310,12 @@
   # TLP sometimes ships its own zram module on older distros
   sudo systemctl disable --now tlp-zram.service 2>/dev/null || true
 
+  # Broader cleanup
+  for unit in $(systemctl list-unit-files --plain | grep -i zram | awk '{print $1}'); do
+    sudo systemctl disable --now "$unit" 2>/dev/null || true
+    sudo systemctl mask "$unit" 2>/dev/null || true
+  done
+
   # Now enable the modern generator-based one
   systemctl enable --now systemd-zram-setup@zram0.service 
   ```
@@ -2382,6 +2366,28 @@
   # Verify
   systemctl status opensnitchd.service
   journalctl -u opensnitchd.service -f # Tail logs for connection attempts
+
+  # Will annoy you the first 30–60 min until you allow Firefox, Steam, Signal, etc. But that is the point. Just keep the GUI open the first day.
+  ```
+- Binary Hardening: Replace Setuid with Capabilities
+  ```bash
+  # Find all setuid binaries on your system to create a baseline for review:
+  find / -type f -perm /4000 2>/dev/null > /root/setuid-binaries.list
+  cat /root/setuid-binaries.list
+
+  # Review the list, focusing on common targets like /usr/bin/ping and /usr/bin/mount.
+  # For most modern systems, the most common candidate for this hardening is ping, which requires elevated privileges only to create a raw socket.
+  # Remove the setuid bit from the ping binary:
+  sudo chmod u-s /usr/bin/ping
+  # Verify the 's' is gone:
+  ls -l /usr/bin/ping
+
+  # Apply the minimal required capability (CAP_NET_RAW):
+  # Set the capability: 'p' means Permitted set
+  sudo setcap cap_net_raw+p /usr/bin/ping
+  # Verify the capability is set:
+  getcap /usr/bin/ping
+  # Test: The ping command should still function for unprivileged users. Repeat this process for any other minimal-privilege setuid binaries you identify.
   ```
 - Enable FSP in COMPLAIN mode
   ```bash
@@ -2424,68 +2430,327 @@
 
 - Install AMD drivers and microcode:
   ```bash
-  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip libva-vdpau-driver
+  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip
   ```
-- Configure early KMS
+- amdgpu Module configuration and early KMS
   ```bash
-  echo 'MODULES=(i915 amdgpu)' >> /etc/mkinitcpio.conf
-  mkinitcpio -P
-  # if encounter PCIe bandwidth issues, set the correct "pcie_gen_cap" as a kernel parameter. Example: options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1. Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
-  lspci -vv | grep -i "LnkSta.*Speed.*Width"  # Should show "Speed 16GT/s, Width x4"
-  if ! lspci -vv | grep -i "LnkSta" | grep -q "Speed 16GT/s, Width x4"; then
-    echo 'options amdgpu pcie_gen_cap=0x4' >> /etc/modprobe.d/amdgpu.conf
-    echo "NOTE: If issues persist, add to /boot/loader/entries/arch.conf: 'amdgpu.pcie_gen_cap=0x4 pcie_ports=native pciehp.pciehp_force=1'"
-    mkinitcpio -P
-  fi
-  ```
-- Set AMD power management options
-  ```bash
-  echo 'options amdgpu ppfeaturemask=0xffffffff' >> /etc/modprobe.d/amdgpu.conf
+  # === AMD eGPU: Full recommended amdgpu module configuration ===
+  sudo tee /etc/modprobe.d/amdgpu.conf <<'EOF'
+  # Enable ALL PowerPlay features (fan curves, overclocking, power limits, zero-RPM, etc.)
+  options amdgpu ppfeaturemask=0xffffffff
+
+  # Force PCIe Gen4 max capability (most Thunderbolt 4/5 enclosures are Gen4 x4)
+  # 0x80000 = advertise Gen4 support up to Gen4, driver will negotiate down if needed
+  options amdgpu pcie_gen_cap=0x80000
+
+  # (OPTIONAL - START WITHOUT) Better hot-plug handling on Thunderbolt/USB4 (fixes black screen on plug-in for many)
+  # options amdgpu dcdebugmask=0x4
+
+  # (OPTIONAL - START WITHOUT) Recommended for stability with most eGPU enclosures
+  # options amdgpu vm_update_mode=3
+
+  # Optional: enable RAS (error correction/reporting) on RDNA2/RDNA3 — harmless if unsupported
+  options amdgpu ras_enable=1
+  EOF
+
+  # === Early KMS: load xe (iGPU), i915 (fallback), and amdgpu at boot ===
+  sudo sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
+  echo 'MODULES=(xe i915 amdgpu)' | sudo tee -a /etc/mkinitcpio.conf
+
+  # Regenerate initramfs so everything loads early (critical for eGPU at login screen)
+  sudo mkinitcpio -P
+
+  # Optional but very useful: add these kernel parameters
+  # Especially important if you still don’t get full 16 GT/s ×4 after the above
+  # Example line to add to your bootloader entry:
+  # options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x80000 pcie_ports=native pciehp.pciehp_force=1.
+  # Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x80000' | sudo tee -a /etc/modprobe.d/amdgpu.conf
   ```
 - Sign kernel modules for Secure Boot
   ```bash
   sbctl sign --all
   find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
+  reboot
+
+  # After Reboot
+  # Validate AMD GPU once connected (Should output "AMD Radeon ...")
+  DRI_PRIME=1 glxinfo | grep renderer
+
+  # After setup, verify with (should show "Speed 16GT/s (ok), Width x4"). If stuck at lower, tweak pcie_gen_cap to 0x40000
+  lspci -vv -s $(lspci | awk '/VGA.*AMD/{print $1}') | grep LnkSta
   ```
-- Install and configure `supergfxctl` for GPU switching:
+- Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
   ```bash
-  paru -S supergfxctl
-  cat << 'EOF' > /etc/supergfxd.conf
-  "mode": "Hybrid",
-  "vfio_enable": true,
-  "vfio_save": false,
-  "always_reboot": false,
-  "no_logind": true,
-  "logout_timeout_s": 180,
-  "hotplug_type": "Std" # Use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
+  # === AUTOMATION: Performance Profile Switching (AC vs. Battery) ===
+
+  # Create the shell script to toggle the performance mode (run as root by udev)
+  sudo tee /usr/local/bin/thinklmi-power-switcher << 'EOF'
+  #!/bin/bash
+
+  # Without this, fast AC plug/unplug storms can run the script multiple times
+  LOCKFILE="/var/run/thinklmi-switcher.lock"
+  # Simple flock to prevent overlapping runs
+  exec 200>"$LOCKFILE"
+  flock -n 200 || exit 0
+
+  # Path to the ThinkLMI file
+  PERF_MODE_PATH="/sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value"
+
+  # Check if the path exists (ensure kernel module is loaded)
+  if [ ! -f "$PERF_MODE_PATH" ]; then
+    echo "ThinkLMI performance_mode path not found: $PERF_MODE_PATH" >&2
+    exit 1
+  fi
+
+  case "$1" in
+    ac)
+        # Max performance (Geek Mode) when plugged in (docked)
+        echo "Setting ThinkLMI to extreme_performance (AC Power)"
+        echo "extreme_performance" > "$PERF_MODE_PATH"
+        ;;
+    battery)
+        # Quiet Mode for maximum battery life when unplugged
+        echo "Setting ThinkLMI to quiet_mode (Battery Power)"
+        echo "quiet_mode" > "$PERF_MODE_PATH"
+        ;;
+    *)
+        echo "Usage: $0 {ac|battery}" >&2
+        exit 1
+        ;;
+  esac
   EOF
-  systemctl enable --now supergfxd
-  # If probe error -22: Try kernel param 'amdgpu.noretry=0' in /etc/mkinitcpio.d/linux.preset, then mkinitcpio -P
-  supergfxctl -m Integrated  # Fallback to iGPU if eGPU fails
-  sbctl sign -s /usr/bin/supergfxctl
-  sbctl sign -s /usr/lib/supergfxctl/supergfxd
-  ```
-- Install supergfxctl-gex for GUI switching (do NOT run as root or sudo)
-  ```bash
-  pacman -S --needed gnome-shell-extension
-  gnome-extensions enable supergfxctl-gex@asus-linux.org
-  echo "NOTE: supergfxctl-gex provides a GUI for GPU switching in GNOME."
+
+  # Make the script executable
+  sudo chmod +x /usr/local/bin/thinklmi-power-switcher
+
+  # Create the udev rule to trigger the script on AC status change
+  sudo tee /etc/udev/rules.d/99-thinklmi-power.rules << 'EOF'
+  # When AC adapter status changes to 'online' (1)
+  SUBSYSTEM=="power_supply", ATTR{online}=="1", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher ac"
+
+  # When AC adapter status changes to 'offline' (0)
+  SUBSYSTEM=="power_supply", ATTR{online}=="0", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher battery"
+  EOF
+
+  # Reload udev rules to make the change active immediately
+  sudo udevadm control --reload-rules
+
+  # Execute the script once to set the initial state (based on current power status)
+  # This will find the current power state and apply the corresponding profile.
+  if [ "$(cat /sys/class/power_supply/AC*/online 2>/dev/null | head -1)" = "1" ]; then
+    sudo /usr/local/bin/thinklmi-power-switcher ac
+  else
+    sudo /usr/local/bin/thinklmi-power-switcher battery
+  fi
+
+  # === Configure TLP for auto-switching and eGPU compatibility ===
+  
+  # Create the proper drop-in directory (once)
+  sudo mkdir -p /etc/tlp.d
+
+  # Write your custom overrides safely (this will never be overwritten by pacman updates)
+  sudo tee /etc/tlp.d/99-thinkbook-egpu.conf << 'EOF'
+  # === GPU: Prevent TLP from touching runtime PM (critical for OCuLink eGPU hotplug) ===
+  RUNTIME_PM_BLACKLIST="amdgpu xe"     # xe = Intel Arc iGPU (Core Ultra), amdgpu = eGPU
+
+  # === Maximum performance on AC (mimics Lenovo Vantage "Extreme Performance") ===
+  CPU_SCALING_GOVERNOR_ON_AC=performance
+  CPU_ENERGY_PERF_POLICY_ON_AC=performance
+
+  # Quieter/Slower on Battery (Consistent with ThinkLMI 'quiet_mode')
+  CPU_SCALING_GOVERNOR_ON_BAT=powersave
+  CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power
+
+  # === Do not fight with Lenovo's native battery charge control ===
+  # (TLP has ignored vendor-specific thresholds by default since 2023, but being explicit is fine)
+  START_CHARGE_THRESH_BAT0=""
+  STOP_CHARGE_THRESH_BAT0=""
+  
+  EOF
+
+  # Apply
+  sudo systemctl restart tlp
+
+  # === Performance Mode: Auto-Switching via UDEV ===
+
+  # LIST available modes on your specific hardware (e.g., quiet_mode, balanced, extreme_performance)
+  echo "Available Lenovo Power Modes:"
+  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/valid_values
+
+  # If want to set manually one time the "Extreme Performance" profile
+  # This is the Linux equivalent of Lenovo Vantage's "Geek Power Mode"
+  # echo extreme_performance | sudo tee /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
+
+  # VERIFY the change
+  echo "Current Active Mode:"
+  tlp-stat -s            # Should show "performance" governor
+  tlp-stat -p            # PL1/PL2 should be high (60–120 W depending on cooling)
+  tlp-stat -g            # Confirm runtime PM blacklist applied
+  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
+
+  # Manual Option in case don't want to automate with UDEV
+  # Manual GUI button to toggle the mode on demand, create a desktop entry or a simple custom GNOME extension that runs the following commands:
+  # Extreme Performance:
+  # pkexec /bin/sh -c 'echo extreme_performance > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
+  # Quiet Mode:
+  # pkexec /bin/sh -c 'echo quiet_mode > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
   ```
 - Install switcheroo-control for GPU integration
   ```bash
   pacman -S --needed switcheroo-control
   systemctl enable --now switcheroo-control
   ```
-- Install bolt for OCuLink/Thunderbolt management
+- Configure systemd-logind for reliable GPU switching
+  ```bash
+  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
+  systemctl restart systemd-logind
+  ```
+- Install bolt for Thunderbolt 4 management (OCuLink usually bypasses this)
   ```bash
   pacman -S --needed bolt
   systemctl enable --now bolt
+  # Configure auto-connection for Thunderbolt devices
+  # (Note: OCuLink typically appears as raw PCIe and doesn't use bolt/Thunderbolt security)
+  sudo mkdir -p /etc/boltd
   echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
-  boltctl list | grep -i oculink && boltctl authorize <uuid> # Replace with OCuLink device UUID
+  
+  # Check for devices (Use this only if connecting via USB4/TB4 port)
+  boltctl list
+
+  # If a device shows as 'unauthorized', copy its UUID:
+  # grep -i oculink
+  # boltctl authorize <uuid>
   ```
-- Enable PCIe hotplug
+- Enable VRR for 4K OLED
   ```bash
-  echo "pciehp" | sudo tee /etc/modules-load.d/pciehp.conf
+  # === Enable VRR in GNOME Mutter (Wayland) ===
+  # Enable Variable Refresh Rate support
+  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
+
+  # NOTE: Actual VRR range configuration is handled via GNOME Control Center
+  # (Settings -> Displays) after this flag is enabled.
+
+  # === Verify PRIME Offload (iGPU vs. eGPU) ===
+  echo "--- OpenGL (glxinfo) Verification ---"
+  # Verify iGPU (Intel Arc) is the default:
+  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
+  # Verify eGPU (AMD) is selected for offload:
+  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
+  
+  echo "--- Vulkan (vulkaninfo) Verification ---"
+  # Vulkan is the modern standard; ensure it sees the eGPU
+  # Install 'vulkan-tools' package if 'vulkaninfo' is not found.
+  # Output should list your AMD eGPU (e.g., 'AMD Radeon RX 7900 XT')
+  # Verify VRR support on the eGPU:
+  DRI_PRIME=1 vulkaninfo | grep "deviceName"
+
+  # Check video decode capabilities
+  echo "--- Video Acceleration Check (VDPau/Radeonsi) ---"
+  DRI_PRIME=1 vdpauinfo | grep -i radeonsi 
+
+  # If VRR fails, check dmesg for amdgpu errors:
+  dmesg | grep -i amdgpu
+
+  # === Confirm Display Settings (Wayland) ===
+  # The following is a Wayland-native check tool (wlr-randr) often useful,
+  # but configuration must be done in GNOME Control Center for Mutter.
+  echo "--- Wayland Refresh Rate Check ---"
+  # Check if wlr-randr is available and confirm refresh rate range:
+  if command -v wlr-randr &> /dev/null; then
+    wlr-randr
+  else
+    echo "wlr-randr not found. Check display settings in GNOME Control Center."
+  fi
+  # Ensure 4K OLED is set to its maximum refresh rate and VRR range in the GUI:
+  # Launch 'gnome-control-center' (Settings) -> Displays -> Resolution/Refresh Rate
+  # Set the desired resolution and confirm the refresh rate (e.g., 120Hz) is available.
+
+  # === Check AppArmor Denials (Crucial for VFIO/Passthrough) ===
+  echo "--- AppArmor Denial Checks ---"
+  # Check AppArmor denials specifically related to systems that touch PCI/GPU resources
+  journalctl -u apparmor | grep -i "supergfxctl\|qemu\|libvirtd\|amdgpu"
+  
+  # Log denials to a file for review
+  journalctl -u apparmor | grep -i DENIED > /var/log/apparmor-denials.log
+  # echo "NOTE: If AppArmor denials are found, generate profiles with 'aa-genprof qemu-system-x86_64' and customize rules for /dev/dri/*, /dev/vfio/*, and /sys/bus/pci/* access."
+
+  # DO NOT ENFORCE YET — FSP is in COMPLAIN mode
+  # Denials will be logged to /var/log/apparmor-denials.log
+  # Note: Full AppArmor.d policy will be enforced in later Step 18 via 'just fsp-enforce
+  ```
+- Enable gamemoded
+  ```bash
+  # Enable GameMode
+  systemctl --user enable --now gamemoded
+
+  # Usage and Conflicts
+  echo "GameMode enabled. Use 'gamemoderun' prefix for performance uplift."
+  # Launch example for Steam:
+  # Launch Options: gamemoderun %command%
+
+  echo "ALERT: GameMode is not recommended alongside advanced schedulers like Ananicy-cpp. Ananicy-cpp is not used in the plan at the momment"
+  echo "Choose one: simple performance via GameMode, or complex system-wide tuning via Ananicy-cpp."
+  echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). See optional script example below if applicable."
+  ```
+- Performance optimization template (add to Steam/Lutris)
+  ```bash
+  LD_BIND_NOW=1 gamemoderun mangohud %command%
+
+  # Verify Gaming Settings
+  sysctl -a | grep vm.swappiness # (should be 10)
+  cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
+  DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
+  # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
+  # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
+  ```
+- (OPTIONAL - TEST) Install and configure `supergfxctl` for GPU switching:
+  ```bash
+  # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP THIS OPTIONAL ITEM.
+  paru -S supergfxctl
+  # Enable the service FIRST (it will auto-generate a working default config)
+  sudo systemctl enable --now supergfxd
+  # Override only the options we need
+  sudo mkdir -p /etc/supergfxd.conf.d
+  sudo tee /etc/supergfxd.conf.d/99-egpu.conf <<'EOF'
+  {
+  "mode": "Hybrid",
+  "vfio_enable": false,  # CRITICAL: Must be false for AMD eGPU Hybrid mode
+  "vfio_save": false,
+  "always_reboot": false,
+  "no_logind": false,
+  "logout_timeout_s": 180,
+  "hotplug_type": "Std"  # Standard hotplug works well for OCuLink/TB4/5
+  }
+  EOF
+
+  # Install the profile script for desktop environment compatibility (Wayland/Gnome)
+  sudo supergfxctl --install-profile-script
+
+  # Fallback to iGPU if eGPU fails
+  supergfxctl -m Integrated  
+
+  # Secure Boot signing for the binaries
+  # Note: sbctl can sign multiple files in one call.
+  sbctl sign -s /usr/bin/supergfxctl /usr/lib/supergfxd
+
+  # Reboot to apply all changes (KMS, modprobe, and supergfxd)
+  sudo reboot
+
+  # If probe error -22: Try kernel param 'amdgpu.noretry=0' in /etc/mkinitcpio.d/linux.preset, then mkinitcpio -P
+  # hotplug_type use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
+  ```
+- (OPTIONAL - TEST) Install supergfxctl-gex for GUI switching
+  ```bash
+  # GUI Installation of supergfxctl-gex
+  echo "NOTE: supergfxctl-gex is installed via the GNOME Extensions website, not the AUR."
+  # GUI installation
+  echo "--------------------------------------------------------------------------------"
+  echo "MANUAL STEP REQUIRED:"
+  echo "1. Log into your GNOME desktop session."
+  echo "2. Open your web browser and navigate to: https://extensions.gnome.org/extension/5344/supergfxctl-gex/"
+  echo "3. Toggle the switch to 'ON' to install and enable the extension."
+  echo "4. After installation, log out and log back in (or press Alt+F2, then 'r', then Enter) to see the GUI icon."
+  echo "--------------------------------------------------------------------------------"
   ```
 - (DEPRECATED - Fallback Only) Create a udev rule for eGPU hotplug support:
   ```bash
@@ -2495,35 +2760,6 @@
   SUBSYSTEM=="pci", ACTION=="add", ATTRS{vendor}=="0x1002", RUN+="/usr/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
   EOF
   udevadm control --reload-rules && udevadm trigger
-  ```
-- Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
-  ```bash
-  sudo tee -a /etc/tlp.conf > /dev/null << 'EOF'
-  RUNTIME_PM_DRIVER_BLACKLIST="amdgpu i915" # This exclude amdgpu and i915 from TLP's runtime power management to avoid conflicts with supergfxctl
-  CPU_ENERGY_PERF_POLICY_ON_AC=performance
-  CPU_MAX_PERF_ON_AC=100
-  CPU_MIN_PERF_ON_AC=50
-  CPU_SCALING_GOVERNOR_ON_AC=performance
-  # Battery Conservation. Disable TLP's native battery care to prevent conflicts with the GNOME extension.
-  # The GNOME extension now has exclusive control over the conservation_mode file.
-  BAT_CARE_VENDOR=none
-  # === OPTIONAL: 80% CHARGE THRESHOLD OVERRIDE ===
-  # To temporarily charge to 80% (e.g., for travel):
-  # 1. Disable Conservation Mode via the GNOME Extension (or CLI: echo 0 | sudo tee .../conservation_mode)
-  # 2. Uncomment the two lines below:
-  # START_CHARGE_THRESH_BAT0=75
-  # STOP_CHARGE_THRESH_BAT0=80
-  # 3. Restart TLP: sudo systemctl restart tlp
-  # Remember to reverse the change (comment out lines 2-3) and re-enable Conservation Mode (toggle to 1) after your trip.
-  EOF
-  systemctl restart tlp
-  tlp-stat -p # Check TDP >60W on AC
-  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
-  ```
-- Configure systemd-logind for reliable GPU switching
-  ```bash
-  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
-  systemctl restart systemd-logind
   ```
 - (DEPRECATED - Fallback Only) Install all-ways-egpu if eGPU isn’t primary
   ```bash
@@ -2538,8 +2774,25 @@
   fi
   #Note: If Plymouth splash screen fails (e.g., blank screen), remove 'splash' from kernel parameters in /boot/loader/entries/arch.conf and regenerate UKI with `mkinitcpio -P` 
   ```
-- VFIO for eGPU passthrough
+- (OPTIONAL NOT RECOMMENDED) VFIO for eGPU passthrough
   ```bash
+  > **99.9 % of people reading this guide should SKIP this entire section.**
+  >
+  > If you just want to game on Linux with your AMD OCuLink eGPU → **you already have the best possible setup** with `chgpu` in hybrid/dedicated/egpu mode + ThinkLMI automation.
+  >
+  > VFIO passthrough on AMD in 2025 still means:
+  > - You lose **all** native Linux use of the eGPU
+  > - No hot-plug (must cold-plug + reboot every time)
+  > - AMD reset bug is only ~90 % solved (still needs vendor-reset or bleeding-edge patches)
+  > - You will spend 10–40 hours debugging instead of gaming
+  >
+  > Only do this if you absolutely need near-native Windows performance in a VM and accept the above trade-offs.
+
+  # If you still want to proceed → follow the official Arch Wiki page exactly:  
+  # https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF
+
+  # Do **not** follow any random script that blacklists `amdgpu` globally — it will break your daily driver.
+
   # VFIO for eGPU passthrough (AMD OCuLink focus)
   pacman -S --needed qemu libvirt virt-manager 
   systemctl enable --now libvirtd
@@ -2632,56 +2885,6 @@
     echo "Signing hook already exists."
   fi
   ```
-- Enable VRR for 4K OLED
-  ```bash
-  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
-
-  # Verify VRR is active:
-  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
-  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
-
-  # Verify VRR support on the eGPU:
-  DRI_PRIME=1 vdpauinfo | grep -i radeonsi #Confirms AMD driver
-
-  # If VRR fails, check dmesg for amdgpu errors:
-  dmesg | grep -i amdgpu
-
-  # Ensure 4K OLED is set to its maximum refresh rate and VRR range:
-  xrandr --output <output-name> --mode 3840x2160 --rate 120 #replace output name with HDMI-1 or DP-1 (check via 'xrandr')
-  # In Wayland, confirm VRR:
-  wlr-randr --output <output-name> #check refresh rate range
-
-  # Check AppArmor denials
-  journalctl -u apparmor | grep -i "supergfxctl\|qemu\|libvirtd"
-  # echo "NOTE: If AppArmor denials are found, generate profiles with 'aa-genprof supergfxctl' or 'aa-genprof qemu-system-x86_64' and customize rules for /dev/dri/*, /dev/vfio/*, and /sys/bus/pci/* access."
-
-  # Log denials to a file for review
-  journalctl -u apparmor | grep -i DENIED > /var/log/apparmor-denials.log
-
-  # DO NOT ENFORCE YET — FSP is in COMPLAIN mode
-  # Denials will be logged to /var/log/apparmor-denials.log
-  # Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
-  ```
-- Pacman hook for binary verification
-  ```bash
-  cat << 'EOF' > /etc/pacman.d/hooks/90-pacman-verify.hook
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = *
-  [Action]
-  Description = Verifying package file integrity
-  When = PostTransaction
-  Exec = /usr/bin/pacman -Qkk
-  EOF
-  chmod 644 /etc/pacman.d/hooks/90-pacman-verify.hook
-  ```
-- Enable gamemoded
-  ```bash
-  systemctl --user enable --now gamemoded
-  # Launch: gamemoderun %command% in Steam
-  ```
 - Verify eGPU setup
   ```bash
   # Verify eGPU detection
@@ -2743,6 +2946,15 @@
     lspci | grep -i amd  # Check eGPU detection
     dmesg | grep -i amdgpu  # Check driver loading
     glxinfo | grep -i renderer  # Verify GPU rendering
+    ```
+  - DIAGNOSTIC: Check IOMMU groups after connecting eGPU
+    ```bash
+    find /sys/kernel/iommu_groups/ -type l | sort | grep 1002:
+
+    # CONDITIONAL FIX: If the AMD GPU is not in its own group:
+    # Get the AMD GPU PCI ID (e.g., from 'lspci -nnk'): 1002:xxxx
+    # Add the following to linux.preset default_options:
+    # vfio-pci.ids=1002:xxxx
     ```
   - (Optional) If for some reason the Oculink performance has some latency issues consider adding some script for setpci like CachyOS does - https://wiki.cachyos.org/features/cachyos_settings/#helper-scripts
     ```bash
@@ -3238,41 +3450,6 @@
   #       In chroot, caching is limited but rule application is verified.
   echo "run0 validation complete in chroot."
   echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
-  ```
-- Gaming Launch Template (add to Steam/Lutris)
-  ```bash
-  export LD_BIND_NOW=1
-  gamemoderun mangohud %command%  # (Install GameMode below)
-
-  # Verify Gaming Settings
-  sysctl -a | grep vm.swappiness # (should be 10)
-  cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
-  DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
-  # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
-  # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
-  ```
-- Lenovo Conservation Mode Validation
-  ```bash
-  echo "Current conservation mode status (Expected: 1):"
-  cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode 2>/dev/null || echo "Not supported"
-
-  # TLP Check (Confirms TLP is disabled from battery care)
-  echo "TLP Battery Care Check (Expected: 'none' vendor):"
-  tlp-stat -b | grep -i 'Care Vendor'
-
-  # Toggle Test (Confirms manual control works and TLP does not override after 10s)
-  echo "Testing manual toggle (Off/On cycle)..."
-
-  # Toggle OFF (Charge to 100%)
-  echo 0 | sudo tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
-  echo "Conservation mode set to 0 (OFF). Status: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode)"
-  sleep 10
-  # Re-check TLP status to ensure it did NOT override the '0'
-  echo "Status after 10s delay: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode) (Should still be 0)"
-
-  # Toggle back ON (Limit charge to ~60%)
-  echo 1 | sudo tee /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode
-  echo "Conservation mode set back to 1 (ON). Status: $(cat /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode)"
   ```
 - Forcepad Issues
   ```bash
@@ -3817,26 +3994,50 @@
   # USE flags
   cat /etc/gentoo-prep/desired-use-flags.txt >> /etc/portage/make.conf
 
+  # USE flags for modern Intel/AMD/Wayland setup:
+  # xe intel-media amdgpu vulkan pipewire flatpak
+  # Append to /etc/gentoo-prep/desired-use-flags.txt: xe intel-media amdgpu vulkan pipewire flatpak. Run emerge --info | grep -E 'xe|amdgpu' post-migration test chroot.
+
   # Packages
   # Use arch-packages.txt + mapping to build @world
   ```
 - **k) Tunning Games**:
   ```bash
+  # Mangohud and Gamescope Alert
+  echo "ALERT: DO NOT USE Mangohud if you are using Gamescope. They conflict."
+  echo "Use Gamescope's built-in overlay functionality instead."
+
+  # Mangohud Configuration Tip
+  echo "TIP: Use the MANGOHUD_CONFIG environment variable for per-game HUD customization."
+  # Example: Shows FPS and CPU temperature in the top left
+  # Launch Options: MANGOHUD_CONFIG="position=top-left,cpu_temp,fps" gamemoderun %command%
+
+  # MangoHud Tips - Set template config via env for convenience (e.g., in ~/.bash_profile)
+  MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco %command%
+  # Toggle overlay: Default hotkey Shift+F1 (configurable)
+  # ALERT: Do not use traditional MangoHud with Gamescope—it's unsupported. Use Gamescope's --mangoapp flag instead (e.g., gamescope --mangoapp -f -- %command%).
+  # For FPS caps with VRR: Set to refresh_rate - 3 (e.g., 117 for 120Hz) to avoid VSync stutter.
+  # For AMD shaders: Add RADV_PERFTEST=aco for faster compilation (e.g., RADV_PERFTEST=aco gamemoderun %command%)
+
   # Steam/Lutris/Heroic add in launch options:
   gamemoderun %command%
-  # For Linux Native Games:
+
+  # Base Command (Recommended minimum for all games)
   gamemoderun mangohud %command%
+  
+  # Linux Native Games (Best performance, includes ACO compiler)
   # Best Performance / Lowest Latency (Competitive, requires manual vsync control)
   LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco %command%
 
   # Optimal Performance / Features (Recommended for Wayland/Freesync/VRR users)
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr --adaptive-sync -- %command%
+  LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 --fsr-sharpness 1 --adaptive-sync -- %command%
+  
   # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
-  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -F fsr -r 240 -- %command%
-  # LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco gamescope -w 1920 -h 1080 -W 2560 -H 1440 -F fsr -r 144 -- %command%
+  echo "# If issues with VRR, try fixed refresh rate ('-r 144' instead of '--adaptive-sync'):"
+  echo "# LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 144 -- %command%"
 
-  # Tune games individually using the application "Scopebuddy"
+  # Tune games individually using the application "Scopebuddy" (GUI for Gamescope settings)
 
   # GameMode pacman hook
   sudo tee /etc/pacman.d/hooks/91-gaming-sign.hook <<'EOF'
@@ -3861,15 +4062,21 @@
   
   # Environment variables (add to ~/.zshrc for system-wide effect):
   cat >> ~/.zshrc <<'EOF'
+  # Environment variables (add to ~/.zshrc for system-wide effect):
+  cat >> ~/.zshrc <<'EOF'
   # Gaming Env Vars (comment out if issues)
   # export RADV_FORCE_VRS=1  # VRS perf boost (toggle per-game if glitches)
-  export MANGOHUD=1  # Always-on HUD (disable per-game if needed)
+  # export MANGOHUD=1        # Always-on HUD (Setting this globally is NOT recommended due to conflicts)
   EOF
 
   # Reload shell
   source ~/.zshrc
 
   # Open Steam Client and make sure to "Enable" Steam Overlay
+
+  # Disable Steam telemetry for privacy (create or edit the file)
+  mkdir -p ~/.steam/
+  echo "STEAM_DISABLE_TELEMETRY=1" >> ~/.steam/steam.cfg
 
   # Verify
   sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope
@@ -3904,10 +4111,14 @@
   # Re-generate the UKI
   sudo mkinitcpio -P
   ```
-- **n) Final Reboot & Lock**:
+- **n) Binary verification**:
   ```bash
-  mkinitcpio -P
-  
+  # This is a manual verification. Do not create a hook to run this because it degrades performance.
+  sudo pacman -Qkk | grep -i 'mismatch\|warning' # Only prints explicit errors
+  # Explote adding this as event refreshing daily an widget in the Astal/AGS step 19
+  ```
+- **o) Final Reboot & Lock**:
+  ```bash
   # Sign only unsigned EFI binaries
   sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
 
