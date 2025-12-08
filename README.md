@@ -2595,6 +2595,11 @@
   # Quiet Mode:
   # pkexec /bin/sh -c 'echo quiet_mode > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
   ```
+- Install switcheroo-control for GPU integration
+  ```bash
+  pacman -S --needed switcheroo-control
+  systemctl enable --now switcheroo-control
+  ```
 - Configure systemd-logind for reliable GPU switching
   ```bash
   sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
@@ -2616,14 +2621,9 @@
   # grep -i oculink
   # boltctl authorize <uuid>
   ```
-- (OPTIONAL - TEST) Install switcheroo-control for GPU integration
-  ```bash
-  # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP OPTIONAL ITEMS
-  pacman -S --needed switcheroo-control
-  systemctl enable --now switcheroo-control
-  ```
 - (OPTIONAL - TEST) Install and configure `supergfxctl` for GPU switching:
   ```bash
+  # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP OPTIONAL ITEMS
   paru -S supergfxctl
   # Enable the service FIRST (it will auto-generate a working default config)
   sudo systemctl enable --now supergfxd
@@ -2692,8 +2692,25 @@
   fi
   #Note: If Plymouth splash screen fails (e.g., blank screen), remove 'splash' from kernel parameters in /boot/loader/entries/arch.conf and regenerate UKI with `mkinitcpio -P` 
   ```
-- VFIO for eGPU passthrough
+- (OPTIONAL NOT RECOMMENDED) VFIO for eGPU passthrough
   ```bash
+  > **99.9 % of people reading this guide should SKIP this entire section.**
+  >
+  > If you just want to game on Linux with your AMD OCuLink eGPU → **you already have the best possible setup** with `chgpu` in hybrid/dedicated/egpu mode + ThinkLMI automation.
+  >
+  > VFIO passthrough on AMD in 2025 still means:
+  > - You lose **all** native Linux use of the eGPU
+  > - No hot-plug (must cold-plug + reboot every time)
+  > - AMD reset bug is only ~90 % solved (still needs vendor-reset or bleeding-edge patches)
+  > - You will spend 10–40 hours debugging instead of gaming
+  >
+  > Only do this if you absolutely need near-native Windows performance in a VM and accept the above trade-offs.
+
+  # If you still want to proceed → follow the official Arch Wiki page exactly:  
+  # https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF
+
+  # Do **not** follow any random script that blacklists `amdgpu` globally — it will break your daily driver.
+
   # VFIO for eGPU passthrough (AMD OCuLink focus)
   pacman -S --needed qemu libvirt virt-manager 
   systemctl enable --now libvirtd
