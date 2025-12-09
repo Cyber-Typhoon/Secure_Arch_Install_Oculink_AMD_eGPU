@@ -1446,6 +1446,7 @@
   else
     echo "Fingerprint reader found! Run 'fprintd-enroll' to set it up (optional)"
   fi
+  # If fingerprint doesn't work try to install the thinkfinger from AUR.
   ```
 - (OPTIONAL NOT RECOMMENDED) Setup Automated System/AUR Updates
   ```bash
@@ -2482,6 +2483,8 @@
 - Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
   ```bash
   # === AUTOMATION: Performance Profile Switching (AC vs. Battery) ===
+  # Disable tlp-rdw,it can fight with manual governor settings
+  sudo systemctl mask tlp-rdw
 
   # Create the shell script to toggle the performance mode (run as root by udev)
   sudo tee /usr/local/bin/thinklmi-power-switcher << 'EOF'
@@ -2492,7 +2495,7 @@
   # Simple flock to prevent overlapping runs
   exec 200>"$LOCKFILE"
   flock -n 200 || exit 0
-
+    
   # Path to the ThinkLMI file
   PERF_MODE_PATH="/sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value"
 
@@ -2507,11 +2510,23 @@
         # Max performance (Geek Mode) when plugged in (docked)
         echo "Setting ThinkLMI to extreme_performance (AC Power)"
         echo "extreme_performance" > "$PERF_MODE_PATH"
+        if [ "$(cat "$PERF_MODE_PATH")" != "extreme_performance" ]; then
+           echo "Failed to set extreme_performance: Check dmesg or valid_values." >&2
+           logger -t thinklmi-switcher "Failed to set extreme_performance ($(date))"
+           exit 1
+        fi
+        logger -t thinklmi-switcher "Set to extreme_performance ($(date))"
         ;;
     battery)
         # Quiet Mode for maximum battery life when unplugged
         echo "Setting ThinkLMI to quiet_mode (Battery Power)"
         echo "quiet_mode" > "$PERF_MODE_PATH"
+        if [ "$(cat "$PERF_MODE_PATH")" != "quiet_mode" ]; then
+           echo "Failed to set quiet_mode: Check dmesg or valid_values." >&2
+           logger -t thinklmi-switcher "Failed to set quiet_mode ($(date))"
+           exit 1
+        fi
+        logger -t thinklmi-switcher "Set to quiet_mode ($(date))"
         ;;
     *)
         echo "Usage: $0 {ac|battery}" >&2
@@ -2526,10 +2541,10 @@
   # Create the udev rule to trigger the script on AC status change
   sudo tee /etc/udev/rules.d/99-thinklmi-power.rules << 'EOF'
   # When AC adapter status changes to 'online' (1)
-  SUBSYSTEM=="power_supply", ATTR{online}=="1", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher ac"
+  SUBSYSTEM=="power_supply", KERNEL=="AC*", ATTR{online}=="1", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher ac"
 
   # When AC adapter status changes to 'offline' (0)
-  SUBSYSTEM=="power_supply", ATTR{online}=="0", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher battery"
+  SUBSYSTEM=="power_supply", KERNEL=="AC*", ATTR{online}=="0", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher battery"
   EOF
 
   # Reload udev rules to make the change active immediately
@@ -2537,7 +2552,17 @@
 
   # Execute the script once to set the initial state (based on current power status)
   # This will find the current power state and apply the corresponding profile.
-  if [ "$(cat /sys/class/power_supply/AC*/online 2>/dev/null | head -1)" = "1" ]; then
+  AC_STATUS=""
+  if [ -f /sys/class/power_supply/AC*/online ]; then
+    AC_STATUS=$(cat /sys/class/power_supply/AC*/online 2>/dev/null | head -1)
+  elif command -v upower >/dev/null 2>&1; then
+    AC_STATUS=$(upower -i /org/freedesktop/UPower/devices/line_power_AC*/online 2>/dev/null | grep -q "yes" && echo "1" || echo "0")
+  else
+    echo "Warning: No reliable AC probe available; skipping initial set." >&2
+    exit 0
+  fi
+
+  if [ "$AC_STATUS" = "1" ]; then
     sudo /usr/local/bin/thinklmi-power-switcher ac
   else
     sudo /usr/local/bin/thinklmi-power-switcher battery
@@ -2551,7 +2576,7 @@
   # Write your custom overrides safely (this will never be overwritten by pacman updates)
   sudo tee /etc/tlp.d/99-thinkbook-egpu.conf << 'EOF'
   # === GPU: Prevent TLP from touching runtime PM (critical for OCuLink eGPU hotplug) ===
-  RUNTIME_PM_BLACKLIST="amdgpu xe"     # xe = Intel Arc iGPU (Core Ultra), amdgpu = eGPU
+  RUNTIME_PM_BLACKLIST="amdgpu xe i915"     # xe = Intel Arc iGPU (Core Ultra), amdgpu = eGPU
 
   # === Maximum performance on AC (mimics Lenovo Vantage "Extreme Performance") ===
   CPU_SCALING_GOVERNOR_ON_AC=performance
@@ -2594,6 +2619,11 @@
   # pkexec /bin/sh -c 'echo extreme_performance > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
   # Quiet Mode:
   # pkexec /bin/sh -c 'echo quiet_mode > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
+  # [Desktop Entry]
+  # Name=ThinkLMI Extreme Performance
+  # Exec=pkexec /bin/sh -c 'echo extreme_performance > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
+  # Icon=performance-high
+  # Type=Application
   ```
 - Install switcheroo-control for GPU integration
   ```bash
