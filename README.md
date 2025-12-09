@@ -2541,7 +2541,7 @@
   # Create the udev rule to trigger the script on AC status change
   sudo tee /etc/udev/rules.d/99-thinklmi-power.rules << 'EOF'
   # When AC adapter status changes to 'online' (1)
-  SUBSYSTEM=="power_supply", KERNEL=="AC*", ATTR{online}=="1", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher ac"
+  SUBSYSTEM=="power_supply", KERNEL=="AC*", ATTR{online}=="1", ACTION=="change", RUN+="/bin/sh -c 'sleep 0.5; /usr/local/bin/thinklmi-power-switcher ac'"
 
   # When AC adapter status changes to 'offline' (0)
   SUBSYSTEM=="power_supply", KERNEL=="AC*", ATTR{online}=="0", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher battery"
