@@ -2466,6 +2466,11 @@
   # Example line to add to your bootloader entry:
   # options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x80000 pcie_ports=native pciehp.pciehp_force=1.
   # Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x80000' | sudo tee -a /etc/modprobe.d/amdgpu.conf
+  # Essential for reliable PCIe hotplug on Lenovo/OCuLink
+  # pcie_ports=native          # Use native PCIe port driver (bypasses BIOS quirks)
+  # pciehp.pciehp_force=1      # Force-enable hotplug polling on all slots
+  # pcie_aspm=off              # Disable ASPM (power saving) to prevent link drops
+  # pci=nomsi                  # Fallback if MSI interrupts fail on hot-add
   ```
 - Sign kernel modules for Secure Boot
   ```bash
