@@ -2891,11 +2891,11 @@
   lspci | grep -i amd
   dmesg | grep -i amdgpu
 
-  # Verify GPU switching
-  supergfxctl -s # Show supported modes
-  supergfxctl -g # Get current mode
-  supergfxctl -S # Check current power status
-  supergfxctl -m Hybrid # Set to Hybrid mode
+  # (DEPRECATED) Verify GPU switching
+  # supergfxctl -s # Show supported modes
+  # supergfxctl -g # Get current mode
+  # supergfxctl -S # Check current power status
+  # supergfxctl -m Hybrid # Set to Hybrid mode
   glxinfo | grep -i renderer # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary)
 
   **Note:** Switch modes before testing:
@@ -2904,11 +2904,11 @@
   DRI_PRIME=1 glxinfo | grep -i radeon # Should show AMD
   DRI_PRIME=0 glxinfo | grep -i arc # Should show Intel
   DRI_PRIME=1 vdpauinfo | grep -i radeonsi
-  supergfxctl -m VFIO # Test VFIO mode for VM
+  # (DEPRECATED) supergfxctl -m VFIO # Test VFIO mode for VM
 
   # Verify PCIe bandwidth. Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4):
   lspci -vv | grep -i "LnkSta.*Speed.*Width" # Should show "Speed 16GT/s, Width x4" for OCuLink4
-  fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
+  # (DEPRECATED) fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
   lspci -vv | grep -i "LnkSta" | grep -i "card1"
   # If the link is suboptimal (e.g., x1 or Gen 3), suggest adding kernel parameters to force PCIe performance: pcie_ports=native pciehp.pciehp_force=1
 
@@ -2922,16 +2922,16 @@
   lspci | grep -i vga
   lspci | grep -i "serial\|usb\|thunderbolt"
   lspci -vv | grep -i "LnkSta"
-  lspci -k | grep -i vfio # Verify VFIO binding
+  # (DEPRECATED) lspci -k | grep -i vfio # Verify VFIO binding
   dmesg | grep -i "oculink\|pcieport\|amdgpu\|jhl\|redriver"
 
   # Check for PCIe errors
   dmesg | grep -i "pcieport\|error\|link"
-  cat /sys/class/drm/card*/device/uevent | grep DRIVER  # Should show i915 and amdgpu
+  cat /sys/class/drm/card*/device/uevent | grep DRIVER  # Should show xe and amdgpu
 
   # (Optional) Check OCuLink dock firmware - Firmware Update may be better performed in Step 18
   fwupdmgr get-devices | grep -i "oculink\|redriver"
-  (DO NOT EXEXECUTE) fwupdmgr update - echo "fwupd upgrade moved to Step 18 for BIOS/firmware updates."
+  (DO NOT EXECUTE) fwupdmgr update - echo "fwupd upgrade moved to Step 18 for BIOS/firmware updates."
   ```
 - **eGPU Troubleshooting Matrix**:
   | Issue | Possible Cause | Solution |
