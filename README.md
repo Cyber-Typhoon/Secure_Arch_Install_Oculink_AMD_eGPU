@@ -1232,7 +1232,7 @@
   audit arch-audit bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
-  gnome-system-monitor gnome-disk-utility logwatch tlp tlp-rdw upower zram-generator \
+  gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator \
   \
   # Hardware
   bluez bluez-utils fprintd \
@@ -1280,7 +1280,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp tlp-rdw fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
