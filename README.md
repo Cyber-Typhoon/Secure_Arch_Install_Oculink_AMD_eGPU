@@ -4161,7 +4161,7 @@
   echo "System locked and ready. Final reboot recommended."
   reboot
   ```
-## Step 19: User Customizations
+## Step 19: User Customizations ** To be refined post production!
 
 - Install a custom theme for GNOME:
   ```bash
