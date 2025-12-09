@@ -1235,7 +1235,7 @@
   gnome-system-monitor gnome-disk-utility logwatch tlp tlp-rdw upower zram-generator \
   \
   # Hardware
-  bluez bluez-utils fprintd thermald \
+  bluez bluez-utils fprintd \
   \
   # Networking & Privacy
   dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
@@ -1280,7 +1280,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd tlp tlp-rdw fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp tlp-rdw fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -2703,7 +2703,7 @@
   # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
   # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
   ```
-- (OPTIONAL - TEST) Install and configure `supergfxctl` for GPU switching:
+- (OPTIONAL - FALLBACK IF HOT PLUG DOES NOT WORK) Install and configure `supergfxctl` for GPU switching:
   ```bash
   # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP THIS OPTIONAL ITEM.
   paru -S supergfxctl
@@ -2739,7 +2739,7 @@
   # If probe error -22: Try kernel param 'amdgpu.noretry=0' in /etc/mkinitcpio.d/linux.preset, then mkinitcpio -P
   # hotplug_type use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
   ```
-- (OPTIONAL - TEST) Install supergfxctl-gex for GUI switching
+- (OPTIONAL - FALLBACK IF HOT PLUG DOES NOT WORK) Install supergfxctl-gex for GUI switching
   ```bash
   # GUI Installation of supergfxctl-gex
   echo "NOTE: supergfxctl-gex is installed via the GNOME Extensions website, not the AUR."
