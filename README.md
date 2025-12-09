@@ -2725,7 +2725,7 @@
 
   echo "ALERT: GameMode is not recommended alongside advanced schedulers like Ananicy-cpp. Ananicy-cpp is not used in the plan at the momment"
   echo "Choose one: simple performance via GameMode, or complex system-wide tuning via Ananicy-cpp."
-  echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). See optional script example below if applicable."
+  echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). You would need to create a script for this."
   ```
 - Performance optimization template (add to Steam/Lutris)
   ```bash
