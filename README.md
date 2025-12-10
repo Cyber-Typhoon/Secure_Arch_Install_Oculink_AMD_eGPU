@@ -1172,7 +1172,7 @@
 - Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, Git, Games etc. (for Lollypop, etc) (NO SUDO)
   ```bash
   xdg-user-dirs-update
-  ``` 
+  ```
 - Install **Paru and configure it**:
   ```bash   
   # Clone & build in a clean temp dir
