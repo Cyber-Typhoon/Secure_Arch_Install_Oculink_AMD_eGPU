@@ -1229,7 +1229,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  audit arch-audit bitwarden chkrootkit lynis rkhunter sshguard ufw usbguard \
+  audit arch-audit chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator \
