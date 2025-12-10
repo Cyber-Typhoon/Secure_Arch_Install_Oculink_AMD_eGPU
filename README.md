@@ -1169,7 +1169,7 @@
   # GNOME Adwaita, Orchis and Papirus
   gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
   ```
-- Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, etc. (for Lollypop, etc) (NO SUDO)
+- Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, Git, Games etc. (for Lollypop, etc) (NO SUDO)
   ```bash
   xdg-user-dirs-update
   ``` 
