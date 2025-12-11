@@ -1164,7 +1164,7 @@
   sudo pacman -S --needed mutter gnome-shell gdm gnome-control-center gnome-session gnome-settings-daemon \
 
   # Install Essential Tools
-  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome localsearch libadwaita xdg-utils \
+  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome localsearch libadwaita xdg-utils glycin-gtk4 \
 
   # GNOME Adwaita, Orchis and Papirus
   gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
@@ -1293,6 +1293,7 @@
     alacritty-graphics \
     aylurs-gtk-shell-git \
     libastal-meta  \
+    gst-thumbnailers \
     brave-bin \
     proton-ge-custom-bin \
     kanagawa-icon-theme-git \
