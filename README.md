@@ -2320,6 +2320,19 @@
   # Now enable the modern generator-based one
   systemctl enable --now systemd-zram-setup@zram0.service 
   ```
+- Configure systemd-oomd for desktop responsiveness
+  ```bash
+  # This prevents the system from freezing by killing memory-hogging background apps before the swap fills up completely.
+  sudo mkdir -p /etc/systemd/oomd.conf.d
+  cat << 'EOF' | sudo tee /etc/systemd/oomd.conf.d/10-desktop.conf
+  [OOM]
+  # Start acting when 80% of swap is used (preserves system responsiveness)
+  SwapUsedLimit=80%
+  # Start acting when 90% of RAM is used
+  DefaultMemoryPressureLimit=90%
+  EOF
+  sudo systemctl restart systemd-oomd
+  ```
 - Memory/scheduler tweaks:
   ```bash
   sudo tee /etc/tmpfiles.d/consistent-response-time-for-gaming.conf > /dev/null <<'EOF'
@@ -4163,6 +4176,41 @@
   ```
 ## Step 19: User Customizations ** To be refined post production!
 
+- Create script report for Astal/AGS
+  ```bash
+  # Create a system verification script
+  cat << 'EOF' | sudo tee /usr/local/bin/verify-arch-setup.sh
+  #!/usr/bin/env bash
+  set -e
+
+  echo "=== 1. Secure Boot & TPM ==="
+  sbctl status | grep "Enabled" && echo "✓ Secure Boot Enabled" || echo "✗ Secure Boot DISABLED"
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 >/dev/null 2>&1 && echo "✓ TPM Unlock Valid" || echo "✗ TPM Unlock Failed"
+
+  echo "=== 2. Graphics & eGPU ==="
+  if lspci | grep -i "VGA.*AMD"; then
+    echo "✓ AMD eGPU Detected"
+    DRI_PRIME=1 glxinfo | grep "OpenGL renderer" | grep "AMD" && echo "✓ AMD Rendering Active" || echo "✗ AMD Rendering Failed"
+  else
+    echo "⚠ No AMD eGPU detected (Check OCuLink)"
+  fi
+
+  echo "=== 3. Security Hardening ==="
+  sysctl kernel.yama.ptrace_scope | grep "1" && echo "✓ Ptrace Scope Restricted" || echo "✗ Ptrace Scope Open"
+  if systemctl is-active --quiet apparmor; then
+    echo "✓ AppArmor Active"
+    aa-status | grep -q "profiles are in enforce mode" && echo "✓ AppArmor Enforced" || echo "⚠ AppArmor in Complain Mode"
+  else
+    echo "✗ AppArmor Inactive"
+  fi
+
+  echo "=== 4. Snapshots ==="
+  snapper --config root list | grep -q "timeline" && echo "✓ Snapper Timeline Active" || echo "✗ Snapper Timeline Missing"
+
+  echo "=== Verification Complete ==="
+  EOF
+  sudo chmod +x /usr/local/bin/verify-arch-setup.sh
+  ```
 - Install a custom theme for GNOME:
   ```bash
   # Review this video https://www.youtube.com/watch?v=3KhHVkL8yKM
