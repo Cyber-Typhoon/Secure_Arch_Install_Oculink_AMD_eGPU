@@ -433,7 +433,7 @@
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
   \
   # Graphics
-  mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-iced-loader lib32-vulkab-icd-loader \
+  mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-iced-loader lib32-vulkab-icd-loader intel-compute-runtime \
   vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo intel-gpu-tools lact \
   \
   # Audio
@@ -1289,11 +1289,13 @@
   # AUR applications:
   paru -S --needed \
     aide \
+    amdgpu_top-tui-bin \
     apparmor.d-git \
     alacritty-graphics \
     aylurs-gtk-shell-git \
     libastal-meta  \
     gst-thumbnailers \
+    gst-plugins-rs-git \
     brave-bin \
     proton-ge-custom-bin \
     kanagawa-icon-theme-git \
