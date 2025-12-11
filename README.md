@@ -427,13 +427,13 @@
   base base-devel linux linux-lts linux-firmware mkinitcpio archlinux-keyring \
   \
   # Boot / Encryption
-  intel-ucode sbctl cryptsetup btrfs-progs efibootmgr dosfstools \
+  intel-ucode sbctl cryptsetup tpm2-tools tpm2-tss tpm2-abrmd btrfs-progs efibootmgr dosfstools \
   \
   # Hardware / Firmware
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
   \
   # Graphics
-  mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel vulkan-iced-loader lib32-vulkab-icd-loader intel-compute-runtime \
+  mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel intel-compute-runtime \
   vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo intel-gpu-tools lact \
   \
   # Audio
@@ -1164,14 +1164,14 @@
   sudo pacman -S --needed mutter gnome-shell gdm gnome-control-center gnome-session gnome-settings-daemon \
 
   # Install Essential Tools
-  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome localsearch libadwaita xdg-utils glycin-gtk4 \
+  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome xdg-desktop-portal-gtk localsearch libadwaita xdg-utils glycin-gtk4 gnome-power-manager \
 
   # GNOME Adwaita, Orchis and Papirus
-  gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
+  adw-gtk-theme gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
   ```
 - Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, Git, Games etc. (for Lollypop, etc) (NO SUDO)
   ```bash
-  xdg-user-dirs-update
+  xdg-user-dirs-update 
   ```
 - Install **Paru and configure it**:
   ```bash   
@@ -1241,7 +1241,7 @@
   dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
   \
   # CLI Tools
-  atuin bat bandwhich bottom broot delta dog dua eza fd fzf gcc gdb git gitui glow gping \
+  atuin bat bandwhich bottom broot delta dog dua eza fd fzf gcc gdb gitui glow gping \
   helix httpie hyfetch linux-docs procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
   xdg-ninja yazi zellij zoxide zsh-autosuggestions \
   \
@@ -1250,7 +1250,7 @@
   libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
   \
   # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
-  torbrowser-launcher thunderbird virt-manager \
+  torbrowser-launcher thunderbird virt-manager libvirt qemu-desktop \
   \
   # Games
   steam mangohud gamemode lib32-gamemode gamescope \
@@ -1262,7 +1262,7 @@
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
-  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd ffmpegthumbnailer webp-pixbuf-loader libgsf
+  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf
   ```
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
@@ -1304,7 +1304,8 @@
     rose-pine-alacritty-git \
     rose-pine-gtk-theme-full \
     stylepak-git \
-    run0-sudo-shim-git
+    run0-sudo-shim-git \
+    wluma 
   # Update linker cache (Requires Sudo)
   sudo ldconfig
   ```
@@ -1721,19 +1722,22 @@
   # Prevent systemd-resolved conflict (Critical for dnscrypt socket)
   # systemd-resolved listens on 53stub, which can block dnscrypt.
   sudo systemctl disable --now systemd-resolved
+  sudo systemctl mask systemd-resolved
   sudo rm -f /etc/resolv.conf
   # Create a new resolv.conf pointing to localhost (dnscrypt)
   echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
   # Lock it so NetworkManager doesn't overwrite it
   sudo chattr +i /etc/resolv.conf
 
-  # Configure NetworkManager to use local DNS (Backup to file locking)
-  CONN=$(nmcli -t -f NAME,TYPE connection show --active | grep wifi | cut -d: -f1)
-  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv4.dns "127.0.0.1" ipv4.ignore-auto-dns yes
-  [[ -n "$CONN" ]] && nmcli connection modify "$CONN" ipv6.dns "::1" ipv6.ignore-auto-dns yes
+  # Instruct NetworkManager to stop managing DNS for all connections
+  sudo mkdir -p /etc/NetworkManager/conf.d/
+  echo -e "[main]\ndns=none\nsystemd-resolved=false" | sudo tee /etc/NetworkManager/conf.d/90-custom-dns.conf
+
+  # Restart NetworkManager to apply the global configuration change immediately
+  sudo systemctl restart NetworkManager
 
   # Create Optimized Config
-  cat << 'EOF' > /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+  cat << 'EOF' | sudo tee /etc/dnscrypt-proxy/dnscrypt-proxy.toml > /dev/null
   # Server List: Privacy + Blocking focused
   server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock', 'cloudflare']
 
@@ -2845,7 +2849,7 @@
   # Do **not** follow any random script that blacklists `amdgpu` globally — it will break your daily driver.
 
   # VFIO for eGPU passthrough (AMD OCuLink focus)
-  pacman -S --needed qemu libvirt virt-manager 
+  pacman -S --needed qemu virt-manager 
   systemctl enable --now libvirtd
 
   # Load VFIO modules
@@ -3035,7 +3039,7 @@
 ## Step 13: Configure Snapper and Backups
 - Install Snapper and snap-pac
   ```bash
-  pacman -S --noconfirm snapper snap-pac
+  pacman -S --noconfirm snapper snap-pac btrfs-assistant
   ```
 - Create global filter
   ```bash
@@ -4136,6 +4140,7 @@
 - **l) Audio and Software Enhancements**:
   ```bash
   # Enhancing Laptop Speaker Sound - https://wiki.cachyos.org/configuration/general_system_tweaks/#audio-and-software-enhancements
+  sudo pacman -S pavucontrol
   sudo pacman -S easyeffects
   sudo pacman -S lsp-plugins-lv2
   sudo pacman -S zam-plugins
