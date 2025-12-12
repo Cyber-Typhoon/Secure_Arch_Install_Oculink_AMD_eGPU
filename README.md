@@ -1438,15 +1438,19 @@
   # Optional: Allow system-installed Flatpak apps to READ the host system's GTK4 config
   sudo flatpak override --filesystem=xdg-config/gtk-4.0:ro
   ```
-- Install GSConnect from extensions.gnome.org
+- Install Extensions from extensions.gnome.org using Extension Manager application flatpak
   ```bash
-  echo "Install GSConnect from https://extensions.gnome.org/extension/1319/gsconnect/ using Extension Manager (preferred over AUR version)"
-  echo "After installing GSConnect via Extension Manager, enable it and restart GNOME Shell (Alt+F2 → r → Enter)"
-  ```
-- Install Copyous from extensions.gnome.org
-  ```bash
-  echo "Install GSConnect from https://extensions.gnome.org/extension/8834/copyous/ using Extension Manager (preferred over AUR version)"
-  echo "After installing GSConnect via Extension Manager, enable it and restart GNOME Shell (Alt+F2 → r → Enter)"
+  echo "Install GSConnect from https://extensions.gnome.org/extension/1319/gsconnect/ using Extension Manager"
+  echo "Install Copyous from https://extensions.gnome.org/extension/8834/copyous/ using Extension Manager"
+  echo "Install Just Perfection from https://extensions.gnome.org/extension/3843/just-perfection/ using Extension Manager"
+  echo "Install Blur my Shell from https://extensions.gnome.org/extension/3193/blur-my-shell/ using Extension Manager"
+  echo "Install User Themes from https://extensions.gnome.org/extension/19/user-themes/ using Extension Manager"
+  echo "Install Astra Monitor from https://extensions.gnome.org/extension/6682/astra-monitor/ using Extension Manager"
+  echo "Install Space Bar from https://extensions.gnome.org/extension/5090/space-bar/ using Extension Manager"
+  echo "Install Caffeine from https://extensions.gnome.org/extension/517/caffeine/ using Extension Manager"
+  echo "Install Floating Mini Panel from https://extensions.gnome.org/extension/8274/floating-mini-panel/ using Extension Manager"
+  echo "Install Bastion from https://extensions.gnome.org/extension/8898/bastion/ using Extension Manager"
+  echo "After installing via Extension Manager, enable it and restart GNOME Shell (Alt+F2 → r → Enter)"
   ```
 - Enroll fingerprint if device has a reader
   ```bash
