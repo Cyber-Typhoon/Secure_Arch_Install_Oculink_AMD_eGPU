@@ -1232,7 +1232,7 @@
   audit arch-audit chkrootkit lynis rkhunter sshguard ufw usbguard \
   \
   # System Monitoring
-  gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator \
+  gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator libappindicator \
   \
   # Hardware
   bluez bluez-utils fprintd \
@@ -1450,6 +1450,7 @@
   echo "Install Caffeine from https://extensions.gnome.org/extension/517/caffeine/ using Extension Manager"
   echo "Install Floating Mini Panel from https://extensions.gnome.org/extension/8274/floating-mini-panel/ using Extension Manager"
   echo "Install Bastion from https://extensions.gnome.org/extension/8898/bastion/ using Extension Manager"
+  echo "Install AppIndicator and KStatusNotifier from https://extensions.gnome.org/extension/615/appindicator-support/ using Extension Manager"
   echo "After installing via Extension Manager, enable it and restart GNOME Shell (Alt+F2 → r → Enter)"
   ```
 - Enroll fingerprint if device has a reader
