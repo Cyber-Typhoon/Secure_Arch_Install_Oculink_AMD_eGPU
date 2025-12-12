@@ -1164,7 +1164,7 @@
   sudo pacman -S --needed mutter gnome-shell gdm gnome-control-center gnome-session gnome-settings-daemon \
 
   # Install Essential Tools
-  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome xdg-desktop-portal-gtk localsearch libadwaita xdg-utils glycin-gtk4 gnome-power-manager \
+  nautilus gnome-keyring gnome-backgrounds xdg-user-dirs-gtk xdg-desktop-portal-gnome xdg-desktop-portal-gtk localsearch libadwaita xdg-utils glycin-gtk4 gnome-power-manager webp-pixbuf-loader \
 
   # GNOME Adwaita, Orchis and Papirus
   adw-gtk-theme gnome-themes-extra adwaita-fonts adwaita-icon-theme orchis-theme papirus-icon-theme
