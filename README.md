@@ -12,7 +12,7 @@
 - Access the **UEFI BIOS** by pressing `F1` at boot:
   - Enable **TPM 2.0** (Security Chip) under the Security menu.
   - Enable **Intel VT-d** (IOMMU) for improved eGPU and virtualization support.
-  - Set a **strong UEFI BIOS password** (at least 12 characters, mixed case, numbers, and symbols).
+  - Set a **strong UEFI BIOS password** (at least 12 characters, mid case, numbers, and symbols).
   - **Store the UEFI BIOS password in Bitwarden** or another secure password manager.
   - Temporarily disable **Secure Boot** in the UEFI settings to simplify initial setup.
 - Visit the eGPU community builds for reference:
@@ -517,7 +517,7 @@
   pacman-key --init
   pacman-key --populate archlinux
   ```
-- Add the `xe` ánd `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
+- Add the `xe` and `i915` module for early kernel mode setting (KMS) to support Intel iGPU:
   ```bash
   # Load 'xe' first. 'i915' is kept as a fallback but likely won't bind to the iGPU if xe claims it.
   echo 'MODULES=(xe i915)' >> /etc/mkinitcpio.conf
