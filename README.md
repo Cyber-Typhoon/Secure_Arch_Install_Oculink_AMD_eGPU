@@ -3049,7 +3049,7 @@
 ## Step 13: Configure Snapper and Snapshots
 - Install Snapper and snap-pac
   ```bash
-  pacman -S --noconfirm snapper snap-pac btrfs-assistant grub-btrfs
+  pacman -S --noconfirm snapper snap-pac btrfs-assistant
   ```
 - Create global filter
   ```bash
@@ -3070,14 +3070,15 @@
   sudo mount -a  # Remounts from /etc/fstab
   sudo chmod 750 /.snapshots
   sudo chown :wheel /.snapshots
+  sudo chown :wheel /home/.snapshots /data/.snapshots
+  sudo chmod 750 /home/.snapshots /data/.snapshots
   ```
 - Configure Snapper for automatic snapshots:
   ```bash
-  # Replace $USER with your username (e.g., "yourusername") for btrfs-assistant access.
   for CONF in root home data; do
     sudo snapper -c $CONF set-config \
-        ALLOW_USERS="$USER" \
-        SYNC_ACL="no" \
+        ALLOW_GROUPS="wheel" \
+        SYNC_ACL="yes" \
         TIMELINE_CREATE="yes" \
         TIMELINE_CLEANUP="yes" \
         TIMELINE_MIN_AGE="1800" \
@@ -3095,9 +3096,27 @@
   ```bash
   sudo chmod 640 /etc/snapper/configs/*
   ```
-  - Enable GRUB-Btrfs for Snapshot Boot Integration:
+  - Create the backup directory on the Btrfs root
   ```bash
-  sudo systemctl enable --now grub-btrfsd.service
+  sudo mkdir -p /etc/reproducible-boot
+  ```
+  - Create a Pacman hook to sync the ESP to the root before/after transactions
+  ```bash
+  sudo tee /etc/pacman.d/hooks/95-bootbackup.hook <<'EOF'
+  [Trigger]
+  Type = Path
+  Operation = Install
+  Operation = Upgrade
+  Operation = Remove
+  Target = boot/*
+
+  [Action]
+  Description = Backing up /boot to /etc/reproducible-boot (for Snapper)...
+  When = PostTransaction
+  Exec = /usr/bin/rsync -a --delete /boot/ /etc/reproducible-boot/
+  EOF
+
+  sudo chmod 644 /etc/pacman.d/hooks/95-bootbackup.hook
   ```
   - Enable Snapper timeline and cleanup:
   ```bash
