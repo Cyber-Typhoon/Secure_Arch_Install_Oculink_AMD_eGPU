@@ -3047,6 +3047,7 @@
     sudo systemctl enable --now pci-latency.service
     ```
 ## Step 13: Configure Snapper and Snapshots
+
 - Install Snapper and snap-pac
   ```bash
   pacman -S --noconfirm snapper snap-pac btrfs-assistant
