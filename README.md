@@ -3148,95 +3148,91 @@
 - Install `chezmoi` for dotfile management:
   ```bash
   # Install chezmoi
-  pacman -S --noconfirm chezmoi
+  sudo pacman -S --noconfirm chezmoi
   ```
-- Initialize and apply dotfiles from a repository:
+- Initialize your repo (replace with your actual repo)
   ```bash
-  chezmoi init --apply https://github.com/yourusername/dotfiles.git
-  ```
-- Run doctor as user
-  ```bash
-  chezmoi doctor || echo "chezmoi OK"
-  ```
-- Verify dotfile application:
-  ```bash
-  chezmoi status
+  # Note: init --apply will attempt to apply the repo immediately.
+  # If you HAVE a repo:
+  # chezmoi init --apply [https://github.com/yourusername/dotfiles.git](https://github.com/yourusername/dotfiles.git)
+  # If starting from zero:
+  if [ ! -d "$HOME/.local/share/chezmoi" ]; then
+      chezmoi init
+  fi
   ```
 - Backup existing configurations
   ```bash
   cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
   ```
-- Add user-specific dotfiles
+- Create a folder in chezmoi to hold system templates
   ```bash
-  chezmoi add ~/.zshrc ~/.config/zsh
+  mkdir -p "$(chezmoi source-path)/system-files/etc/sysctl.d/"
+  mkdir -p "$(chezmoi source-path)/system-files/etc/snapper/configs"
+  mkdir -p "$(chezmoi source-path)/dot_chezmoscripts"
+  cp /etc/sysctl.d/99-hardening.conf "$(chezmoi source-path)/system-files/etc/sysctl.d/"
+  cp /etc/snapper/configs/* "$(chezmoi source-path)/system-files/etc/snapper/configs/"
+  ```
+- Create a script in chezmoi source
+  ```bash
+  # Create a file named dot_chezmoscripts/run_onchange_after_apply-system-settings.sh.tmpl
+  cat > "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_apply-system-settings.sh.tmpl" <<'EOF'
+  #!/bin/bash
+  # This script runs automatically when files in system-files/ change.
+  # It uses sudo to safely deploy them.
+
+  # Exit on error, undefined vars, or pipe failures
+  set -euo pipefail
+
+  # hardening-hash: {{ include "system-files/etc/sysctl.d/99-hardening.conf" | sha256sum }}
+  # snapper-hash: {{ include "system-files/etc/snapper/configs/root" | sha256sum }}
+
+  echo "Root permissions required to sync system configurations..."
+
+  # a. Sync Hardening Parameters
+  sudo cp {{ .chezmoi.sourceDir }}/system-files/etc/sysctl.d/99-hardening.conf /etc/sysctl.d/
+  sudo sysctl --load=/etc/sysctl.d/99-hardening.conf
+
+  # b. Sync Snapper Configs (and fix permissions)
+  sudo cp {{ .chezmoi.sourceDir }}/system-files/etc/snapper/configs/* /etc/snapper/configs/
+  sudo chmod 640 /etc/snapper/configs/*
+
+  # c. Update UKI entries (if managed via chezmoi)
+  # sudo rsync -a {{ .chezmoi.sourceDir }}/system-files/boot/loader/ /boot/loader/
+
+  EOF
+
+  chmod +x "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_apply-system-settings.sh.tmpl"
+  ```
+- Use a chezmoi script to ensure production packages are always present
+  ```bash
+  # Create dot_chezmoscripts/run_once_after_install-packages.sh
+  cat > "$(chezmoi source-path)/dot_chezmoscripts/run_once_after_install-packages.sh" <<'EOF'
+  #!/bin/bash
+  # Generate a list of currently missing packages and install them
+  # This makes your dotfiles repo a "one-click" installer for your whole system.
+
+  PACKAGES=(
+    "snapper" "snap-pac" "btrfs-assistant" "rsync" "chezmoi" 
+    "gnome-terminal" # Add your critical apps here
+  )
+
+  for pkg in "${PACKAGES[@]}"; do
+    if ! pacman -Qi "$pkg" &> /dev/null; then
+        sudo pacman -S --noconfirm "$pkg"
+    fi
+  done
+  EOF
+
+  chmod +x "$(chezmoi source-path)/dot_chezmoscripts/run_once_after_install-packages.sh"
+  ```
+- Export GNOME settings and Add user files to chezmoi
+  ```bash
   dconf dump /org/gnome/ > ~/.config/gnome-settings.dconf
   dconf dump /org/gnome/shell/extensions/ > ~/.config/gnome-shell-extensions.dconf
   flatpak override --user --export > ~/.config/flatpak-overrides
-  chezmoi add ~/.config/gnome-settings.dconf ~/.config/gnome-shell-extensions.dconf ~/.config/flatpak-overrides
-  chezmoi add -r ~/.config/alacritty ~/.config/helix ~/.config/zellij ~/.config/yazi ~/.config/atuin ~/.config/git ~/.config/ags
-  chezmoi add -r ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/gnome-shell/extensions ~/.local/share/backgrounds
-  ```
-- DRI/Mesa config: Disable vblank sync for lowest GL latency (games/benchmarks)
-  ```bash
-  cat > ~/.drirc <<'EOF'
-  <driconf>
-    <device>
-      <application name="Default">
-        <option name="vblank_mode" value="0"/>
-      </application>
-    </device>
-  </driconf>
-  EOF
-  chezmoi add ~/.drirc
-  ```
-- Add system-wide configurations
-  ```bash
-  sudo chezmoi add /etc/pacman.conf /etc/paru.conf /etc/pacman.d/hooks
-  sudo chezmoi add /etc/audit/rules.d/audit.rules /etc/security/limits.conf /etc/sysctl.d/99-hardening.conf
-  sudo chezmoi add /etc/NetworkManager/conf.d/00-macrandomize.conf /etc/dnscrypt-proxy/dnscrypt-proxy.toml /etc/usbguard/rules.conf
-  sudo chezmoi add /etc/snapper/configs /etc/snapper/filters/global-filter.txt
-  sudo chezmoi add /etc/modprobe.d/i915.conf /etc/modprobe.d/amdgpu.conf /etc/supergfxd.conf
-  sudo chezmoi add /etc/udev/rules.d/99-oculink-hotplug.rules /etc/modules-load.d/pciehp.conf /etc/modules-load.d/vfio.conf
-  sudo chezmoi add /etc/mkinitcpio.conf /etc/mkinitcpio.d/linux.preset
-  sudo chezmoi add /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf /boot/loader/entries/windows.conf
-  sudo chezmoi add /etc/fstab /etc/environment /etc/gdm/custom.conf /etc/systemd/zram-generator.conf /etc/systemd/logind.conf /etc/host.conf
-  sudo chezmoi add /etc/systemd/system/lynis-audit.timer /etc/systemd/system/lynis-audit.service
-  sudo chezmoi add /etc/systemd/system/btrfs-balance.timer /etc/systemd/system/btrfs-balance.service
-  sudo chezmoi add /etc/systemd/system/arch-news.timer /etc/systemd/system/arch-news.service
-  sudo chezmoi add /etc/systemd/system/paccache.timer /etc/systemd/system/paccache.service
-  sudo chezmoi add /etc/systemd/system/maintain.timer /etc/systemd/system/maintain.service
-  sudo chezmoi add /etc/systemd/system/ags-widgets.service
-  sudo chezmoi add /etc/pacman.d/hooks/90-uki-sign.hook
-  sudo chezmoi add /usr/local/bin/maintain.sh /usr/local/bin/toggle-theme.sh /usr/local/bin/check-arch-news.sh
-  sudo chezmoi add /etc/mkinitcpio-arch-fallback.efi.conf
-  sudo chezmoi add /etc/pacman.d/hooks/90-mkinitcpio-uki.hook
-  sudo chezmoi add /etc/tlp.conf
-  sudo chezmoi add /etc/boltd/boltd.conf
-  sudo chezmoi add /etc/locale.conf /etc/vconsole.conf
-  sudo chezmoi add /etc/pacman.d/mirrorlist
-  sudo chezmoi add -r /etc/dnscrypt-proxy/
-  sudo chezmoi add /etc/just/fsp.conf 2>/dev/null || true
-  sudo chezmoi add -r /etc/apparmor.d/local/
-  sudo chezmoi add /etc/gentoo-prep/
-  sudo chezmoi add ~/.alsoftrc
-  ```
-- Export package lists for reproducibility
-  ```bash
   pacman -Qqe > ~/explicitly-installed-packages.txt
-  pacman -Qqm > ~/aur-packages.txt
-  flatpak list --app > ~/flatpak-packages.txt
-  chezmoi add ~/explicitly-installed-packages.txt ~/aur-packages.txt ~/flatpak-packages.txt
-  ```
-- Backup Secure Boot and TPM data to USB (replace /dev/sdX1 with your USB partition, confirm via lsblk)
-  ```bash
-  lsblk
-  sudo mkfs.fat -F32 -n BACKUP_USB /dev/sdX1
-  sudo mkdir -p /mnt/usb
-  sudo mount /dev/sdX1 /mnt/usb
-  sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
-  sudo cp /var/lib/tpm-pcr-initial.txt /mnt/usb/ 2>/dev/null || true
-  sudo umount /mnt/usb
-  echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
+  pacman -Qqem > ~/aur-packages.txt
+  chezmoi add ~/.zshrc ~/.config/gnome-settings.dconf
   ```
 - Version control with chezmoi
   ```bash
@@ -3247,10 +3243,33 @@
   git commit -m "Add user and system configurations for Lenovo ThinkBook Arch setup"
   git push origin main # Skip if not using a remote repository
   ```
+- Export package lists for reproducibility
+  ```bash
+  pacman -Qqe > ~/explicitly-installed-packages.txt
+  pacman -Qqm > ~/aur-packages.txt
+  flatpak list --app > ~/flatpak-packages.txt
+  ```
+- Backup Secure Boot and TPM data to USB (replace /dev/sdX1 with your USB partition, confirm via lsblk)
+  ```bash
+  lsblk
+  sudo mount /dev/sdX1 /mnt/usb
+  sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
+  sudo cp /var/lib/tpm-pcr-initial.txt /mnt/usb/
+  sudo umount /mnt/usb
+  echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
+  ```
 - Apply configurations and set permissions
   ```bash
-  chezmoi apply
+  chezmoi apply -v
   sudo chmod 640 /etc/snapper/configs/*
+  ```
+- Run doctor as user
+  ```bash
+  chezmoi doctor || echo "chezmoi OK"
+  ```
+- Verify dotfile application:
+  ```bash
+  chezmoi status
   ```
 - Test and validate
   ```bash
@@ -3263,6 +3282,7 @@
   cat ~/explicitly-installed-packages.txt # Check for expected packages
   cat ~/aur-packages.txt # Check for AUR packages
   cat ~/flatpak-packages.txt # Check for Flatpak apps
+  ls -l /etc/snapper/configs/ # Verify 640 permissions
   ```
 - Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
   ```bash
@@ -3280,6 +3300,12 @@
 
   # Check AppArmor logs
   journalctl -u apparmor | grep -i chezmoi || echo "No AppArmor denials for chezmoi"
+  ```
+- Warning
+  ```bash
+  Crucial Security Warning: NEVER upload your LUKS headers or Secure Boot .auth/.key files to a public GitHub repo, even if "private."
+
+   The Production approach: Use chezmoi to track the location of these backups on your USB drive, but keep the actual data on the encrypted USB you created in Step 9.
   ```
 ## Step 15: Test the Setup
 
