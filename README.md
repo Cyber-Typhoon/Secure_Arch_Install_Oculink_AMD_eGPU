@@ -598,12 +598,11 @@
   [device]
   wifi.backend=iwd # Do not manually enable iwd.service with systemctl enable. NetworkManager will automatically start and manage the iwd daemon when needed.
   wifi.scan-rand-mac-address=yes
-  wifi.cloned-mac-address=random
   wifi.iwd.autoconnect=yes
   EOF
 
   [connection]
-  wifi.cloned-mac-address=random
+  wifi.cloned-mac-address=stable
   ethernet.cloned-mac-address=random
   EOF
 
