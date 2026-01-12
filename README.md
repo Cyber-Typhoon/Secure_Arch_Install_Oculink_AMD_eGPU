@@ -591,13 +591,28 @@
    });
    EOF
   ```
-- NetworkManager Configuration
+- NetworkManager Configuration (tells NetworkManager to prefer iwd over the default wpa_supplicant)
   ```bash
   mkdir -p /etc/NetworkManager/conf.d
   cat <<EOF > /etc/NetworkManager/conf.d/wifi-backend.conf
   [device]
   wifi.backend=iwd # Do not manually enable iwd.service with systemctl enable. NetworkManager will automatically start and manage the iwd daemon when needed.
   wifi.scan-rand-mac-address=yes
+  wifi.cloned-mac-address=random
+  wifi.iwd.autoconnect=yes
+  EOF
+
+  [connection]
+  wifi.cloned-mac-address=random
+  ethernet.cloned-mac-address=random
+  EOF
+
+  # Ensure iwd uses the same randomization logic internally
+  mkdir -p /etc/iwd
+  cat <<EOF > /etc/iwd/main.conf
+  [General]
+  AddressRandomization=network
+  AddressRandomizationRange=full
   EOF
   ```
 - Shell Configuration — Add to ~/.zshrc or ~/.bashrc
@@ -1626,7 +1641,7 @@
   [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
   EOF
   ```
-- Configure MAC randomization:
+- [OUTDATED] Configure MAC randomization (Those are introduced earlier in the Step 6 inside chroot):
   ```bash
   mkdir -p /etc/NetworkManager/conf.d
   cat << 'EOF' > /etc/NetworkManager/conf.d/00-macrandomize.conf
