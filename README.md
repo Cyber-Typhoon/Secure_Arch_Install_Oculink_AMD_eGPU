@@ -430,7 +430,7 @@
   intel-ucode sbctl cryptsetup tpm2-tools tpm2-tss tpm2-abrmd btrfs-progs efibootmgr dosfstools \
   \
   # Hardware / Firmware
-  sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
+  sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb cups \
   \
   # Graphics
   mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel intel-compute-runtime \
@@ -443,7 +443,7 @@
   sudo polkit udisks2 thermald acpi acpid ethtool namcap dmidecode apparmor \
   \
   # Network / Install
-  networkmanager openssh rsync reflector arch-install-scripts wpa_supplicant \
+  networkmanager openssh rsync reflector arch-install-scripts iwd \
   \
   # User / DE
   zsh git jq flatpak pacman-contrib devtools micro man-db man-pages
@@ -571,7 +571,8 @@
   systemctl enable acpid                  
   systemctl enable fwupd-refresh.timer    
   systemctl enable paccache.timer
-  systemctl enable shadow.timer         
+  systemctl enable shadow.timer
+  systemctl enable cups.service         
   ```
 - TTY console
   ```bash
@@ -589,6 +590,15 @@
     }
    });
    EOF
+  ```
+- NetworkManager Configuration
+  ```bash
+  mkdir -p /etc/NetworkManager/conf.d
+  cat <<EOF > /etc/NetworkManager/conf.d/wifi-backend.conf
+  [device]
+  wifi.backend=iwd # Do not manually enable iwd.service with systemctl enable. NetworkManager will automatically start and manage the iwd daemon when needed.
+  wifi.scan-rand-mac-address=yes
+  EOF
   ```
 - Shell Configuration — Add to ~/.zshrc or ~/.bashrc
   ```bash
