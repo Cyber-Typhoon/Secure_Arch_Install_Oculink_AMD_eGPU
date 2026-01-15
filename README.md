@@ -1267,7 +1267,7 @@
   # CLI Tools
   atuin bat bandwhich bottom broot delta dog dua eza fd fzf gcc gdb gitui glow gping \
   helix httpie hyfetch linux-docs procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
-  xdg-ninja yazi zellij zoxide zsh-autosuggestions \
+  xdg-ninja yazi zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
@@ -1282,7 +1282,7 @@
   # Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
   ttf-roboto ttf-roboto-mono ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-fira-code \
-  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd \
+  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono \
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
@@ -1315,7 +1315,7 @@
     aide \
     amdgpu_top-tui-bin \
     apparmor.d-git \
-    alacritty-graphics \
+    wezterm-git \
     aylurs-gtk-shell-git \
     libastal-meta  \
     gst-thumbnailers \
@@ -1325,7 +1325,6 @@
     kanagawa-icon-theme-git \
     kanagawa-gtk-theme-git \
     rose-pine-cursor \
-    rose-pine-alacritty-git \
     rose-pine-gtk-theme-full \
     stylepak-git \
     run0-sudo-shim-git \
@@ -1531,26 +1530,46 @@
   sudo systemctl list-unit-files | grep paru-update
   sudo systemctl status "paru-update@$USER.service"
   ```
-- Edit the configuration file (likely at ~/.config/alacritty/alacritty.toml or alacritty.yml):
+- Edit the Wezterm Visuals:
   ```bash
-  # Configure Alacritty font
-  mkdir -p ~/.config/alacritty
-  if [[ ! -f ~/.config/alacritty/alacritty.toml ]]; then
-    cat <<'EOF' > ~/.config/alacritty/alacritty.toml
-  [font.normal]
-  family = "JetBrainsMono Nerd Font"
-  style = "Regular"
+  # Configure WezTerm
+  mkdir -p ~/.config/wezterm
+  if [[ ! -f ~/.config/wezterm/wezterm.lua ]]; then
+    cat <<'EOF' > ~/.config/wezterm/wezterm.lua
+  local wezterm = require 'wezterm'
+  local config = wezterm.config_builder()
 
-  [font.bold]
-  family = "JetBrainsMono Nerd Font"
-  style = "Bold"
+  # Font Configuration (The "Pro" Strategy)
+  # Using unpatched JetBrains Mono + Symbols Nerd Font Mono separately
+  # ensures clean Latin text and perfectly aligned, non-shrunken icons.
+  config.font = wezterm.font_with_fallback {
+    { family = "JetBrains Mono", weight = "Regular" },
+    { family = "Symbols Nerd Font Mono", scale = 1.0 },
+  }
+  config.font_size = 11.0
 
-  [font.italic]
-  family = "JetBrainsMono Nerd Font"
-  style = "Italic"
+  # Visual Tweaks (Rosé Pine)
+  config.color_scheme = 'rose-pine'
+  config.window_background_opacity = 0.95
+
+  # Keeps text backgrounds 100% opaque so glyphs don't look "washed out"
+  # when the window itself is transparent.
+  config.text_background_opacity = 1.0
+
+  config.hide_tab_bar_if_only_one_tab = true
+
+  # Performance & Graphics
+  # WebGPU is the most modern frontend for your Intel Arc 140T / AMD eGPU setup.
+  config.front_end = "WebGpu"
+
+  # Environment Support
+  # Explicitly enable Wayland for your GNOME desktop
+  config.enable_wayland = true
+
+  return config
   EOF
   else
-    echo "Alacritty config already exists – font not overwritten"
+    echo "WezTerm config already exists – skipping"
   fi
   ```
 - Final full system update + UKI rebuild
@@ -3186,7 +3205,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/wezterm ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
   ```
 - Create a folder in chezmoi to hold system templates
   ```bash
