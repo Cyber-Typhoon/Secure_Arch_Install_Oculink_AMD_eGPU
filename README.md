@@ -1539,32 +1539,49 @@
   local wezterm = require 'wezterm'
   local config = wezterm.config_builder()
 
-  # Font Configuration (The "Pro" Strategy)
-  # Using unpatched JetBrains Mono + Symbols Nerd Font Mono separately
-  # ensures clean Latin text and perfectly aligned, non-shrunken icons.
-  config.font = wezterm.font_with_fallback {
+  # Fonts & Rendering
+  config.font = wezterm.font_with_fallback({
     { family = "JetBrains Mono", weight = "Regular" },
     { family = "Symbols Nerd Font Mono", scale = 1.0 },
+    "Noto Color Emoji",   -- very useful fallback nowadays
+  })
+
+  config.font_size           = 12.5           -- ← most popular range on 14–16" 3K/4K laptops
+  config.line_height         = 1.03           -- ← subtle improvement in readability
+  config.harfbuzz_features   = { 'liga', 'calt', 'ss01', 'ss02', 'ss03', 'ss04', 'ss05' }
+
+  # Appearance
+  config.color_scheme             = 'rose-pine'
+  config.window_background_opacity = 0.90       -- ← bit stronger blur, modern preference
+  config.text_background_opacity   = 1.0        -- ← keep! very important with transparency
+
+  config.window_padding = {
+    left   = '12px',
+    right  = '12px',
+    top    = '8px',
+    bottom = '8px',
   }
-  config.font_size = 11.0
 
-  # Visual Tweaks (Rosé Pine)
-  config.color_scheme = 'rose-pine'
-  config.window_background_opacity = 0.95
-
-  # Keeps text backgrounds 100% opaque so glyphs don't look "washed out"
-  # when the window itself is transparent.
-  config.text_background_opacity = 1.0
-
+  config.window_decorations     = "RESIZE"      -- ← clean look, GNOME-friendly
   config.hide_tab_bar_if_only_one_tab = true
 
-  # Performance & Graphics
-  # WebGPU is the most modern frontend for your Intel Arc 140T / AMD eGPU setup.
-  config.front_end = "WebGpu"
+  # Performance / Backend
+  config.front_end    = "WebGpu"       -- ← still the best choice on Linux Intel+AMD in 2026
+  config.enable_wayland = true         -- ← can usually be removed (auto-detected), but explicit is fine
 
-  # Environment Support
-  # Explicitly enable Wayland for your GNOME desktop
-  config.enable_wayland = true
+  # Quality of Life
+  config.audible_bell = 'Disabled'
+  config.visual_bell  = {
+    fade_in_duration_ms  = 100,
+    fade_out_duration_ms = 100,
+    target               = 'BackgroundColor',
+  }
+
+  # Dim inactive panes — very helpful when using many splits
+  config.inactive_pane_hsb = {
+    saturation = 0.85,
+    brightness = 0.75,
+  }
 
   return config
   EOF
