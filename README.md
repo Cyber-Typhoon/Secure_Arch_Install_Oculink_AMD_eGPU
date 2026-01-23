@@ -119,7 +119,7 @@
     gpg --keyserver-options auto-key-retrieve --verify archlinux-<version>-x86_64.iso.sig
     ```
 - Create a bootable USB drive:
-  - Use **Rufus** in Windows, selecting **DD mode** for reliable writing.
+  - Use **Rufus** in Windows, selecting **DD mode** for reliable writing. The alternatives are KDE ISO Image Writer and USBImager but Rufus should be a good option here.
   - **Avoid Ventoy** and **Balena Etcher** due to potential trackers and reliability issues.
 - Test the USB by rebooting and selecting it in the **BIOS boot menu** (press `F1`).
 - Verify network connectivity in the live environment:
