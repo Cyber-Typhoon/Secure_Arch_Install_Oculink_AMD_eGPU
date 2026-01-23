@@ -1316,6 +1316,7 @@
     amdgpu_top-tui-bin \
     apparmor.d-git \
     wezterm-git \
+    fresh-editor-bin \
     aylurs-gtk-shell-git \
     libastal-meta  \
     gst-thumbnailers \
