@@ -3609,33 +3609,41 @@
   ```
 ## Step 16: Create Recovery Documentation
 
-- Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
+- Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps ina note titled: "ThinkBook 2025 - Arch Recovery".
   ```bash
-  echo "Store UEFI password, LUKS passphrase, keyfile location, and MOK password in Bitwarden."
-  read -p "Confirm that UEFI password, LUKS passphrase, keyfile location, and MOK password are stored in Bitwarden (y/n): " confirm
-  [ "$confirm" = "y" ] || { echo "Error: Please store credentials in Bitwarden before proceeding."; exit 1; }
+  echo "Store UEFI password, LUKS passphrase, keyfile location, and MOK password"
+  1. UEFI/BIOS Password: [Enter your password]
+  2. LUKS Passphrase:    [Enter your boot passphrase]
+  3. MOK/Secure Boot Passphrase: [Enter your password]
+  --- SYSTEM IDENTIFIERS (For Recovery Mapping) ---
+  echo "LUKS UUID:          $(cryptsetup luksUUID /dev/nvme1n1p2 2>/dev/null)"
+  echo "Arch ESP PARTUUID:  $(blkid -s PARTUUID -o value /dev/nvme1n1p1)"
+  echo "TPM PCRs Enrolled:  0, 4, 7 (Integrity + Secure Boot)"
   ```
 - TPM Seal breaks
   ```bash
-  # Enter LUKS passphrase (Stored in Bitwarden)
-  # Run one automated command
+  # Save the command to repair TPM in the note.
   sudo tpm-seal-fix
   # echo "This re-measures the current boot state and re-enrolls TPM automatically."
   # echo "No manual PCR reading. No key regeneration. Just one line."
   ```
 - Prepare and verify USB
   ```bash
-  echo "Available devices:"
-  lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT
-  read -p "Enter USB partition (e.g., sdb1): " usb_dev
-  [ -b "/dev/$usb_dev" ] || { echo "Error: /dev/$usb_dev not found"; exit 1; }
-  echo "WARNING: Formatting /dev/$usb_dev will erase all data."
-  read -p "Continue? (y/n): " confirm
-  [ "$confirm" = "y" ] || { echo "Aborted."; exit 1; }
-  # The formatting command must be run as root
-  sudo mkfs.fat -F32 -n RECOVERY_USB /dev/$usb_dev || echo "Warning: USB formatting failed"
-  sudo mkdir -p /mnt/usb
-  sudo mount /dev/$usb_dev /mnt/usb
+  echo "Available drives:"
+  lsblk -d -o NAME,SIZE,TYPE,MODEL,MOUNTPOINT
+
+  read -p "Enter the USB device to FORMAT (e.g. sdb): " USB_DISK
+  [[ -b "/dev/$USB_DISK" ]] || { echo "Error: /dev/$USB_DISK not found"; exit 1; }
+
+  echo "WARNING: This will ERASE /dev/$USB_DISK."
+  read -p "Type YES to confirm: " danger
+  [[ "$danger" != "YES" ]] && exit 1
+
+  # Format as FAT32 for maximum compatibility with UEFI/BIOS environments
+  sudo wipefs -a /dev/"$USB_DISK"
+  sudo mkfs.fat -F 32 -n "RECOVERY" /dev/"$USB_DISK"1 || sudo mkfs.fat -F 32 -n "RECOVERY" /dev/"$USB_DISK"
+  sudo mkdir -p /mnt/recovery
+  sudo mount /dev/"$USB_DISK"* /mnt/recovery 2>/dev/null || sudo mount /dev/"$USB_DISK" /mnt/recovery
   ```
 - Verify existing backups
   ```bash
@@ -3644,47 +3652,77 @@
   ```
 - Backup LUKS header and Secure Boot keys
   ```bash
+  echo "Backing up headers and keys..."
+  DATE=$(date +%Y%m%d)
   [ -f /mnt/usb/luks-header-backup ] && { echo "Warning: /mnt/usb/luks-header-backup exists. Overwrite? (y/n): "; read confirm; [ "$confirm" = "y" ] || exit 1; }
-  cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
-  sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
-  cp -r /etc/sbctl /mnt/usb/sbctl-keys
-  sudo chmod -R 600 /mnt/usb/sbctl-keys
+  # LUKS Header Backup
+  sudo cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/recovery/luks-header-$DATE.bak
+
+  # Keyfile Backup (Your automated unlock secondary key)
+  sudo cp /etc/cryptsetup-keys.d/root.key /mnt/recovery/luks-recovery-keyfile
+  sudo chmod 600 /mnt/recovery/luks-recovery-keyfile
+
+  # Secure Boot (sbctl) Database
+  # This allows you to re-sign kernels if you reinstall the OS
+  sudo cp -r /usr/share/secureboot/keys /mnt/recovery/sbctl-keys-$DATE
+  sudo chmod -R 600 /mnt/recovery/sbctl-keys-$DATE
+
+  # Create Integrity Checksums
+  cd /mnt/recovery && sha256sum * > checksums.txt
+  echo "✓ Binary backups complete."
   ```
-- Create a recovery document for troubleshooting:
+- Create a recovery document for troubleshooting (Generate the RECOVERY-GUIDE.md):
   ```bash
+  # This file is written to the USB so you can read it on another device during a crisis.
   [ -f /mnt/usb/luks-keyfile ] && [ -f /mnt/usb/luks-header-backup ] || { echo "Error: Required files missing"; exit 1; }
   cat << 'EOF' > /mnt/usb/recovery.md
   # Arch Linux Recovery Instructions
 
-  a. **Boot from Rescue USB**:
+  a. **Scenario A: TPM Auto-Unlock Fails (Passphrase works) - Boot from Rescue USB **:
    - Insert the GRUB USB created in Step 9 or an Arch Linux ISO USB.
    - For GRUB USB: Select "Arch Linux Rescue" from the GRUB menu.
    - For Arch ISO: Boot into the Arch environment.
-   - Enter the LUKS passphrase or use the keyfile: /mnt/usb/luks-keyfile # OR use recovery keyfile from USB/Bitwarden
-  # LUKS passphrase
-  cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+   - Type your LUKS Passphrase at the boot prompt.
+  Once inside Arch, run:
+   sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
+   sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
-  # OR use recovery keyfile from USB/Bitwarden
-  cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /path/to/crypto_keyfile
+  b. **Scenario B: System Won't Boot (Live ISO Recovery)**:
+   Boot Arch Linux Live ISO.
+   Unlock Drive:
+    cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
+   Mount:
+     mount -o subvol=@ /dev/mapper/cryptroot /mnt
+     mount -o subvol=@home /dev/mapper/cryptroot /mnt/home
+     mount -o subvol=@data /dev/mapper/cryptroot /mnt/data
+     mount /dev/nvme1n1p1 /mnt/boot
+   Chroot:
+     arch-chroot /mnt
+   Fix:
+     sbctl sign -s /boot/EFI/Linux/arch.efi
+     mkinitcpio -P
+     journalctl -u apparmor | grep -i DENIED
+     sbctl status
 
-  b. **Mount Filesystems**:
-   cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
-   mount -o subvol=@ /dev/mapper/cryptroot /mnt
-   mount -o subvol=@home /dev/mapper/cryptroot /mnt/home
-   mount -o subvol=@data /dev/mapper/cryptroot /mnt/data
-   mount /dev/nvme1n1p1 /mnt/boot
-
-  c. **Chroot and Repair**:
-   arch-chroot /mnt
-   mkinitcpio -P
-   sbctl sign -s /boot/EFI/Linux/arch.efi
-   journalctl -u apparmor | grep -i DENIED
-   sbctl status
-
-  d. **Restore LUKS Header**:
-   cryptsetup luksHeaderRestore /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+  c. **Scenario C: LUKS Header Corrupted**:
+   Boot Live ISO.
+   Insert this USB.
+   cryptsetup luksHeaderRestore /dev/nvme1n1p2 --header-backup-file /path/to/usb/luks-header-DATE.bak
    sha256sum -c /mnt/usb/luks-header-backup.sha256
 
+  d. **Scenario D: Snapshot Rollback (BTRFS)**:
+   - List snapshots:
+   snapper --config root list
+   - Identify the desired snapshot number from the output (e.g., 42).
+   - Roll back:
+   snapper --config root rollback 42
+   - Repeat for home and data subvolumes:
+   snapper --config home list
+   snapper --config home rollback <snapshot-number>
+   snapper --config data list
+   snapper --config data rollback <snapshot-number>
+   reboot
+ 
   e. **TPM Recovery**:
    - If TPM unlocking fails, use the LUKS passphrase or keyfile.
    - Wipe old TPM keyslot(s)
@@ -3699,20 +3737,8 @@
   # Verify
   systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM OK"
   sbctl status | grep -q "Enabled" && echo "Secure Boot OK"
-
-  f. **Rollback Snapshot**:
-   - List snapshots:
-   snapper --config root list
-   - Identify the desired snapshot number from the output (e.g., 42).
-   - Roll back:
-   snapper --config root rollback 42
-   - Repeat for home and data subvolumes:
-   snapper --config home list
-   snapper --config home rollback <snapshot-number>
-   snapper --config data list
-   snapper --config data rollback <snapshot-number>
-   reboot
-
+  EOF
+  
   g. **Verify and unmount USB**
   [ -f /mnt/usb/recovery.md ] || { echo "Error: Failed to create /mnt/usb/recovery.md"; exit 1; }
   [ -d /mnt/usb/sbctl-keys ] || { echo "Error: /mnt/usb/sbctl-keys not found"; exit 1; }
@@ -3731,11 +3757,11 @@
   sha256sum -c /mnt/usb/luks-header-backup.sha256
   sudo umount /mnt/usb
   ````
-  - Verify Bitwarden storage (manual)
+  - Final Verification
   ```bash
-  echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud. Keep the recovery USB secure."
+  echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in USB and Bitwarden or an encrypted cloud. Keep the recovery USB secure."
   read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
-  [ "$confirm" = "y" ] || { echo "Error: Please store all data in Bitwarden."; exit 1; }
+  [ "$confirm" = "y" ] || { echo "Error: Please review the documentation steps"; exit 1; }
   ```
 ## Step 17: Backup Strategy
 
