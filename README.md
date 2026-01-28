@@ -3431,13 +3431,38 @@
   ```
 - Test hibernation
   ```bash
-  echo "Verifying swapfile configuration"
+  echo -n "swap file status  → "
   swapon --show
-  btrfs inspect-internal map-swapfile /swap/swapfile
-  filefrag -v /swap/swapfile | grep "extents found: 1" || echo "Warning: Swapfile is fragmented" # Ensure no fragmentation
-  systemctl hibernate
-  echo "After resuming, checking hibernation logs"
-  dmesg | grep -i "hibernate|swap"
+
+  echo -n "swapfile location → "
+  ls -l /swap/swapfile
+
+  echo -n "physical extent count (must be == 1) → "
+  filefrag -v /swap/swapfile | grep -oP 'extents found: \K\d+' || echo "?"
+
+  echo -n "resume offset in fstab → "
+  grep resume_offset /etc/fstab || echo "MISSING!"
+
+  echo -n "resume= parameter in UKI cmdline? → "
+  bootctl list | grep -i resume || echo "not visible"
+
+  echo ""
+  echo "Quick test (VERY dangerous if values are wrong!)"
+  echo "  1. Make sure you have working passphrase fallback"
+  echo "  2. Make sure important work is saved"
+  echo ""
+  read -p "Really attempt hibernation now? (type YES to continue) " answer
+  if [[ "$answer" = "YES" ]]; then
+    sudo systemctl hibernate
+  else
+    echo "Hibernation test skipped (recommended for first run)."
+    echo "When you are ready later, just run:  systemctl hibernate"
+  fi
+
+  echo ""
+  echo "After resume (if it worked) run these checks:"
+  echo "  journalctl -b -1 -u systemd-hibernate.service"
+  echo "  dmesg | grep -i -E 'hibernate|resume|swap'"
   ```
 - Test Wayland session:
   ```bash
@@ -3542,6 +3567,7 @@
   #   • Polkit rule grants wheel group access
   #   • Authentication is cached (~15 min)
   #   • Cache clears on reboot (expected)
+  # after first real boot with GDM/polkit agent active
   echo "Testing run0 inside chroot..."
 
   # First use: should prompt for password
@@ -3552,14 +3578,24 @@
   run0 id
   # → Expected: **no prompt**, outputs UID/GID
 
+  # Third reboot
+  reboot
+
+  # Forth use: should ask for password
+  run0 whoami
+
+  # "If you see polkit agent window + caching works → success."
+  # "If run0 never asks for password → check /etc/polkit-1/rules.d/49-run0-cache.rules"
+
   # Note: Full cache behavior (including timeout) is only observable
   #       after first boot with a display manager (GDM).
   #       In chroot, caching is limited but rule application is verified.
-  echo "run0 validation complete in chroot."
-  echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
+ 
   ```
 - Forcepad Issues
   ```bash
+  # Check if the touchpad is detected
+  dmesg | grep -i "goodix"
   # If touchpad is with issue try this kernel patch https://github.com/ty2/goodix-gt7868q-linux-driver
   ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
@@ -3652,8 +3688,7 @@
   e. **TPM Recovery**:
    - If TPM unlocking fails, use the LUKS passphrase or keyfile.
    - Wipe old TPM keyslot(s)
-  ```bash
-  mapfile -t TPM_SLOTS < <(cryptsetup luksDump /dev/nvme1n1p2 --dump-json-metadata \
+    mapfile -t TPM_SLOTS < <(cryptsetup luksDump /dev/nvme1n1p2 --dump-json-metadata \
     | jq -r '.tokens[] | select(.type == "systemd-tpm2") | .keyslots[]')
 
   for slot in "${TPM_SLOTS[@]}"; do
@@ -3686,16 +3721,18 @@
   sudo umount /mnt/usb
   echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
   echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
-
+  ```
   - Check USB contents
+  ```bash
   lsblk | grep $usb_dev
   sudo mount /dev/$usb_dev /mnt/usb
   ls /mnt/usb/recovery.md /mnt/usb/recovery.md.sha256 /mnt/usb/luks-keyfile /mnt/usb/luks-header-backup /mnt/usb/sbctl-keys
   sha256sum -c /mnt/usb/recovery.md.sha256
   sha256sum -c /mnt/usb/luks-header-backup.sha256
   sudo umount /mnt/usb
-
+  ````
   - Verify Bitwarden storage (manual)
+  ```bash
   echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud. Keep the recovery USB secure."
   read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
   [ "$confirm" = "y" ] || { echo "Error: Please store all data in Bitwarden."; exit 1; }
