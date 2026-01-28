@@ -3769,35 +3769,43 @@
   ```bash
   # Managed by Snapper for @, @home, @data, excluding /var, /var/lib, /log, /tmp, /run.
   ```
-- Install `restic` for backups:
+- Install `rustic` for backups:
   ```bash
-  sudo pacman -S --noconfirm restic
+  sudo pacman -S --noconfirm rustic
   ```
 - Verify & sign binary for Secure Boot
   ```bash
-  sbctl verify /usr/bin/restic || sbctl sign -s /usr/bin/restic
+  sbctl verify /usr/bin/rustic || sbctl sign -s /usr/bin/rustic
   ```
 - Pacman hook (auto-sign on updates)
   ```bash
-  if ! grep -q "Target = restic" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then
-    sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook >/dev/null <<'EOF'
+  if ! grep -q "Target = rustic" /etc/pacman.d/hooks/90-rustic-sign.hook 2>/dev/null; then
+  sudo mkdir -p /etc/pacman.d/hooks
+  sudo tee -a /etc/pacman.d/hooks/90-rustic-sign.hook >/dev/null <<'EOF'
 
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
-  Target = restic
+  Target = rustic
+
   [Action]
-  Description = Sign restic binary with sbctl
+  Description = Sign rustic binary with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/restic
+  Exec = /usr/bin/sbctl sign -s /usr/bin/rustic
   EOF
   fi
   ```
 - Excludes File:
   ```bash
-  sudo mkdir -p /etc/restic
-  sudo tee /etc/restic/excludes.txt >/dev/null <<'EOF'
+  sudo mkdir -p /etc/rustic
+
+  # Create the password file (Random 32-char string)
+  [ -f /etc/rustic/repo-password.txt ] || sudo openssl rand -base64 32 | sudo tee /etc/rustic/repo-password.txt >/dev/null
+  sudo chmod 600 /etc/rustic/repo-password.txt
+
+  # Create the excludes list
+  sudo tee /etc/rustic/excludes.txt >/dev/null <<'EOF'
   /tmp/*
   /var/cache/*
   /var/tmp/*
@@ -3827,153 +3835,152 @@
   ```
 - Create a backup script:
   ```bash
-  sudo tee /usr/local/bin/restic-backup.sh >/dev/null <<'EOF'
+  sudo tee /usr/local/bin/rustic-backup.sh >/dev/null <<'EOF'
   #!/usr/bin/env bash
   set -euo pipefail
 
-  # ----- CONFIGURATION (EDIT ONCE) -----
-  REPO="/mnt/backup/restic-repo"          # <-- CHANGE TO YOUR MOUNTPOINT / SFTP URL
-  HOSTNAME="$(hostname)"
-  TAG="thinkbook"
-  # -------------------------------------
+  # ----- CONFIGURATION -----
+  REPO_PATH="/mnt/backup/backup-repo"  # Adjust this to your backup drive path
+  PASS_FILE="/etc/rustic/repo-password.txt"
+  EXCLUDES="/etc/rustic/excludes.txt"
+  # -------------------------
 
-  export RESTIC_CACHE_DIR="/var/cache/restic"
-  export RESTIC_COMPRESSION="auto"
-
-  # Ensure bitwarden session is active
-  if ! bw status | grep -q '"status":"unlocked"'; then
-    echo "Bitwarden CLI not unlocked – trying to unlock..."
-    bw unlock --raw > /dev/null || { echo "Failed to unlock Bitwarden"; exit 1; }
+  # Ensure backup drive is mounted
+  if ! mountpoint -q /mnt/backup; then
+    echo "Attempting to mount backup drive..."
+    mount /mnt/backup || { echo "Error: Backup drive mount failed. Is the OCuLink dock on?"; exit 1; }
   fi
 
-  # Prevent concurrent runs
-  exec 200>/var/lock/restic-backup.lock
-  flock -n 200 || { echo "Another restic backup is already running"; exit 1; }
+  # Set Rustic Environment Variables
+  export RUSTIC_REPOSITORY="$REPO_PATH"
+  export RUSTIC_PASSWORD_FILE="$PASS_FILE"
+  export RUSTIC_CACHE_DIR="/var/cache/rustic"
 
-  # Unlock any stale locks
-  restic unlock
+  # Ensure cache dir exists for the systemd service
+  mkdir -p "$RUSTIC_CACHE_DIR"
 
-  # Backup
-  restic backup \
-    --verbose \
+  echo "=== Starting Rustic Backup: $(date) ==="
+
+  # Run Backup
+  # --one-file-system prevents crossing into other mounts
+  rustic backup \
+    --exclude-file "$EXCLUDES" \
     --one-file-system \
-    --tag="$TAG" \
-    --hostname="$HOSTNAME" \
-    --exclude-caches \
-    --exclude-if-present .nobackup \
-    --exclude-file=/etc/restic/excludes.txt \
-    /home /data /srv /etc
+    --tag "scheduled" \
+    /etc /home /data /srv
 
-  # Prune
-  restic forget \
-    --keep-last 10 \
-    --keep-daily 7 \
-    --keep-weekly 4 \
-    --keep-monthly 6 \
-    --keep-yearly 3 \
-    --prune
+  # Cleanup (Keep: 7 days, 4 weeks, 6 months)
+  rustic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 
-  # Quick integrity check (5 GiB subset)
-  restic check --read-data-subset=5G
+  # Quick Integrity Check
+  rustic check --read-data-subset=1G
+
+  echo "=== Backup Completed Successfully ==="
   EOF
-  sudo chmod +x /usr/local/bin/restic-backup.sh
+
+  sudo chmod +x /usr/local/bin/rustic-backup.sh
   ```
 - Systemd Service & Timer:
   ```bash
-  sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
+  # Service File
+  sudo tee /etc/systemd/system/rustic-backup.service >/dev/null <<'EOF'
   [Unit]
-  Description=Restic incremental backup
+  Description=Rustic Encrypted Backup
   After=network-online.target
   Wants=network-online.target
 
   [Service]
   Type=oneshot
-  ExecStart=/usr/local/bin/restic-backup.sh
+  ExecStart=/usr/local/bin/rustic-backup.sh
   Nice=19
   IOSchedulingClass=best-effort
+  # Hardening
   ProtectSystem=strict
-  ProtectHome=false
-  PrivateTmp=true
+  ReadWritePaths=/mnt/backup /var/cache/rustic
   EOF
 
-  sudo tee /etc/systemd/system/restic-backup.timer >/dev/null <<'EOF'
+  # Timer File (Daily at 2:30 AM)
+  sudo tee /etc/systemd/system/rustic-backup.timer >/dev/null <<'EOF'
   [Unit]
-  Description=Daily restic backup
-  Requires=restic-backup.service
+  Description=Daily Rustic Backup Timer
 
   [Timer]
   OnCalendar=*-*-* 02:30:00
-  RandomizedDelaySec=5m
+  RandomizedDelaySec=15m
   Persistent=true
-  Unit=restic-backup.service
 
   [Install]
   WantedBy=timers.target
   EOF
   ```
-- Enable Timers Services
-  ```bash
-  sudo systemctl enable --now restic-backup.timer
-  ```
 - Weekly full repo check
   ```bash
-  sudo tee /etc/systemd/system/restic-check.service >/dev/null <<'EOF'
+  sudo tee /etc/systemd/system/rustic-check.service >/dev/null <<'EOF'
   [Unit]
-  Description=Restic repository integrity check
-  After=network-online.target
+  Description=Rustic Full Repository Integrity Check
 
   [Service]
   Type=oneshot
-  ExecStart=/usr/bin/restic check
+  Environment="RUSTIC_REPOSITORY=/mnt/backup/backup-repo"
+  Environment="RUSTIC_PASSWORD_FILE=/etc/rustic/repo-password.txt"
+  ExecStart=/usr/bin/rustic check
+  # Ensure background check doesn't lag the desktop
   Nice=19
+  IOSchedulingClass=best-effort
   EOF
 
-  sudo tee /etc/systemd/system/restic-check.timer >/dev/null <<'EOF'
+  sudo tee /etc/systemd/system/rustic-check.timer >/dev/null <<'EOF'
   [Unit]
-  Description=Weekly restic repo check
+  Description=Weekly Rustic Repo Check
 
   [Timer]
   OnCalendar=Sun *-*-* 03:00:00
   Persistent=true
-  Unit=restic-check.service
 
   [Install]
   WantedBy=timers.target
   EOF
-
-  sudo systemctl enable --now restic-check.timer
+  ```
+- Final activation of all backup timers
+  ```bash
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now rustic-backup.timer rustic-check.timer
   ```
 - First-run initialization (interactive)
   ```bash
-  echo "=== RESTIC REPOSITORY INITIALIZATION ==="
-  read -p "Enter full repository path (local dir or sftp:user@host:/path): " REPO
-  sudo sed -i "s|^REPO=.*|REPO=\"$REPO\"|" /usr/local/bin/restic-backup.sh
+  echo "=== rustic REPOSITORY INITIALIZATION ==="
+  # Set your desired path (e.g., an external HDD or an OCuLink-attached NVMe)
+  read -p "Enter backup mount path (e.g. /mnt/backup/backup-repo): " MY_REPO
 
-  echo "You must now initialize the repository. The user running the service MUST own this repository."
-  echo "If running as root (default for system service), use: sudo restic init --repo \"$REPO\""
-  echo "If running as your user (recommended for Bitwarden), use: restic init --repo \"$REPO\""
-  
-  # Init repo (ask for secondary key file for offline recovery)
-  restic init --repo "$REPO"
-  echo "Save the repository password in Bitwarden (item: restic-repo)."
-  read -p "Create a secondary key file for offline recovery? (y/N): " sec
-  if [[ $sec =~ ^[Yy]$ ]]; then
-    SECONDARY_KEY="/root/restic-secondary-key.txt"
-    restic key add --new-password-file "$SECONDARY_KEY"
-    echo "Store $SECONDARY_KEY securely (offline USB, encrypted vault)."
+  # Initialize the repo using the password file we generated
+  sudo rustic -r "$MY_REPO" --password-file /etc/rustic/repo-password.txt init
+
+  echo "IMPORTANT: Copy /etc/rustic/repo-password.txt to your Bitwarden vault now."
+  echo "Without this file or its contents, your backups are PERMANENTLY UNREADABLE."
+
+  echo "CRITICAL: Copy this password to Bitwarden:"
+  sudo cat /etc/rustic/repo-password.txt
+- Secondary/offline key
+  ```bash
+  read -p "Create secondary offline key? (y/N) " choice
+  if [[ "$$   choice" =~ ^[Yy]   $$ ]]; then
+    SECONDARY="/root/rustic-offline-key.txt"
+    sudo rustic -r "$MY_REPO" --password-file "$PASS_FILE" key add --new-password-file "$SECONDARY"
+    echo "Store $SECONDARY VERY securely (recovery USB!)"
   fi
+  ```
 - Test + Notes
   ```bash
   echo "Running a quick test backup..."
-  /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
+  /usr/local/bin/rustic-backup.sh && echo "Test backup succeeded!"
   systemctl list-timers --all
-  journalctl -u restic-backup.timer -n 20
+  journalctl -u rustic-backup.timer -n 20
 
-  # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
-  # Check status any time:  restic snapshots --repo <path>
+  # rustic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
+  # Check status any time:  rustic snapshots --repo <path>
   # Restore example:
-  # restic restore --target /tmp/restore latest --path /home/user/Documents
-  # Weekly integrity: systemctl status restic-check.timer
+  # rustic restore --target /tmp/restore latest --path /home/user/Documents
+  # Weekly integrity: systemctl status rustic-check.timer
   ```
 ## Step 18: Post-Installation Maintenance and Verification
 
@@ -4367,7 +4374,7 @@
             icon: "backup-symbolic",
         }),
         Widget.Label({
-            label: systemd.unit("restic-backup.service")
+            label: systemd.unit("rustic-backup.service")
                 .bind("ActiveState")
                 .as(state => {
                     if (state === "active") return "✓ Running";
@@ -4378,7 +4385,7 @@
         }),
         Widget.Button({
             label: "Run",
-            onClicked: () => Utils.execAsync("systemctl start restic-backup.service"),
+            onClicked: () => Utils.execAsync("systemctl start rustic-backup.service"),
         }),
     ],
   });
