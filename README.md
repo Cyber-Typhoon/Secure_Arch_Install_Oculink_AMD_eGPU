@@ -3748,7 +3748,7 @@
   echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
   echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
   ```
-  - Check USB contents
+ - Check USB contents
   ```bash
   lsblk | grep $usb_dev
   sudo mount /dev/$usb_dev /mnt/usb
@@ -3757,7 +3757,7 @@
   sha256sum -c /mnt/usb/luks-header-backup.sha256
   sudo umount /mnt/usb
   ````
-  - Final Verification
+ - Final Verification
   ```bash
   echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in USB and Bitwarden or an encrypted cloud. Keep the recovery USB secure."
   read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
