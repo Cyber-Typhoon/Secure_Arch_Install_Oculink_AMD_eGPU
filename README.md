@@ -2818,10 +2818,14 @@
   echo "Choose one: simple performance via GameMode, or complex system-wide tuning via Ananicy-cpp."
   echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). You would need to create a script for this."
   ```
-- Performance optimization template (add to Steam/Lutris)
+- Performance optimization template (add to Steam/Lutris/Heroic)
   ```bash
-  LD_BIND_NOW=1 gamemoderun mangohud %command%
+  # Template 1: For regular gamnig (without gamescope, light games or native desktop resolution)
+  # MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun mangohud %command%
 
+  # Template 2: For gamescope gaming (with eGPU)
+  # LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
+  
   # Verify Gaming Settings
   sysctl -a | grep vm.swappiness # (should be 10)
   cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
@@ -4181,35 +4185,24 @@
 - **k) Tunning Games**:
   ```bash
   # Mangohud and Gamescope Alert
-  echo "ALERT: DO NOT USE Mangohud if you are using Gamescope. They conflict."
-  echo "Use Gamescope's built-in overlay functionality instead."
+  echo "ALERT: Do not use 'mangohud %command%' inside/beside Gamescope."
+  echo "Instead, use the '--mangoapp' flag. Both use the same MangoHud.conf file."
 
-  # Mangohud Configuration Tip
-  echo "TIP: Use the MANGOHUD_CONFIG environment variable for per-game HUD customization."
+  # eGPU Tip (OCuLink Specific)
+  echo "TIP: Use MESA_VK_DEVICE_SELECT=amd (or the specific ID) to force Gamescope on eGPU."
   # Example: Shows FPS and CPU temperature in the top left
   # Launch Options: MANGOHUD_CONFIG="position=top-left,cpu_temp,fps" gamemoderun %command%
 
-  # MangoHud Tips - Set template config via env for convenience (e.g., in ~/.bash_profile)
-  MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco %command%
   # Toggle overlay: Default hotkey Shift+F1 (configurable)
   # ALERT: Do not use traditional MangoHud with Gamescope—it's unsupported. Use Gamescope's --mangoapp flag instead (e.g., gamescope --mangoapp -f -- %command%).
+  # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
+  LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
   # For FPS caps with VRR: Set to refresh_rate - 3 (e.g., 117 for 120Hz) to avoid VSync stutter.
   # For AMD shaders: Add RADV_PERFTEST=aco for faster compilation (e.g., RADV_PERFTEST=aco gamemoderun %command%)
 
   # Steam/Lutris/Heroic add in launch options:
   gamemoderun %command%
 
-  # Base Command (Recommended minimum for all games)
-  gamemoderun mangohud %command%
-  
-  # Linux Native Games (Best performance, includes ACO compiler)
-  # Best Performance / Lowest Latency (Competitive, requires manual vsync control)
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco %command%
-
-  # Optimal Performance / Features (Recommended for Wayland/Freesync/VRR users)
-  # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
-  LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 --fsr-sharpness 1 --adaptive-sync -- %command%
-  
   # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
   echo "# If issues with VRR, try fixed refresh rate ('-r 144' instead of '--adaptive-sync'):"
   echo "# LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 144 -- %command%"
@@ -4231,19 +4224,19 @@
   [Action]
   Description = Sign gaming binaries for Secure Boot
   When = PostTransaction
-  Exec = /bin/sh -c '/usr/bin/sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true'
+  Exec = /bin/sh -c '/usr/bin/sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true'
   Depends = sbctl
   EOF
 
-  sudo sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true
+  sudo sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true
   
   # Environment variables (add to ~/.zshrc for system-wide effect):
   cat >> ~/.zshrc <<'EOF'
-  # Environment variables (add to ~/.zshrc for system-wide effect):
-  cat >> ~/.zshrc <<'EOF'
+  export LD_BIND_NOW=1
   # Gaming Env Vars (comment out if issues)
   # export RADV_FORCE_VRS=1  # VRS perf boost (toggle per-game if glitches)
   # export MANGOHUD=1        # Always-on HUD (Setting this globally is NOT recommended due to conflicts)
+  # export MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing"
   EOF
 
   # Reload shell
@@ -4256,7 +4249,7 @@
   echo "STEAM_DISABLE_TELEMETRY=1" >> ~/.steam/steam.cfg
 
   # Verify
-  sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope
+  sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope
   gamemoded -t && echo "GameMode is working!"
   ```
 - **l) Audio and Software Enhancements**:
