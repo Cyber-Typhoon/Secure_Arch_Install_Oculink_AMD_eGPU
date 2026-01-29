@@ -434,7 +434,7 @@
   \
   # Graphics
   mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel intel-compute-runtime \
-  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo intel-gpu-tools lact \
+  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo xorg-xwayland intel-gpu-tools lact \
   \
   # Audio
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
