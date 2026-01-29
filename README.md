@@ -3390,7 +3390,7 @@
   echo "After reboot, checking TPM unlock logs"
   journalctl -b | grep -i "systemd-cryptsetup.*tpm2" || echo "Warning: TPM unlock not confirmed"
 
-  # Check the PCRs you actually enrolled (0, 4, 7)
+  # Check the PCRs you actually enrolled (7,11)
   tpm2_pcrread sha256:7,11 > /tmp/tpm-pcr-current.txt
 
   # Mount USB to read the backup file
@@ -3636,7 +3636,7 @@
   --- SYSTEM IDENTIFIERS (For Recovery Mapping) ---
   echo "LUKS UUID:          $(cryptsetup luksUUID /dev/nvme1n1p2 2>/dev/null)"
   echo "Arch ESP PARTUUID:  $(blkid -s PARTUUID -o value /dev/nvme1n1p1)"
-  echo "TPM PCRs Enrolled:  0, 4, 7 (Integrity + Secure Boot)"
+  echo "TPM PCRs Enrolled:  7,11 (Integrity + Secure Boot)"
   ```
 - TPM Seal breaks
   ```bash
@@ -3703,7 +3703,7 @@
    - Type your LUKS Passphrase at the boot prompt.
   Once inside Arch, run:
    sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-   sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
+   sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7+11 /dev/nvme1n1p2
 
   b. **Scenario B: System Won't Boot (Live ISO Recovery)**:
    Boot Arch Linux Live ISO.
