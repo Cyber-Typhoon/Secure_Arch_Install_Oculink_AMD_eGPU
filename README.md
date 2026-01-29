@@ -119,7 +119,7 @@
     gpg --keyserver-options auto-key-retrieve --verify archlinux-<version>-x86_64.iso.sig
     ```
 - Create a bootable USB drive:
-  - Use **Rufus** in Windows, selecting **DD mode** for reliable writing.
+  - Use **Rufus** in Windows, selecting **DD mode** for reliable writing. The alternatives are KDE ISO Image Writer and USBImager but Rufus should be a good option here.
   - **Avoid Ventoy** and **Balena Etcher** due to potential trackers and reliability issues.
 - Test the USB by rebooting and selecting it in the **BIOS boot menu** (press `F1`).
 - Verify network connectivity in the live environment:
@@ -1267,7 +1267,7 @@
   # CLI Tools
   atuin bat bandwhich bottom broot delta dog dua eza fd fzf gcc gdb gitui glow gping \
   helix httpie hyfetch linux-docs procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
-  xdg-ninja yazi zellij zoxide zsh-autosuggestions \
+  xdg-ninja yazi zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
@@ -1282,7 +1282,7 @@
   # Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
   ttf-roboto ttf-roboto-mono ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-fira-code \
-  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd \
+  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono \
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
@@ -1315,7 +1315,8 @@
     aide \
     amdgpu_top-tui-bin \
     apparmor.d-git \
-    alacritty-graphics \
+    wezterm-git \
+    fresh-editor-bin \
     aylurs-gtk-shell-git \
     libastal-meta  \
     gst-thumbnailers \
@@ -1325,7 +1326,6 @@
     kanagawa-icon-theme-git \
     kanagawa-gtk-theme-git \
     rose-pine-cursor \
-    rose-pine-alacritty-git \
     rose-pine-gtk-theme-full \
     stylepak-git \
     run0-sudo-shim-git \
@@ -1531,26 +1531,63 @@
   sudo systemctl list-unit-files | grep paru-update
   sudo systemctl status "paru-update@$USER.service"
   ```
-- Edit the configuration file (likely at ~/.config/alacritty/alacritty.toml or alacritty.yml):
+- Edit the Wezterm Visuals:
   ```bash
-  # Configure Alacritty font
-  mkdir -p ~/.config/alacritty
-  if [[ ! -f ~/.config/alacritty/alacritty.toml ]]; then
-    cat <<'EOF' > ~/.config/alacritty/alacritty.toml
-  [font.normal]
-  family = "JetBrainsMono Nerd Font"
-  style = "Regular"
+  # Configure WezTerm
+  mkdir -p ~/.config/wezterm
+  if [[ ! -f ~/.config/wezterm/wezterm.lua ]]; then
+    cat <<'EOF' > ~/.config/wezterm/wezterm.lua
+  local wezterm = require 'wezterm'
+  local config = wezterm.config_builder()
 
-  [font.bold]
-  family = "JetBrainsMono Nerd Font"
-  style = "Bold"
+  # Fonts & Rendering
+  config.font = wezterm.font_with_fallback({
+    { family = "JetBrains Mono", weight = "Regular" },
+    { family = "Symbols Nerd Font Mono", scale = 1.0 },
+    "Noto Color Emoji",   -- very useful fallback nowadays
+  })
 
-  [font.italic]
-  family = "JetBrainsMono Nerd Font"
-  style = "Italic"
+  config.font_size           = 12.5           -- ← most popular range on 14–16" 3K/4K laptops
+  config.line_height         = 1.03           -- ← subtle improvement in readability
+  config.harfbuzz_features   = { 'liga', 'calt', 'ss01', 'ss02', 'ss03', 'ss04', 'ss05' }
+
+  # Appearance
+  config.color_scheme             = 'rose-pine'
+  config.window_background_opacity = 0.90       -- ← bit stronger blur, modern preference
+  config.text_background_opacity   = 1.0        -- ← keep! very important with transparency
+
+  config.window_padding = {
+    left   = '12px',
+    right  = '12px',
+    top    = '8px',
+    bottom = '8px',
+  }
+
+  config.window_decorations     = "RESIZE"      -- ← clean look, GNOME-friendly
+  config.hide_tab_bar_if_only_one_tab = true
+
+  # Performance / Backend
+  config.front_end    = "WebGpu"       -- ← still the best choice on Linux Intel+AMD in 2026
+  config.enable_wayland = true         -- ← can usually be removed (auto-detected), but explicit is fine
+
+  # Quality of Life
+  config.audible_bell = 'Disabled'
+  config.visual_bell  = {
+    fade_in_duration_ms  = 100,
+    fade_out_duration_ms = 100,
+    target               = 'BackgroundColor',
+  }
+
+  # Dim inactive panes — very helpful when using many splits
+  config.inactive_pane_hsb = {
+    saturation = 0.85,
+    brightness = 0.75,
+  }
+
+  return config
   EOF
   else
-    echo "Alacritty config already exists – font not overwritten"
+    echo "WezTerm config already exists – skipping"
   fi
   ```
 - Final full system update + UKI rebuild
@@ -2781,10 +2818,14 @@
   echo "Choose one: simple performance via GameMode, or complex system-wide tuning via Ananicy-cpp."
   echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). You would need to create a script for this."
   ```
-- Performance optimization template (add to Steam/Lutris)
+- Performance optimization template (add to Steam/Lutris/Heroic)
   ```bash
-  LD_BIND_NOW=1 gamemoderun mangohud %command%
+  # Template 1: For regular gamnig (without gamescope, light games or native desktop resolution)
+  # MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun mangohud %command%
 
+  # Template 2: For gamescope gaming (with eGPU)
+  # LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
+  
   # Verify Gaming Settings
   sysctl -a | grep vm.swappiness # (should be 10)
   cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
@@ -3186,7 +3227,7 @@
   ```
 - Backup existing configurations
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/alacritty ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
+  cp -r ~/.zshrc ~/.config/gnome ~/.config/wezterm ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
   ```
 - Create a folder in chezmoi to hold system templates
   ```bash
@@ -3394,13 +3435,52 @@
   ```
 - Test hibernation
   ```bash
-  echo "Verifying swapfile configuration"
+  # Ensure the UKI cmdline has the resume parameters
+  RES_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2 2>/dev/null)
+  RES_OFFSET=$(sudo btrfs inspect-internal map-swapfile -r /swap/swapfile 2>/dev/null)
+
+  echo "Checking UKI Command Line..."
+  # If using /etc/cmdline.d/ (Standard for modern mkinitcpio)
+  echo "resume=UUID=$RES_UUID resume_offset=$RES_OFFSET" | sudo tee /etc/cmdline.d/99-resume.conf
+  
+  # Rebuild UKI to bake in the new parameters
+  echo "Rebuilding UKI with resume parameters..."
+  sudo mkinitcpio -P
+
+  # Verify the baked-in parameters
+  echo "Verifying parameters inside the EFI binary..."
+  strings /boot/EFI/Linux/arch.efi | grep -E "resume|resume_offset" || echo "ERROR: Resume not baked into UKI!"
+
+  # [Proceed with the existing safety checks and systemctl hibernate]
+  echo -n "swap file status  → "
   swapon --show
-  btrfs inspect-internal map-swapfile /swap/swapfile
-  filefrag -v /swap/swapfile | grep "extents found: 1" || echo "Warning: Swapfile is fragmented" # Ensure no fragmentation
-  systemctl hibernate
-  echo "After resuming, checking hibernation logs"
-  dmesg | grep -i "hibernate|swap"
+
+  echo -n "swapfile location → "
+  ls -l /swap/swapfile
+  
+  echo -n "physical extent count (must be == 1) → "
+  filefrag -v /swap/swapfile | grep -oP 'extents found: \K\d+' || echo "?"
+
+  echo -n "resume= parameter in UKI cmdline? → "
+  bootctl list | grep -i resume || echo "not visible"
+
+  echo ""
+  echo "Quick test (VERY dangerous if values are wrong!)"
+  echo "  1. Make sure you have working passphrase fallback"
+  echo "  2. Make sure important work is saved"
+  echo ""
+  read -p "Really attempt hibernation now? (type YES to continue) " answer
+  if [[ "$answer" = "YES" ]]; then
+    sudo systemctl hibernate
+  else
+    echo "Hibernation test skipped (recommended for first run)."
+    echo "When you are ready later, just run:  systemctl hibernate"
+  fi
+
+  echo ""
+  echo "After resume (if it worked) run these checks:"
+  echo "  journalctl -b -1 -u systemd-hibernate.service | grep -i "Error"
+  echo "  dmesg | grep -i -E 'hibernate|resume|swap'"
   ```
 - Test Wayland session:
   ```bash
@@ -3505,6 +3585,7 @@
   #   • Polkit rule grants wheel group access
   #   • Authentication is cached (~15 min)
   #   • Cache clears on reboot (expected)
+  # after first real boot with GDM/polkit agent active
   echo "Testing run0 inside chroot..."
 
   # First use: should prompt for password
@@ -3515,14 +3596,24 @@
   run0 id
   # → Expected: **no prompt**, outputs UID/GID
 
+  # Third reboot
+  reboot
+
+  # Forth use: should ask for password
+  run0 whoami
+
+  # "If you see polkit agent window + caching works → success."
+  # "If run0 never asks for password → check /etc/polkit-1/rules.d/49-run0-cache.rules"
+
   # Note: Full cache behavior (including timeout) is only observable
   #       after first boot with a display manager (GDM).
   #       In chroot, caching is limited but rule application is verified.
-  echo "run0 validation complete in chroot."
-  echo "After first boot, re-test: run0 whoami → run0 id (no prompt) → reboot → run0 whoami (prompt again)"
+ 
   ```
 - Forcepad Issues
   ```bash
+  # Check if the touchpad is detected
+  dmesg | grep -i "goodix"
   # If touchpad is with issue try this kernel patch https://github.com/ty2/goodix-gt7868q-linux-driver
   ```
 - (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
@@ -3536,33 +3627,41 @@
   ```
 ## Step 16: Create Recovery Documentation
 
-- Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps in Bitwarden.
+- Document UEFI password, LUKS passphrase, keyfile location, MOK password, and recovery steps ina note titled: "ThinkBook 2025 - Arch Recovery".
   ```bash
-  echo "Store UEFI password, LUKS passphrase, keyfile location, and MOK password in Bitwarden."
-  read -p "Confirm that UEFI password, LUKS passphrase, keyfile location, and MOK password are stored in Bitwarden (y/n): " confirm
-  [ "$confirm" = "y" ] || { echo "Error: Please store credentials in Bitwarden before proceeding."; exit 1; }
+  echo "Store UEFI password, LUKS passphrase, keyfile location, and MOK password"
+  1. UEFI/BIOS Password: [Enter your password]
+  2. LUKS Passphrase:    [Enter your boot passphrase]
+  3. MOK/Secure Boot Passphrase: [Enter your password]
+  --- SYSTEM IDENTIFIERS (For Recovery Mapping) ---
+  echo "LUKS UUID:          $(cryptsetup luksUUID /dev/nvme1n1p2 2>/dev/null)"
+  echo "Arch ESP PARTUUID:  $(blkid -s PARTUUID -o value /dev/nvme1n1p1)"
+  echo "TPM PCRs Enrolled:  0, 4, 7 (Integrity + Secure Boot)"
   ```
 - TPM Seal breaks
   ```bash
-  # Enter LUKS passphrase (Stored in Bitwarden)
-  # Run one automated command
+  # Save the command to repair TPM in the note.
   sudo tpm-seal-fix
   # echo "This re-measures the current boot state and re-enrolls TPM automatically."
   # echo "No manual PCR reading. No key regeneration. Just one line."
   ```
 - Prepare and verify USB
   ```bash
-  echo "Available devices:"
-  lsblk -d -o NAME,SIZE,TYPE,MOUNTPOINT
-  read -p "Enter USB partition (e.g., sdb1): " usb_dev
-  [ -b "/dev/$usb_dev" ] || { echo "Error: /dev/$usb_dev not found"; exit 1; }
-  echo "WARNING: Formatting /dev/$usb_dev will erase all data."
-  read -p "Continue? (y/n): " confirm
-  [ "$confirm" = "y" ] || { echo "Aborted."; exit 1; }
-  # The formatting command must be run as root
-  sudo mkfs.fat -F32 -n RECOVERY_USB /dev/$usb_dev || echo "Warning: USB formatting failed"
-  sudo mkdir -p /mnt/usb
-  sudo mount /dev/$usb_dev /mnt/usb
+  echo "Available drives:"
+  lsblk -d -o NAME,SIZE,TYPE,MODEL,MOUNTPOINT
+
+  read -p "Enter the USB device to FORMAT (e.g. sdb): " USB_DISK
+  [[ -b "/dev/$USB_DISK" ]] || { echo "Error: /dev/$USB_DISK not found"; exit 1; }
+
+  echo "WARNING: This will ERASE /dev/$USB_DISK."
+  read -p "Type YES to confirm: " danger
+  [[ "$danger" != "YES" ]] && exit 1
+
+  # Format as FAT32 for maximum compatibility with UEFI/BIOS environments
+  sudo wipefs -a /dev/"$USB_DISK"
+  sudo mkfs.fat -F 32 -n "RECOVERY" /dev/"$USB_DISK"1 || sudo mkfs.fat -F 32 -n "RECOVERY" /dev/"$USB_DISK"
+  sudo mkdir -p /mnt/recovery
+  sudo mount /dev/"$USB_DISK"* /mnt/recovery 2>/dev/null || sudo mount /dev/"$USB_DISK" /mnt/recovery
   ```
 - Verify existing backups
   ```bash
@@ -3571,64 +3670,65 @@
   ```
 - Backup LUKS header and Secure Boot keys
   ```bash
+  echo "Backing up headers and keys..."
+  DATE=$(date +%Y%m%d)
   [ -f /mnt/usb/luks-header-backup ] && { echo "Warning: /mnt/usb/luks-header-backup exists. Overwrite? (y/n): "; read confirm; [ "$confirm" = "y" ] || exit 1; }
-  cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
-  sha256sum /mnt/usb/luks-header-backup > /mnt/usb/luks-header-backup.sha256
-  cp -r /etc/sbctl /mnt/usb/sbctl-keys
-  sudo chmod -R 600 /mnt/usb/sbctl-keys
+  # LUKS Header Backup
+  sudo cryptsetup luksHeaderBackup /dev/nvme1n1p2 --header-backup-file /mnt/recovery/luks-header-$DATE.bak
+
+  # Keyfile Backup (Your automated unlock secondary key)
+  sudo cp /etc/cryptsetup-keys.d/root.key /mnt/recovery/luks-recovery-keyfile
+  sudo chmod 600 /mnt/recovery/luks-recovery-keyfile
+
+  # Secure Boot (sbctl) Database
+  # This allows you to re-sign kernels if you reinstall the OS
+  sudo cp -r /usr/share/secureboot/keys /mnt/recovery/sbctl-keys-$DATE
+  sudo chmod -R 600 /mnt/recovery/sbctl-keys-$DATE
+
+  # Create Integrity Checksums
+  cd /mnt/recovery && sha256sum * > checksums.txt
+  echo "✓ Binary backups complete."
   ```
-- Create a recovery document for troubleshooting:
+- Create a recovery document for troubleshooting (Generate the RECOVERY-GUIDE.md):
   ```bash
+  # This file is written to the USB so you can read it on another device during a crisis.
   [ -f /mnt/usb/luks-keyfile ] && [ -f /mnt/usb/luks-header-backup ] || { echo "Error: Required files missing"; exit 1; }
   cat << 'EOF' > /mnt/usb/recovery.md
   # Arch Linux Recovery Instructions
 
-  a. **Boot from Rescue USB**:
+  a. **Scenario A: TPM Auto-Unlock Fails (Passphrase works) - Boot from Rescue USB **:
    - Insert the GRUB USB created in Step 9 or an Arch Linux ISO USB.
    - For GRUB USB: Select "Arch Linux Rescue" from the GRUB menu.
    - For Arch ISO: Boot into the Arch environment.
-   - Enter the LUKS passphrase or use the keyfile: /mnt/usb/luks-keyfile # OR use recovery keyfile from USB/Bitwarden
-  # LUKS passphrase
-  cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+   - Type your LUKS Passphrase at the boot prompt.
+  Once inside Arch, run:
+   sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
+   sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/nvme1n1p2
 
-  # OR use recovery keyfile from USB/Bitwarden
-  cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /path/to/crypto_keyfile
+  b. **Scenario B: System Won't Boot (Live ISO Recovery)**:
+   Boot Arch Linux Live ISO.
+   Unlock Drive:
+    cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
+   Mount:
+     mount -o subvol=@ /dev/mapper/cryptroot /mnt
+     mount -o subvol=@home /dev/mapper/cryptroot /mnt/home
+     mount -o subvol=@data /dev/mapper/cryptroot /mnt/data
+     mount /dev/nvme1n1p1 /mnt/boot
+   Chroot:
+     arch-chroot /mnt
+   Fix:
+     sbctl sign -s /boot/EFI/Linux/arch.efi
+     mkinitcpio -P
+     journalctl -u apparmor | grep -i DENIED
+     sbctl status
 
-  b. **Mount Filesystems**:
-   cryptsetup luksOpen /dev/nvme1n1p2 cryptroot --key-file /mnt/usb/luks-keyfile
-   mount -o subvol=@ /dev/mapper/cryptroot /mnt
-   mount -o subvol=@home /dev/mapper/cryptroot /mnt/home
-   mount -o subvol=@data /dev/mapper/cryptroot /mnt/data
-   mount /dev/nvme1n1p1 /mnt/boot
-
-  c. **Chroot and Repair**:
-   arch-chroot /mnt
-   mkinitcpio -P
-   sbctl sign -s /boot/EFI/Linux/arch.efi
-   journalctl -u apparmor | grep -i DENIED
-   sbctl status
-
-  d. **Restore LUKS Header**:
-   cryptsetup luksHeaderRestore /dev/nvme1n1p2 --header-backup-file /mnt/usb/luks-header-backup
+  c. **Scenario C: LUKS Header Corrupted**:
+   Boot Live ISO.
+   Insert this USB.
+   cryptsetup luksHeaderRestore /dev/nvme1n1p2 --header-backup-file /path/to/usb/luks-header-DATE.bak
    sha256sum -c /mnt/usb/luks-header-backup.sha256
 
-  e. **TPM Recovery**:
-   - If TPM unlocking fails, use the LUKS passphrase or keyfile.
-   - Wipe old TPM keyslot(s)
-  ```bash
-  mapfile -t TPM_SLOTS < <(cryptsetup luksDump /dev/nvme1n1p2 --dump-json-metadata \
-    | jq -r '.tokens[] | select(.type == "systemd-tpm2") | .keyslots[]')
-
-  for slot in "${TPM_SLOTS[@]}"; do
-    echo "Wiping TPM keyslot $slot..."
-    systemd-cryptenroll /dev/nvme1n1p2 --wipe-slot="$slot" || true
-  done
-
-  # Verify
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM OK"
-  sbctl status | grep -q "Enabled" && echo "Secure Boot OK"
-
-  f. **Rollback Snapshot**:
+  d. **Scenario D: Snapshot Rollback (BTRFS)**:
    - List snapshots:
    snapper --config root list
    - Identify the desired snapshot number from the output (e.g., 42).
@@ -3640,7 +3740,23 @@
    snapper --config data list
    snapper --config data rollback <snapshot-number>
    reboot
+ 
+  e. **TPM Recovery**:
+   - If TPM unlocking fails, use the LUKS passphrase or keyfile.
+   - Wipe old TPM keyslot(s)
+    mapfile -t TPM_SLOTS < <(cryptsetup luksDump /dev/nvme1n1p2 --dump-json-metadata \
+    | jq -r '.tokens[] | select(.type == "systemd-tpm2") | .keyslots[]')
 
+  for slot in "${TPM_SLOTS[@]}"; do
+    echo "Wiping TPM keyslot $slot..."
+    systemd-cryptenroll /dev/nvme1n1p2 --wipe-slot="$slot" || true
+  done
+
+  # Verify
+  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM OK"
+  sbctl status | grep -q "Enabled" && echo "Secure Boot OK"
+  EOF
+  
   g. **Verify and unmount USB**
   [ -f /mnt/usb/recovery.md ] || { echo "Error: Failed to create /mnt/usb/recovery.md"; exit 1; }
   [ -d /mnt/usb/sbctl-keys ] || { echo "Error: /mnt/usb/sbctl-keys not found"; exit 1; }
@@ -3649,19 +3765,21 @@
   sudo umount /mnt/usb
   echo "WARNING: Store /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud."
   echo "WARNING: Keep the recovery USB secure to prevent unauthorized access."
-
-  - Check USB contents
+  ```
+ - Check USB contents
+  ```bash
   lsblk | grep $usb_dev
   sudo mount /dev/$usb_dev /mnt/usb
   ls /mnt/usb/recovery.md /mnt/usb/recovery.md.sha256 /mnt/usb/luks-keyfile /mnt/usb/luks-header-backup /mnt/usb/sbctl-keys
   sha256sum -c /mnt/usb/recovery.md.sha256
   sha256sum -c /mnt/usb/luks-header-backup.sha256
   sudo umount /mnt/usb
-
-  - Verify Bitwarden storage (manual)
-  echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in Bitwarden or an encrypted cloud. Keep the recovery USB secure."
+  ````
+ - Final Verification
+  ```bash
+  echo "WARNING: Store UEFI password, LUKS passphrase, /mnt/usb/luks-keyfile location, MOK password, /mnt/usb/recovery.md, /mnt/usb/luks-header-backup, /mnt/usb/sbctl-keys, and their checksums in USB and Bitwarden or an encrypted cloud. Keep the recovery USB secure."
   read -p "Confirm all credentials and USB contents are stored in Bitwarden (y/n): " confirm
-  [ "$confirm" = "y" ] || { echo "Error: Please store all data in Bitwarden."; exit 1; }
+  [ "$confirm" = "y" ] || { echo "Error: Please review the documentation steps"; exit 1; }
   ```
 ## Step 17: Backup Strategy
 
@@ -3669,35 +3787,43 @@
   ```bash
   # Managed by Snapper for @, @home, @data, excluding /var, /var/lib, /log, /tmp, /run.
   ```
-- Install `restic` for backups:
+- Install `rustic` for backups:
   ```bash
-  sudo pacman -S --noconfirm restic
+  sudo pacman -S --noconfirm rustic
   ```
 - Verify & sign binary for Secure Boot
   ```bash
-  sbctl verify /usr/bin/restic || sbctl sign -s /usr/bin/restic
+  sbctl verify /usr/bin/rustic || sbctl sign -s /usr/bin/rustic
   ```
 - Pacman hook (auto-sign on updates)
   ```bash
-  if ! grep -q "Target = restic" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then
-    sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook >/dev/null <<'EOF'
+  if ! grep -q "Target = rustic" /etc/pacman.d/hooks/90-rustic-sign.hook 2>/dev/null; then
+  sudo mkdir -p /etc/pacman.d/hooks
+  sudo tee -a /etc/pacman.d/hooks/90-rustic-sign.hook >/dev/null <<'EOF'
 
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
-  Target = restic
+  Target = rustic
+
   [Action]
-  Description = Sign restic binary with sbctl
+  Description = Sign rustic binary with sbctl
   When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/restic
+  Exec = /usr/bin/sbctl sign -s /usr/bin/rustic
   EOF
   fi
   ```
 - Excludes File:
   ```bash
-  sudo mkdir -p /etc/restic
-  sudo tee /etc/restic/excludes.txt >/dev/null <<'EOF'
+  sudo mkdir -p /etc/rustic
+
+  # Create the password file (Random 32-char string)
+  [ -f /etc/rustic/repo-password.txt ] || sudo openssl rand -base64 32 | sudo tee /etc/rustic/repo-password.txt >/dev/null
+  sudo chmod 600 /etc/rustic/repo-password.txt
+
+  # Create the excludes list
+  sudo tee /etc/rustic/excludes.txt >/dev/null <<'EOF'
   /tmp/*
   /var/cache/*
   /var/tmp/*
@@ -3727,153 +3853,169 @@
   ```
 - Create a backup script:
   ```bash
-  sudo tee /usr/local/bin/restic-backup.sh >/dev/null <<'EOF'
+  sudo tee /usr/local/bin/rustic-backup.sh >/dev/null <<'EOF'
   #!/usr/bin/env bash
   set -euo pipefail
 
-  # ----- CONFIGURATION (EDIT ONCE) -----
-  REPO="/mnt/backup/restic-repo"          # <-- CHANGE TO YOUR MOUNTPOINT / SFTP URL
-  HOSTNAME="$(hostname)"
-  TAG="thinkbook"
-  # -------------------------------------
+  # ----- CONFIGURATION -----
+  REPO_PATH="/mnt/backup/backup-repo"  # Adjust this to your backup drive path
+  PASS_FILE="/etc/rustic/repo-password.txt"
+  EXCLUDES="/etc/rustic/excludes.txt"
+  # -------------------------
 
-  export RESTIC_CACHE_DIR="/var/cache/restic"
-  export RESTIC_COMPRESSION="auto"
-
-  # Ensure bitwarden session is active
-  if ! bw status | grep -q '"status":"unlocked"'; then
-    echo "Bitwarden CLI not unlocked – trying to unlock..."
-    bw unlock --raw > /dev/null || { echo "Failed to unlock Bitwarden"; exit 1; }
+  # Ensure backup drive is mounted
+  if ! mountpoint -q /mnt/backup; then
+    echo "Attempting to mount backup drive..."
+    mount /mnt/backup || { echo "Error: Backup drive mount failed. Is the OCuLink dock on?"; exit 1; }
   fi
 
-  # Prevent concurrent runs
-  exec 200>/var/lock/restic-backup.lock
-  flock -n 200 || { echo "Another restic backup is already running"; exit 1; }
+  # Set Rustic Environment Variables
+  export RUSTIC_REPOSITORY="$REPO_PATH"
+  export RUSTIC_PASSWORD_FILE="$PASS_FILE"
+  export RUSTIC_CACHE_DIR="/var/cache/rustic"
 
-  # Unlock any stale locks
-  restic unlock
+  # Ensure cache dir exists for the systemd service
+  mkdir -p "$RUSTIC_CACHE_DIR"
 
-  # Backup
-  restic backup \
-    --verbose \
+  echo "=== Starting Rustic Backup: $(date) ==="
+
+  # Run Backup
+  # --one-file-system prevents crossing into other mounts
+  rustic backup \
+    --exclude-file "$EXCLUDES" \
     --one-file-system \
-    --tag="$TAG" \
-    --hostname="$HOSTNAME" \
-    --exclude-caches \
-    --exclude-if-present .nobackup \
-    --exclude-file=/etc/restic/excludes.txt \
-    /home /data /srv /etc
+    --tag "scheduled" \
+    /etc /home /data /srv
 
-  # Prune
-  restic forget \
-    --keep-last 10 \
-    --keep-daily 7 \
-    --keep-weekly 4 \
-    --keep-monthly 6 \
-    --keep-yearly 3 \
-    --prune
+  # Cleanup (Keep: 7 days, 4 weeks, 6 months)
+  rustic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 
-  # Quick integrity check (5 GiB subset)
-  restic check --read-data-subset=5G
+  # Quick Integrity Check
+  rustic check --read-data-subset=1G
+
+  echo "=== Backup Completed Successfully ==="
   EOF
-  sudo chmod +x /usr/local/bin/restic-backup.sh
+
+  sudo chmod +x /usr/local/bin/rustic-backup.sh
   ```
 - Systemd Service & Timer:
   ```bash
-  sudo tee /etc/systemd/system/restic-backup.service >/dev/null <<'EOF'
+  # Update the actual backup script first
+  # We use 'sed' to inject the graceful exit logic or simply rewrite the check block
+  if ! grep -q "OCuLink Backup drive not found" /usr/local/bin/rustic-backup.sh; then
+  sudo sed -i '/mountpoint -q \/mnt\/backup/!b;n;c\    echo "OCuLink Backup drive not found. Skipping."; logger -t rustic-backup "Backup skipped: /mnt/backup not mounted"; exit 0' /usr/local/bin/rustic-backup.sh
+  fi
+  
+  # Service File
+  sudo tee /etc/systemd/system/rustic-backup.service >/dev/null <<'EOF'
   [Unit]
-  Description=Restic incremental backup
+  Description=Rustic Encrypted Backup
+  # Only run if the dock is actually attached/mounted
+  ConditionPathIsMountPoint=/mnt/backup
   After=network-online.target
   Wants=network-online.target
 
   [Service]
   Type=oneshot
-  ExecStart=/usr/local/bin/restic-backup.sh
+  ExecStart=/usr/local/bin/rustic-backup.sh
   Nice=19
   IOSchedulingClass=best-effort
+
+  # Reliability: Retry every 30m if it fails (e.g. temporary network drop)
+  Restart=on-failure
+  RestartSec=30min
+  
+  # Hardening
   ProtectSystem=strict
-  ProtectHome=false
-  PrivateTmp=true
+  ReadWritePaths=/mnt/backup /var/cache/rustic
   EOF
 
-  sudo tee /etc/systemd/system/restic-backup.timer >/dev/null <<'EOF'
+  # Timer File (Daily at 2:30 AM)
+  sudo tee /etc/systemd/system/rustic-backup.timer >/dev/null <<'EOF'
   [Unit]
-  Description=Daily restic backup
-  Requires=restic-backup.service
+  Description=Daily Rustic Backup Timer
 
   [Timer]
   OnCalendar=*-*-* 02:30:00
-  RandomizedDelaySec=5m
+  RandomizedDelaySec=15m
   Persistent=true
-  Unit=restic-backup.service
 
   [Install]
   WantedBy=timers.target
   EOF
-  ```
-- Enable Timers Services
-  ```bash
-  sudo systemctl enable --now restic-backup.timer
+
+  # Apply changes and enable
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now rustic-backup.timer
   ```
 - Weekly full repo check
   ```bash
-  sudo tee /etc/systemd/system/restic-check.service >/dev/null <<'EOF'
+  sudo tee /etc/systemd/system/rustic-check.service >/dev/null <<'EOF'
   [Unit]
-  Description=Restic repository integrity check
-  After=network-online.target
+  Description=Rustic Full Repository Integrity Check
 
   [Service]
   Type=oneshot
-  ExecStart=/usr/bin/restic check
+  Environment="RUSTIC_REPOSITORY=/mnt/backup/backup-repo"
+  Environment="RUSTIC_PASSWORD_FILE=/etc/rustic/repo-password.txt"
+  ExecStart=/usr/bin/rustic check
+  # Ensure background check doesn't lag the desktop
   Nice=19
+  IOSchedulingClass=best-effort
   EOF
 
-  sudo tee /etc/systemd/system/restic-check.timer >/dev/null <<'EOF'
+  sudo tee /etc/systemd/system/rustic-check.timer >/dev/null <<'EOF'
   [Unit]
-  Description=Weekly restic repo check
+  Description=Weekly Rustic Repo Check
 
   [Timer]
   OnCalendar=Sun *-*-* 03:00:00
   Persistent=true
-  Unit=restic-check.service
 
   [Install]
   WantedBy=timers.target
   EOF
-
-  sudo systemctl enable --now restic-check.timer
+  ```
+- Final activation of all backup timers
+  ```bash
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now rustic-backup.timer rustic-check.timer
   ```
 - First-run initialization (interactive)
   ```bash
-  echo "=== RESTIC REPOSITORY INITIALIZATION ==="
-  read -p "Enter full repository path (local dir or sftp:user@host:/path): " REPO
-  sudo sed -i "s|^REPO=.*|REPO=\"$REPO\"|" /usr/local/bin/restic-backup.sh
+  echo "=== rustic REPOSITORY INITIALIZATION ==="
+  # Set your desired path (e.g., an external HDD or an OCuLink-attached NVMe)
+  read -p "Enter backup mount path (e.g. /mnt/backup/backup-repo): " MY_REPO
 
-  echo "You must now initialize the repository. The user running the service MUST own this repository."
-  echo "If running as root (default for system service), use: sudo restic init --repo \"$REPO\""
-  echo "If running as your user (recommended for Bitwarden), use: restic init --repo \"$REPO\""
-  
-  # Init repo (ask for secondary key file for offline recovery)
-  restic init --repo "$REPO"
-  echo "Save the repository password in Bitwarden (item: restic-repo)."
-  read -p "Create a secondary key file for offline recovery? (y/N): " sec
-  if [[ $sec =~ ^[Yy]$ ]]; then
-    SECONDARY_KEY="/root/restic-secondary-key.txt"
-    restic key add --new-password-file "$SECONDARY_KEY"
-    echo "Store $SECONDARY_KEY securely (offline USB, encrypted vault)."
+  # Initialize the repo using the password file we generated
+  sudo rustic -r "$MY_REPO" --password-file /etc/rustic/repo-password.txt init
+
+  echo "IMPORTANT: Copy /etc/rustic/repo-password.txt to your Bitwarden vault now."
+  echo "Without this file or its contents, your backups are PERMANENTLY UNREADABLE."
+
+  echo "CRITICAL: Copy this password to Bitwarden:"
+  sudo cat /etc/rustic/repo-password.txt
+- Secondary/offline key
+  ```bash
+  read -p "Create secondary offline key? (y/N) " choice
+  if [[ "$$   choice" =~ ^[Yy]   $$ ]]; then
+    SECONDARY="/root/rustic-offline-key.txt"
+    sudo rustic -r "$MY_REPO" --password-file "$PASS_FILE" key add --new-password-file "$SECONDARY"
+    echo "Store $SECONDARY VERY securely (recovery USB!)"
   fi
+  ```
 - Test + Notes
   ```bash
   echo "Running a quick test backup..."
-  /usr/local/bin/restic-backup.sh && echo "Test backup succeeded!"
+  /usr/local/bin/rustic-backup.sh && echo "Test backup succeeded!"
   systemctl list-timers --all
-  journalctl -u restic-backup.timer -n 20
+  journalctl -u rustic-backup.timer -n 20
 
-  # Restic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
-  # Check status any time:  restic snapshots --repo <path>
+  # rustic provides **off-site / incremental** backups of /home, /data, /srv, /etc.
+  # Check status any time:  rustic snapshots --repo <path>
   # Restore example:
-  # restic restore --target /tmp/restore latest --path /home/user/Documents
-  # Weekly integrity: systemctl status restic-check.timer
+  # rustic restore --target /tmp/restore latest --path /home/user/Documents
+  # Weekly integrity: systemctl status rustic-check.timer
   ```
 ## Step 18: Post-Installation Maintenance and Verification
 
@@ -4074,35 +4216,24 @@
 - **k) Tunning Games**:
   ```bash
   # Mangohud and Gamescope Alert
-  echo "ALERT: DO NOT USE Mangohud if you are using Gamescope. They conflict."
-  echo "Use Gamescope's built-in overlay functionality instead."
+  echo "ALERT: Do not use 'mangohud %command%' inside/beside Gamescope."
+  echo "Instead, use the '--mangoapp' flag. Both use the same MangoHud.conf file."
 
-  # Mangohud Configuration Tip
-  echo "TIP: Use the MANGOHUD_CONFIG environment variable for per-game HUD customization."
+  # eGPU Tip (OCuLink Specific)
+  echo "TIP: Use MESA_VK_DEVICE_SELECT=amd (or the specific ID) to force Gamescope on eGPU."
   # Example: Shows FPS and CPU temperature in the top left
   # Launch Options: MANGOHUD_CONFIG="position=top-left,cpu_temp,fps" gamemoderun %command%
 
-  # MangoHud Tips - Set template config via env for convenience (e.g., in ~/.bash_profile)
-  MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco %command%
   # Toggle overlay: Default hotkey Shift+F1 (configurable)
   # ALERT: Do not use traditional MangoHud with Gamescope—it's unsupported. Use Gamescope's --mangoapp flag instead (e.g., gamescope --mangoapp -f -- %command%).
+  # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
+  LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
   # For FPS caps with VRR: Set to refresh_rate - 3 (e.g., 117 for 120Hz) to avoid VSync stutter.
   # For AMD shaders: Add RADV_PERFTEST=aco for faster compilation (e.g., RADV_PERFTEST=aco gamemoderun %command%)
 
   # Steam/Lutris/Heroic add in launch options:
   gamemoderun %command%
 
-  # Base Command (Recommended minimum for all games)
-  gamemoderun mangohud %command%
-  
-  # Linux Native Games (Best performance, includes ACO compiler)
-  # Best Performance / Lowest Latency (Competitive, requires manual vsync control)
-  LD_BIND_NOW=1 gamemoderun mangohud RADV_PERFTEST=aco %command%
-
-  # Optimal Performance / Features (Recommended for Wayland/Freesync/VRR users)
-  # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
-  LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 --fsr-sharpness 1 --adaptive-sync -- %command%
-  
   # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
   echo "# If issues with VRR, try fixed refresh rate ('-r 144' instead of '--adaptive-sync'):"
   echo "# LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 144 -- %command%"
@@ -4124,19 +4255,19 @@
   [Action]
   Description = Sign gaming binaries for Secure Boot
   When = PostTransaction
-  Exec = /bin/sh -c '/usr/bin/sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true'
+  Exec = /bin/sh -c '/usr/bin/sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true'
   Depends = sbctl
   EOF
 
-  sudo sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true
+  sudo sbctl sign -s /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope 2>/dev/null || true
   
   # Environment variables (add to ~/.zshrc for system-wide effect):
   cat >> ~/.zshrc <<'EOF'
-  # Environment variables (add to ~/.zshrc for system-wide effect):
-  cat >> ~/.zshrc <<'EOF'
+  export LD_BIND_NOW=1
   # Gaming Env Vars (comment out if issues)
   # export RADV_FORCE_VRS=1  # VRS perf boost (toggle per-game if glitches)
   # export MANGOHUD=1        # Always-on HUD (Setting this globally is NOT recommended due to conflicts)
+  # export MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing"
   EOF
 
   # Reload shell
@@ -4149,7 +4280,7 @@
   echo "STEAM_DISABLE_TELEMETRY=1" >> ~/.steam/steam.cfg
 
   # Verify
-  sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/gamemoderun /usr/bin/gamescope
+  sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope
   gamemoded -t && echo "GameMode is working!"
   ```
 - **l) Audio and Software Enhancements**:
@@ -4267,7 +4398,7 @@
             icon: "backup-symbolic",
         }),
         Widget.Label({
-            label: systemd.unit("restic-backup.service")
+            label: systemd.unit("rustic-backup.service")
                 .bind("ActiveState")
                 .as(state => {
                     if (state === "active") return "✓ Running";
@@ -4278,7 +4409,7 @@
         }),
         Widget.Button({
             label: "Run",
-            onClicked: () => Utils.execAsync("systemctl start restic-backup.service"),
+            onClicked: () => Utils.execAsync("systemctl start rustic-backup.service"),
         }),
     ],
   });
