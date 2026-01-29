@@ -3435,17 +3435,31 @@
   ```
 - Test hibernation
   ```bash
+  # Ensure the UKI cmdline has the resume parameters
+  RES_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2 2>/dev/null)
+  RES_OFFSET=$(sudo btrfs inspect-internal map-swapfile -r /swap/swapfile 2>/dev/null)
+
+  echo "Checking UKI Command Line..."
+  # If using /etc/cmdline.d/ (Standard for modern mkinitcpio)
+  echo "resume=UUID=$RES_UUID resume_offset=$RES_OFFSET" | sudo tee /etc/cmdline.d/99-resume.conf
+  
+  # Rebuild UKI to bake in the new parameters
+  echo "Rebuilding UKI with resume parameters..."
+  sudo mkinitcpio -P
+
+  # Verify the baked-in parameters
+  echo "Verifying parameters inside the EFI binary..."
+  strings /boot/EFI/Linux/arch.efi | grep -E "resume|resume_offset" || echo "ERROR: Resume not baked into UKI!"
+
+  # [Proceed with the existing safety checks and systemctl hibernate]
   echo -n "swap file status  → "
   swapon --show
 
   echo -n "swapfile location → "
   ls -l /swap/swapfile
-
+  
   echo -n "physical extent count (must be == 1) → "
   filefrag -v /swap/swapfile | grep -oP 'extents found: \K\d+' || echo "?"
-
-  echo -n "resume offset in fstab → "
-  grep resume_offset /etc/fstab || echo "MISSING!"
 
   echo -n "resume= parameter in UKI cmdline? → "
   bootctl list | grep -i resume || echo "not visible"
@@ -3465,7 +3479,7 @@
 
   echo ""
   echo "After resume (if it worked) run these checks:"
-  echo "  journalctl -b -1 -u systemd-hibernate.service"
+  echo "  journalctl -b -1 -u systemd-hibernate.service | grep -i "Error"
   echo "  dmesg | grep -i -E 'hibernate|resume|swap'"
   ```
 - Test Wayland session:
@@ -3886,10 +3900,18 @@
   ```
 - Systemd Service & Timer:
   ```bash
+  # Update the actual backup script first
+  # We use 'sed' to inject the graceful exit logic or simply rewrite the check block
+  if ! grep -q "OCuLink Backup drive not found" /usr/local/bin/rustic-backup.sh; then
+  sudo sed -i '/mountpoint -q \/mnt\/backup/!b;n;c\    echo "OCuLink Backup drive not found. Skipping."; logger -t rustic-backup "Backup skipped: /mnt/backup not mounted"; exit 0' /usr/local/bin/rustic-backup.sh
+  fi
+  
   # Service File
   sudo tee /etc/systemd/system/rustic-backup.service >/dev/null <<'EOF'
   [Unit]
   Description=Rustic Encrypted Backup
+  # Only run if the dock is actually attached/mounted
+  ConditionPathIsMountPoint=/mnt/backup
   After=network-online.target
   Wants=network-online.target
 
@@ -3898,6 +3920,11 @@
   ExecStart=/usr/local/bin/rustic-backup.sh
   Nice=19
   IOSchedulingClass=best-effort
+
+  # Reliability: Retry every 30m if it fails (e.g. temporary network drop)
+  Restart=on-failure
+  RestartSec=30min
+  
   # Hardening
   ProtectSystem=strict
   ReadWritePaths=/mnt/backup /var/cache/rustic
@@ -3916,6 +3943,10 @@
   [Install]
   WantedBy=timers.target
   EOF
+
+  # Apply changes and enable
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now rustic-backup.timer
   ```
 - Weekly full repo check
   ```bash
