@@ -3430,7 +3430,7 @@
   DRI_PRIME=1 glxinfo | grep "OpenGL renderer" || echo "Warning: GLX test failed, trying Vulkan"
   DRI_PRIME=1 vulkaninfo --summary | grep deviceName
   systemctl status supergfxd
-  supergfxctl -s
+  # (DEPRECATED) supergfxctl -s
   sbctl verify /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko || { echo "Signing amdgpu module"; sbctl sign -s /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko; }
   ```
 - Test hibernation
@@ -4022,45 +4022,39 @@
 - **a) Update System Regularly**:
   - Keep the system up-to-date:
     ```bash
-    pacman -Syu --noconfirm || echo "pacman failed"
     paru -Syu --noconfirm || echo "paru failed"
     flatpak update -y || echo "flatpak failed"
     ```
 - **b) Monitor Logs**:
   - Check for errors in system logs:
     ```bash
+    # Check for high-priority errors from the current boot
     journalctl -p 3 -xb
     journalctl -b -p err --since "1 hour ago"
+
+    # Check for disk health (SSD)
+    sudo smartctl -t short /dev/nvme0n1 && sudo smartctl -t short /dev/nvme1n1
 
     # Review current security in place on systemd https://roguesecurity.dev/blog/systemd-hardening
     ```
 - **c) Check Snapshots**:
   - Verify Snapper snapshots:
     ```bash
+    # List snapshots and delete old manual ones to save BTRFS metadata space
     snapper list
     snapper status 0..1
-    ```
-- **d) Verify Secure Boot**:
-  - Confirm Secure Boot is active:
-    ```bash
-    sbctl status
-    sbctl verify
-    mokutil --sb-state
-    ```
-- **e) Test eGPU**:
-  - Verify eGPU detection and rendering:
-    ```bash
-    lspci | grep -i amd
-    DRI_PRIME=1 glxinfo | grep renderer
-    supergfxctl -g
-    DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
-    ```
-- **f) Firmware Updates**:
-  ```bash
 
+    # Clean up orphaned packages
+    paru -Rcns $(pacman -Qdtq)
+    ```
+- **d) Firmware Updates**:
+  ```bash
   fwupdmgr refresh --force
   fwupdmgr get-updates
+  
+  # If updates are available:
   fwupdmgr update
+  
   # After fwupdmgr update
   echo "WARNING: Firmware updates (BIOS, eGPU dock) will change TPM PCR values."
   echo "TPM auto-unlock will fail on next boot. You MUST enter your LUKS passphrase."
@@ -4075,6 +4069,26 @@
   tpm2_pcrread sha256:7,11 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
+- **e) Test eGPU**:
+  - Verify eGPU detection and rendering:
+    ```bash
+    lspci | grep -i amd
+    DRI_PRIME=1 glxinfo | grep renderer
+    # (DEPRECATED) supergfxctl -g
+    DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
+    # Check if the ReDriver/Link is running at full speed (x4 4.0)
+    sudo lspci -vvv -s $(lspci | grep AMD | awk '{print $1}') | grep LnkSta
+    ```
+- **f) Verify Secure Boot**:
+  - Confirm Secure Boot is active:
+    ```bash
+    sbctl status
+    sbctl verify
+    mokutil --sb-state
+
+    # Check the 'Exposure' score of systemd services (Aim for < 5.0 for critical ones)
+    systemd-analyze security | head -n 20
+    ```
 - **g) TPM seal breaks Maintenance**:
   ```bash
   # If the TPM seal breaks (e.g., hook failure). Update the permanent policy file (captures new PCRs 7 and 11)
@@ -4116,82 +4130,106 @@
   ausearch -k priv_fail
 
   # Changes to identity files
-  ausearch -k identity
+  ausearch -k identity -i  # Who changed /etc/passwd or /etc/shadow?
   ```
-- **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
+- **i) Adopt AppArmor.d for Enforce Policy and Automation (executed this one after a few months only)**:
   ```bash
-  # Enable policy caching (using a robust, non-destructive sed command)
+  # Preparation: Install notification tools for real-time monitoring
+  # Required for aa-notify desktop popups + dependencies
+  sudo pacman -S --needed python-notify2 python-psutil
+  echo "Installed aa-notify dependencies."
+
+  # Optional but strongly recommended: XDG_RUNTIME_DIR tunable (fixes many denials)
+  if [ ! -f /etc/apparmor.d/tunables/local/xdg.conf ]; then
+    echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf >/dev/null
+    echo "Added XDG_RUNTIME_DIR local tunable."
+  fi
+
+  # Enable policy caching (critical for boot speed with 1500+ profiles)
   sudo mkdir -p /etc/apparmor.d/cache
   sudo sed -i -E 's|^[[:space:]]*#?[[:space:]]*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
-  # Verify change (outputs the updated line)
   grep '^cache-loc' /etc/apparmor/parser.conf || echo "Warning: cache-loc not set correctly"
-  echo "Enabled AppArmor cache in parser.conf"
 
-  # Enable the FSP's built-in cache update timer
-  # (This timer is provided by the apparmor.d-git package)
-  if ! systemctl is-enabled --quiet apparmor.d-update.timer; then
+  # Enable automatic profile rebuild timer
+  if ! systemctl is-enabled --quiet apparmor.d-update.timer 2>/dev/null; then
     sudo systemctl enable --now apparmor.d-update.timer
-    echo "Enabled and started apparmor.d-update.timer"
+    echo "Enabled apparmor.d-update.timer"
   else
     echo "apparmor.d-update.timer already enabled"
   fi
+  systemctl status apparmor.d-update.timer --no-pager | head -5  # Quick confirmation
 
-  # Check timer status
-  systemctl status apparmor.d-update.timer --no-pager
+  # Reload profiles (builds cache if first time – can take 10–60s)
+  echo "Building/reloading AppArmor cache and profiles... (may take a minute)"
+  sudo apparmor_parser -r /etc/apparmor.d/ || echo "Warning: Reload showed issues – check journalctl -u apparmor"
 
-  # Create local tunable for XDG (from your V1, still a good idea)
-  if [ ! -f /etc/apparmor.d/tunables/local/xdg.conf ]; then
-    echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf > /dev/null
-    echo "Created XDG local tunable"
+  echo "--------------------------------------------------"
+  echo "RECOMMENDATION: Monitor in real-time:"
+  echo "  aa-notify -p -s 1 --display \$DISPLAY"
+  echo "Add to GNOME/KDE startup or run in background terminal."
+  echo "Use 'sudo aa-logprof' after normal usage to tune interactively."
+  echo "--------------------------------------------------"
+
+  # Switch to ENFORCE mode
+  read -p "Ready to switch apparmor.d profiles to ENFORCE mode? (y/N): " confirm
+  [[ $confirm =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
+
+  if command -v just >/dev/null 2>&1 && just --list 2>/dev/null | grep -q 'enforce'; then
+    echo "Using official 'just enforce' method..."
+    sudo just enforce
   else
-    echo "XDG local tunable already exists"
+    echo "Falling back to manual aa-enforce..."
+    sudo aa-enforce /etc/apparmor.d/* 2>/dev/null || echo "Some profiles failed enforcement – check dmesg/audit.log"
   fi
 
-  # Reload all AppArmor profiles to apply new abstractions/tunables
-  sudo apparmor_parser -r /etc/apparmor.d/
-  # Verify no parse errors
-  sudo aa-status | head -5 || echo "Warning: aa-status failed (check apparmor.service)"
+  # Explicit reload after mode change
+  sudo apparmor_parser -r /etc/apparmor.d/ || echo "Post-enforce reload had issues"
 
-  # Tune from logs (run after normal usage)
-  echo "---"
-  echo "Use the system normally for a while (1-2 days), then run:"
-  echo "  sudo aa-logprof   # To interactively tune profiles"
-  echo "  sudo aa-genprof <binary>   # To generate profiles for new apps"
-  echo "---"
-
-  # Switch to ENFORCE mode using the FSP helper
-  read -p "Ready to enforce AppArmor.d FSP? (y/N): " confirm_fsp
-  [[ $confirm_fsp =~ ^[Yy]$ ]] || exit 1
-
-  # Verify 'just' and fsp-enforce availability
-  if ! command -v just >/dev/null 2>&1 || ! just --list 2>/dev/null | grep -q fsp-enforce; then
-    echo "Error: 'just fsp-enforce' not available. Ensure apparmor.d-git is installed and up-to-date."
-    exit 1
-  fi
-
-  sudo just fsp-enforce
+  # Verify and Warm Cache on Boot
+  sudo mkdir -p /etc/systemd/system/apparmor.service.d
+  sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf >/dev/null <<'EOF'
+  [Service]
+  ExecStartPre=/usr/bin/apparmor_parser --cache-loc=/etc/apparmor.d/cache -r /etc/apparmor.d/*
+  EOF
+  sudo systemctl daemon-reload
   sudo systemctl restart apparmor
 
-  # Verify enforcement
-  aa-status | grep -E "(profiles are in enforce mode|complain)" || echo "Warning: Enforcement check failed"
-  echo "AppArmor FSP is now ENFORCED."
+  # Final Status & Confinement Check
+  echo "--- Enforcement Status Summary ---"
+  sudo aa-status | grep -E "profiles are in enforce mode|complain mode|are loaded" || echo "aa-status issue?"
 
-  # Warm cache on boot (using explicit cache-loc)
-  sudo mkdir -p /etc/systemd/system/apparmor.service.d
-  if [ ! -f /etc/systemd/system/apparmor.service.d/cache-warm.conf ]; then
-    sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf > /dev/null <<'EOF'
-  [Service]
-  ExecStartPre=/usr/bin/apparmor_parser --cache-loc=/etc/apparmor.d/cache -r /usr/share/apparmor.d/*
-  EOF
-    echo "Created apparmor cache-warm override"
-  else
-    echo "apparmor cache-warm override already exists"
-  fi
+  echo ""
+  echo "--- Quick Confinement Check for Key Installed Apps ---"
+  echo "   (Make sure the apps are actually running/open before this check)"
+  echo ""
 
-  # Reboot to apply cache & early load
-  echo "Rebooting in 10 seconds to apply AppArmor.d cache..."
-  sleep 10
-  reboot
+  for app in brave torbrowser-launcher steam thunderbird nautilus gnome-shell; do
+    if pgrep -f "$app" >/dev/null; then
+        # Use -f for broader matching (e.g., torbrowser-launcher processes)
+        if aa-status | grep -q "$(pgrep -f "$app" | head -n 1)"; then
+            echo "✅ $app appears confined"
+        else
+            echo "⚠️ $app running but NOT showing as confined (check 'aa-status -x' or profile name)"
+        fi
+    else
+        echo "( $app not currently running )"
+    fi
+  done
+
+  # Special note for Mullvad Browser (manual install, not in standard path)
+  echo ""
+  echo "Mullvad Browser note:"
+  echo "  Since it's manually extracted (e.g., ~/Downloads/mullvad-browser/.../Browser/firefox),"
+  echo "  apparmor.d may not have a profile covering it by default."
+  echo "  Run it once → check 'sudo aa-notify' or 'sudo journalctl -u apparmor -f' for denials."
+  echo "  If confined under a firefox-like profile → good; else create local override or aa-genprof."
+
+  echo "CRITICAL RECOVERY TIP:"
+  echo "If boot/login fails due to enforcement:"
+  echo "  - At systemd-boot: press 'e', add 'apparmor=0' to kernel line, Ctrl+X to boot"
+  echo "  - Then revert with 'sudo aa-complain /etc/apparmor.d/*' and tune"
+  echo ""
+  echo "Reboot recommended to verify early cache load and full enforcement."
   ```
 - **j) Gentoo Migration: How to Use This Later**:
   ```bash
@@ -4227,6 +4265,9 @@
   # Toggle overlay: Default hotkey Shift+F1 (configurable)
   # ALERT: Do not use traditional MangoHud with Gamescope—it's unsupported. Use Gamescope's --mangoapp flag instead (e.g., gamescope --mangoapp -f -- %command%).
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
+  # Replace 'amd' with your specific GPU ID if you have multiple AMD cards
+  # RADV_PERFTEST=aco (Fast Shaders), LD_BIND_NOW=1 (Fast Loading)
+  # --mangoapp (Overlay), --fsr-sharpness (Upscaling)
   LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
   # For FPS caps with VRR: Set to refresh_rate - 3 (e.g., 117 for 120Hz) to avoid VSync stutter.
   # For AMD shaders: Add RADV_PERFTEST=aco for faster compilation (e.g., RADV_PERFTEST=aco gamemoderun %command%)
@@ -4292,6 +4333,10 @@
   sudo pacman -S zam-plugins
   sudo pacman -S calf
   sudo pacman -S mda.lv2
+
+  # Launch EasyEffects, then load a community preset (like "Laptop Deep Bass")
+  # This makes the ThinkBook speakers sound significantly better.
+  easyeffects &
   ```
 - **m) ACPI Troubleshooting**:
   ```bash
@@ -4317,6 +4362,9 @@
   ```bash
   # This is a manual verification. Do not create a hook to run this because it degrades performance.
   sudo pacman -Qkk | grep -i 'mismatch\|warning' # Only prints explicit errors
+  # Run this once a month. It checks every file on the system against the pacman DB.
+  # Any 'mismatch' could indicate disk corruption or unauthorized modification.
+  sudo pacman -Qkk | grep -v '0 alterations'
   # Explote adding this as event refreshing daily an widget in the Astal/AGS step 19
   ```
 - **o) Final Reboot & Lock**:
