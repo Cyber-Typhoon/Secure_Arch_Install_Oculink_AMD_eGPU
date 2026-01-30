@@ -736,6 +736,7 @@
   sync
   umount /mnt/usb
   echo "WARNING: Store /mnt/usb/luks-header-backup in Bitwarden or an encrypted cloud."
+  echo "WARNING: Primary LUKS passphrase must be stored offline (paper or password manager)."
   echo "WARNING: TPM unlocking may fail after firmware updates; keep the LUKS passphrase in Bitwarden."
   echo "WARNING: Verify the LUKS header backup integrity with sha256sum before storing."
   ```
@@ -2573,7 +2574,7 @@
   # Regenerate UKI
   mkinitcpio -P && sbctl sign -s /boot/EFI/Linux/arch*.efi
 
-  echo "AppArmor FSP is now in COMPLAIN mode."
+  echo "AppArmor is now in COMPLAIN mode."
   echo "Use system normally for 1–2 days, then check denials:"
   echo "  journalctl -u apparmor | grep DENIED" # (THIS IS IMPORTANT STEP, MAKE SURE TO PERFORM IT)
   echo "  sudo aa-logprof"
@@ -2587,7 +2588,7 @@
   echo "       sudo aa-genprof <binary>  # e.g., Astal, supergfxctl"
   echo "  4. After tuning → ENFORCE:"
   echo "       sudo just fsp-enforce"
-  echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
+  echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just enforce
   echo "       sudo systemctl restart apparmor"
   ```
 ## Step 12: Configure eGPU (AMD)
@@ -3760,6 +3761,14 @@
   # This allows you to re-sign kernels if you reinstall the OS
   sudo cp -r /usr/share/secureboot/keys /mnt/recovery/sbctl-keys-$DATE
   sudo chmod -R 600 /mnt/recovery/sbctl-keys-$DATE
+  # If UEFI variables are reset or Secure Boot is disabled:
+  # Boot Arch using passphrase or recovery USB
+  # Re-enroll keys:
+  sbctl enroll-keys -m -f
+  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
+  sbctl sign -s /boot/EFI/Linux/*.efi
+  # Reboot and re-enable Secure Boot in firmware
+
 
   # Create Integrity Checksums
   cd /mnt/recovery && sha256sum * > checksums.txt
