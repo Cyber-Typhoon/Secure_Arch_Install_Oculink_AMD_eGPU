@@ -201,6 +201,7 @@
   - Format `/dev/nvme1n1p2` with LUKS2, using `pbkdf2` for compatibility with `systemd-cryptenroll`:
     ```bash
     # (REPLACED) cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 500000 *GRUB not supporting argon2id only applies if GRUB itself is unlocking the drive (e.g., to read an encrypted /boot partition, which you don't have).
+    # PBKDF choice is irrelevant to GRUB because boot is via UKI; systemd unlocks LUKS.
     cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --hash sha512 --iter-time 5000 --key-size 512 --pbkdf argon2id --sector-size 4096 /dev/nvme1n1p2
     ```
   - Open the LUKS partition:
@@ -1887,6 +1888,43 @@
   echo "Waiting for DNS to initialize..."
   sleep 2
   dog archlinux.org || echo "DNS Test Failed - Check journalctl -u dnscrypt-proxy"
+
+  # Create hook to automate dnscrypt on and off based on VPN on and off
+  sudo tee /etc/NetworkManager/dispatcher.d/90-dnscrypt-vpn > /dev/null << 'EOF'
+  #!/bin/bash
+  set -euo pipefail
+
+  IFACE="$1"
+  STATUS="$2"
+
+  CONNECTION=$(nmcli -t -f GENERAL.CONNECTION device show "$IFACE" 2>/dev/null || true)
+
+  if [[ "$CONNECTION" == *VPN* || "$IFACE" == "tun0" || "$IFACE" == "wg0" ]]; then
+  case "$STATUS" in
+    up)
+      systemctl stop dnscrypt-proxy.socket
+      logger "VPN up ($IFACE): dnscrypt-proxy socket stopped"
+      ;;
+    down)
+      systemctl start dnscrypt-proxy.socket
+      logger "VPN down ($IFACE): dnscrypt-proxy socket started"
+      ;;
+  esac
+  fi
+  EOF
+  # NetworkManager dispatcher scripts run as root.
+  # No sudo is required inside this script.
+
+  # Set permissions
+  chmod +x /etc/NetworkManager/dispatcher.d/90-dnscrypt-vpn
+  systemctl enable dnscrypt-proxy.socket
+
+  # Verify DNS
+  # Using resolvectl status will not retrieve anything because we masked systemd-resolved 
+  ss -lnptu | grep :53
+  dog archlinux.org
+  dog +trace archlinux.org
+  grep nameserver /etc/resolv.conf
   ```
 - Configure USBGuard:
   ```bash
@@ -2515,7 +2553,7 @@
   getcap /usr/bin/ping
   # Test: The ping command should still function for unprivileged users. Repeat this process for any other minimal-privilege setuid binaries you identify.
   ```
-- Enable FSP in COMPLAIN mode
+- Enable Apparmor in COMPLAIN mode
   ```bash
   # This activates the *complete* AppArmor.d policy (1000+ profiles)
   # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
@@ -3674,8 +3712,12 @@
   ```
 - TPM Seal breaks
   ```bash
+  # Enter LUKS passphrase
+  # Boot succeeds
+  # Run fix-tpm
+  # (Optional) gated reenrollment service
   # Save the command to repair TPM in the note.
-  sudo tpm-seal
+  # sudo tpm-seal or fix-tpm
   # echo "This re-measures the current boot state and re-enrolls TPM automatically."
   # echo "No manual PCR reading. No key regeneration. Just one line."
   ```
@@ -4400,7 +4442,19 @@
   sudo pacman -Qkk | grep -v '0 alterations'
   # Explote adding this as event refreshing daily an widget in the Astal/AGS step 19
   ```
-- **o) Final Reboot & Lock**:
+- **o) Two ESPs is valid — but**:
+  ```bash
+  # fwupd updates often assume the first ESP
+  # Lenovo firmware tools can be sloppy
+  # You already plan to remove Windows
+  # Recommendation
+  # After Windows retirement:
+  # Migrate to a single ESP
+  # Copy Arch EFI files
+  # Delete the second ESP
+  # This improves firmware update reliability and simplifies Secure Boot signing.
+  ```
+- **p) Final Reboot & Lock**:
   ```bash
   # Sign only unsigned EFI binaries
   sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
