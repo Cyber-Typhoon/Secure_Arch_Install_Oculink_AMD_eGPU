@@ -749,7 +749,7 @@
   ```bash
   pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify plymouth 
   ```
-- Capure variables:
+- Capture variables:
   ```bash
   LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2)
   ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
@@ -757,8 +757,7 @@
 - Configure Unified Kernel Image (UKI):
   ```bash
   # Dynamic Resume Offset Calculation (REQUIRED for BTRFS swapfile)
-  RESUME_OFFSET=$(awk '$2 == "/swap/swapfile" {print $1}' /etc/fstab | \
-    xargs btrfs inspect-internal map-swapfile -r /swap/swapfile 2>/dev/null)
+  RESUME_OFFSET=$(btrfs inspect-internal map-swapfile -r /swap/swapfile)
   if [[ -z "$RESUME_OFFSET" ]]; then
       echo "ERROR: resume_offset not found – check swapfile and fstab!"
       exit 1
