@@ -770,15 +770,17 @@
 
   # Configure linux.preset (defines the kernel command line for UKI)
   # rd.luks.uuid is now optional due to crypttab.initramfs, simplifying the cmdline.
+  # LUKS configuration is intentionally not passed via kernel parameters.
+  # TPM auto-unlock is handled exclusively via /etc/crypttab.initramfs + sd-encrypt hook.
 
   # Main Preset (linux)
   tee /etc/mkinitcpio.d/linux.preset > /dev/null << EOF
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 \
-  hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always mitigations=auto \
-  slab_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 \
+  randomize_kstack_offset=on hash_pointers=always mitigations=auto \
+  page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
@@ -790,6 +792,12 @@
   # processor.max_cstate=1 intel_idle.max_cstate=1 → stops random freezes when eGPU is plugged
   # add this after iommu,strict=1 in case AMD eGPU has some issues amdgpu.dcdebugmask=0x4 amdgpu.gpu_recovery=1 amdgpu.noretry=0 \
   # consider adding intel_iommu=igfx_off if you run into problems using the Xe iGPU for display and the AMD eGPU for rendering
+  # hardened_usercopy=1 - Mostly redundant on modern kernels
+  # slab_debug=P - Performance hit + little real desktop benefit
+  # pti=on - Already auto-managed
+  # iommu.strict=1 - Breaks some DMA paths (esp. eGPU edge cases) - “Enable iommu.strict=1 only if DMA misbehavior is observed.”
+  # intel_idle.max_cstate=2 - Power + thermal penalty
+  
 
   # LTS preset (atomic copy, just rename the UKI)
   sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
@@ -829,7 +837,11 @@
   # Generate UKI
   # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
   mkinitcpio -P
-  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi" 
+  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi"
+
+  # Double-check after mkinitcpio -P that no stray rd.luks.* crept in:
+  grep -i rd.luks /boot/loader/entries/*.conf  # should return nothing
+  grep -i rd.luks /etc/mkinitcpio.d/*.preset   # should return nothing
 
   # Install `systemd-boot`:
   # Creates /boot/loader/, installs systemd-bootx64.efi.
@@ -920,6 +932,7 @@
   cat > /etc/systemd/system/tpm-reenroll.service << 'EOF'
   [Unit]
   Description=Re-enroll TPM2 policy if PCRs changed
+  ConditionPathExists=/etc/allow-tpm-reenroll
   Documentation=man:systemd-cryptenroll(1)
 
   # a. Wait until the LUKS device is unlocked and mapped
@@ -936,6 +949,7 @@
 
   # c. Use the *mapped* device (safe, always exists after unlock)
   ExecStart=/usr/bin/bash -c '
+  ExecStartPre=/usr/bin/test -f /etc/allow-tpm-reenroll
   set -euo pipefail
 
   LUKS_DEV="/dev/mapper/cryptroot"
@@ -1253,7 +1267,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  audit arch-audit chkrootkit lynis rkhunter sshguard ufw usbguard \
+  audit arch-audit lynis sshguard ufw usbguard \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator libappindicator \
@@ -1304,7 +1318,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -4106,7 +4120,6 @@
 - **h) Security Audit**:
   ```bash
   lynis audit system > /root/lynis-report-$(date +%F).txt
-  rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
 
   # Systemd Security Score (from RogueSecurity recommendations)
