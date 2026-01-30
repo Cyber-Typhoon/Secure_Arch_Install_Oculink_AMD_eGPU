@@ -600,7 +600,7 @@
   wifi.backend=iwd # Do not manually enable iwd.service with systemctl enable. NetworkManager will automatically start and manage the iwd daemon when needed.
   wifi.scan-rand-mac-address=yes
   wifi.iwd.autoconnect=yes
-  EOF
+
 
   [connection]
   wifi.cloned-mac-address=stable
@@ -749,6 +749,11 @@
   ```bash
   pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify plymouth 
   ```
+- Capure variables:
+  ```bash
+  LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2)
+  ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
+  ```
 - Configure Unified Kernel Image (UKI):
   ```bash
   # Dynamic Resume Offset Calculation (REQUIRED for BTRFS swapfile)
@@ -804,6 +809,7 @@
   # pti=on - Already auto-managed
   # iommu.strict=1 - Breaks some DMA paths (esp. eGPU edge cases) - “Enable iommu.strict=1 only if DMA misbehavior is observed.”
   # intel_idle.max_cstate=2 - Power + thermal penalty
+  # Hibernation is intentionally unavailable until Step 15
   
 
   # LTS preset (atomic copy, just rename the UKI)
@@ -3788,7 +3794,12 @@
    - Type your LUKS Passphrase at the boot prompt.
   Once inside Arch, run:
    sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-   sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7+11 /dev/nvme1n1p2
+   sudo systemd-cryptenroll /dev/nvme1n1p2 \
+   --tpm2-device=auto \
+   --tpm2-pcrs=7+11 \
+   --tpm2-pcrs-bank=sha256 \
+   --tpm2-public-key=/etc/tpm2-ukey.pem
+  # This restores the original TPM policy (PCRs + SHA256 bank + authorized signing key).
 
   b. **Scenario B: System Won't Boot (Live ISO Recovery)**:
    Boot Arch Linux Live ISO.
