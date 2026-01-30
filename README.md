@@ -4376,7 +4376,7 @@
   echo "System locked and ready. Final reboot recommended."
   reboot
   ```
-## Step 19: User Customizations ** To be refined post production!
+## Step 19: User Customizations ** To be refined post production! WIP - For now ignore this part.
 
 - Create script report for Astal/AGS
   ```bash
