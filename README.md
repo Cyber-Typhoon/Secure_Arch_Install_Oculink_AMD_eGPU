@@ -201,6 +201,7 @@
   - Format `/dev/nvme1n1p2` with LUKS2, using `pbkdf2` for compatibility with `systemd-cryptenroll`:
     ```bash
     # (REPLACED) cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 500000 *GRUB not supporting argon2id only applies if GRUB itself is unlocking the drive (e.g., to read an encrypted /boot partition, which you don't have).
+    # PBKDF choice is irrelevant to GRUB because boot is via UKI; systemd unlocks LUKS.
     cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --hash sha512 --iter-time 5000 --key-size 512 --pbkdf argon2id --sector-size 4096 /dev/nvme1n1p2
     ```
   - Open the LUKS partition:
@@ -599,7 +600,7 @@
   wifi.backend=iwd # Do not manually enable iwd.service with systemctl enable. NetworkManager will automatically start and manage the iwd daemon when needed.
   wifi.scan-rand-mac-address=yes
   wifi.iwd.autoconnect=yes
-  EOF
+
 
   [connection]
   wifi.cloned-mac-address=stable
@@ -652,7 +653,12 @@
   alias dig='dog'
   alias btop='btm'
   alias iftop='bandwhich --immediate --tree'
-  alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
+  # (DEPRECATED) alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
+  alias fix-tpm='sudo touch /etc/allow-tpm-reenroll && \
+  sudo systemctl start tpm-reenroll.service && \
+  sudo rm /etc/allow-tpm-reenroll && \
+  sudo journalctl -u tpm-reenroll.service -n 50 --no-pager'
+
   # Optional: make sudo preserve these aliases when you really want it
   # (rarely needed, but harmless)
   alias sudo='sudo '  # trailing space → sudo also expands aliases
@@ -730,6 +736,7 @@
   sync
   umount /mnt/usb
   echo "WARNING: Store /mnt/usb/luks-header-backup in Bitwarden or an encrypted cloud."
+  echo "WARNING: Primary LUKS passphrase must be stored offline (paper or password manager)."
   echo "WARNING: TPM unlocking may fail after firmware updates; keep the LUKS passphrase in Bitwarden."
   echo "WARNING: Verify the LUKS header backup integrity with sha256sum before storing."
   ```
@@ -742,11 +749,15 @@
   ```bash
   pacman -S --noconfirm tpm2-tools tpm2-tss systemd-ukify plymouth 
   ```
+- Capture variables:
+  ```bash
+  LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2)
+  ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
+  ```
 - Configure Unified Kernel Image (UKI):
   ```bash
   # Dynamic Resume Offset Calculation (REQUIRED for BTRFS swapfile)
-  RESUME_OFFSET=$(awk '$2 == "/swap/swapfile" {print $1}' /etc/fstab | \
-    xargs btrfs inspect-internal map-swapfile -r /swap/swapfile 2>/dev/null)
+  RESUME_OFFSET=$(btrfs inspect-internal map-swapfile -r /swap/swapfile)
   if [[ -z "$RESUME_OFFSET" ]]; then
       echo "ERROR: resume_offset not found – check swapfile and fstab!"
       exit 1
@@ -770,15 +781,17 @@
 
   # Configure linux.preset (defines the kernel command line for UKI)
   # rd.luks.uuid is now optional due to crypttab.initramfs, simplifying the cmdline.
+  # LUKS configuration is intentionally not passed via kernel parameters.
+  # TPM auto-unlock is handled exclusively via /etc/crypttab.initramfs + sd-encrypt hook.
 
   # Main Preset (linux)
   tee /etc/mkinitcpio.d/linux.preset > /dev/null << EOF
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 iommu.strict=1 intel_idle.max_cstate=2 \
-  hardened_usercopy=1 randomize_kstack_offset=on hash_pointers=always mitigations=auto \
-  slab_debug=P page_alloc.shuffle=1 pti=on vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 \
+  randomize_kstack_offset=on hash_pointers=always mitigations=auto \
+  page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
@@ -790,6 +803,13 @@
   # processor.max_cstate=1 intel_idle.max_cstate=1 → stops random freezes when eGPU is plugged
   # add this after iommu,strict=1 in case AMD eGPU has some issues amdgpu.dcdebugmask=0x4 amdgpu.gpu_recovery=1 amdgpu.noretry=0 \
   # consider adding intel_iommu=igfx_off if you run into problems using the Xe iGPU for display and the AMD eGPU for rendering
+  # hardened_usercopy=1 - Mostly redundant on modern kernels
+  # slab_debug=P - Performance hit + little real desktop benefit
+  # pti=on - Already auto-managed
+  # iommu.strict=1 - Breaks some DMA paths (esp. eGPU edge cases) - “Enable iommu.strict=1 only if DMA misbehavior is observed.”
+  # intel_idle.max_cstate=2 - Power + thermal penalty
+  # Hibernation is intentionally unavailable until Step 15
+  
 
   # LTS preset (atomic copy, just rename the UKI)
   sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
@@ -816,20 +836,24 @@
   # Hardware-specific check:
   lsmod | grep -E 'firewire|pcspkr|cramfs|hfs|btusb'
   # Create a configuration file
-  micro /etc/modprobe.d/99-local-blacklist.conf
-  # Prevents firewire core and all dependent modules from loading
-  install firewire-core /bin/true
+  cat > /etc/modprobe.d/99-local-blacklist.conf <<EOF
   # Prevents the PC speaker module (for system beep)
   install pcspkr /bin/true
   # Blacklist legacy filesystems if not needed
   install cramfs /bin/true
   install hfs /bin/true
-  install hfsplus /bin/true 
+  install hfsplus /bin/true
+  blacklist firewire_core
+  EOF
 
   # Generate UKI
   # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
   mkinitcpio -P
-  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi" 
+  echo "Generated arch.efi, arch-lts.efi, arch-fallback.efi"
+
+  # Double-check after mkinitcpio -P that no stray rd.luks.* crept in:
+  grep -i rd.luks /boot/loader/entries/*.conf  # should return nothing
+  grep -i rd.luks /etc/mkinitcpio.d/*.preset   # should return nothing
 
   # Install `systemd-boot`:
   # Creates /boot/loader/, installs systemd-bootx64.efi.
@@ -901,7 +925,7 @@
   ```
   ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
 
-## Step 9: TPM Auto-Healing, Recovery USB, Windows Entry & Final Archive (newly installed, booted Arch Linux OS, not the USB installer)
+## Step 9: TPM Seal, Recovery USB, Windows Entry & Final Archive (newly installed, booted Arch Linux OS, not the USB installer)
 
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
@@ -916,17 +940,45 @@
     echo "TPM public key saved to $TPM_PUBKEY"
   fi
 
-  # Raw PCR + Public-Key Enrollment - OCreate the systemd service file
+  # Create TPM Seal Script
+  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal > /dev/null
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  LUKS_DEV="/dev/mapper/cryptroot"
+  TPM_PUBKEY="/etc/tpm2-ukey.pem"
+
+  echo "Sealing LUKS device to TPM PCRs (7+11)..."
+
+  systemd-cryptenroll "$LUKS_DEV" \
+    --wipe-slot=tpm2 \
+    --tpm2-device=auto \
+    --tpm2-pcrs=7+11 \
+    --tpm2-pcrs-bank=sha256 \
+    --tpm2-public-key="$TPM_PUBKEY"
+
+  echo "TPM sealing complete."
+  EOF
+
+  sudo chmod +x /usr/local/bin/tpm-seal
+
+  # Final TPM Policy Sealing
+  echo "Sealing LUKS to TPM with PCR 7+11 and public key..."
+  [[ -d /boot/EFI ]] || { echo "ERROR: ESP not mounted at /boot!"; exit 1; }
+  sudo tpm-seal
+  
+  # Raw PCR + Public-Key Enrollment - Create the tpm-reenroll systemd service file that will be a wrapper of TPM Seal Script
   cat > /etc/systemd/system/tpm-reenroll.service << 'EOF'
   [Unit]
   Description=Re-enroll TPM2 policy if PCRs changed
+  ConditionPathExists=/etc/allow-tpm-reenroll
   Documentation=man:systemd-cryptenroll(1)
 
-  # a. Wait until the LUKS device is unlocked and mapped
+  # Wait until the LUKS device is unlocked and mapped
   After=systemd-cryptsetup@cryptroot.service
   Requires=systemd-cryptsetup@cryptroot.service
 
-  # b. Also wait for TPM device
+  # Also wait for TPM device
   Requires=tpm2.target
   After=tpm2.target
 
@@ -934,39 +986,20 @@
   Type=oneshot
   RemainAfterExit=yes
 
-  # c. Use the *mapped* device (safe, always exists after unlock)
-  ExecStart=/usr/bin/bash -c '
-  set -euo pipefail
-
-  LUKS_DEV="/dev/mapper/cryptroot"
-  TPM_PUBKEY="/etc/tpm2-ukey.pem"
-
-  # d. Test current policy
-  if systemd-cryptenroll --tpm2-device=auto --tpm2-public-key="$TPM_PUBKEY" --test "$LUKS_DEV" >/dev/null 2>&1; then
-    echo "TPM policy valid. No action needed."
-    exit 0
-  fi
-
-  echo "TPM policy mismatch detected. Re-enrolling with current PCRs..."
-
-  # e. Wipe old TPM slot and re-enroll
-  systemd-cryptenroll "$LUKS_DEV" --wipe-slot=tpm2
-  systemd-cryptenroll "$LUKS_DEV" \
-    --tpm2-device=auto \
-    --tpm2-pcrs=7+11 \
-    --tpm2-public-key="$TPM_PUBKEY" \
-    --tpm2-pcrs-bank=sha256
+  # Execute the TPM Seal 
+  ExecStart=/usr/local/bin/tpm-seal
   
-  echo "TPM re-enrollment complete. Auto-unlock restored."
-  '
-
   [Install]
   WantedBy=multi-user.target
   EOF
   
   # Reload daemon and enable the service
   sudo systemctl daemon-reload
-  sudo systemctl enable --now tpm-reenroll.service
+  sudo systemctl enable tpm-reenroll.service
+  # Current Workflow:
+  # touch /etc/allow-tpm-reenroll
+  # systemctl start tpm-reenroll.service
+  # rm /etc/allow-tpm-reenroll
 
   # Main Arch Entry
   sudo tee /boot/loader/entries/arch.conf > /dev/null << 'EOF'
@@ -997,6 +1030,8 @@
   
   # Verify
   sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  # If it fails:
+  fix-tpm
  
   # Final TPM unlock test
   sudo systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" && echo "TPM unlock test PASSED"
@@ -1176,6 +1211,11 @@
   sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
   sudo sbctl status
   ```
+- Check Windows
+  ```bash
+  # Reboot to Windows and verify it boots
+  # Then reboot to Linux to continue
+  ```
 ## Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can pause at this point
 
 ## Step 10: Install and Configure DE and Applications
@@ -1253,7 +1293,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  audit arch-audit chkrootkit lynis rkhunter sshguard ufw usbguard \
+  audit arch-audit lynis sshguard ufw usbguard \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator libappindicator \
@@ -1304,7 +1344,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard rkhunter chkrootkit logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -1438,9 +1478,6 @@
   # Allow Flatpaks to read/write their own config/data only
   flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
   flatpak override --user --socket=wayland --socket=x11
-  # Allow GPU access for Steam:
-  flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
-  # It causes crashes due to ABI mismatches with the Flatpak runtime (glibc version differences).
   # Rely on Flatpak's bubblewrap sandbox for application isolation instead.
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
@@ -1621,6 +1658,14 @@
   sudo ufw default deny incoming
   # Allows the laptop to connect to the internet, servers, etc. (required)
   sudo ufw default allow outgoing
+  # Allow DHCP explicitly (prevents edge cases)
+  sudo ufw allow out 67,68/udp
+  # Explicitly allow loopback (defensive clarity)
+  sudo ufw allow in on lo
+  sudo ufw allow out on lo
+  # Allow VPN
+  sudo ufw allow in on wg0
+  sudo ufw allow out on wg0
   # Replace '51413' with the actual port number from your torrent client.
   sudo ufw allow 51413/tcp
   sudo ufw allow 51413/udp
@@ -1718,7 +1763,8 @@
   --failure silent
 
   ## Make rules immutable (-e 2)
-  -e 2
+  # Uncomment after tuning
+  # -e 2
 
   ## Identity & authentication files
   -w /etc/passwd      -p wa -k identity
@@ -1745,8 +1791,6 @@
   -w /etc/usbguard/rules.conf -p wa -k usbguard
 
   ## Privilege escalation & interesting failures
-  -a always,exit -F arch=b64 -S execve -F euid=0 -k root_exec
-  -a always,exit -F arch=b64 -S mount,setuid,setreuid -F exit=-EPERM -k priv_fail
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/sudo -k sudo_usage
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/run0 -k sudo_usage
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/pkexec -k pkexec_usage
@@ -1853,6 +1897,43 @@
   echo "Waiting for DNS to initialize..."
   sleep 2
   dog archlinux.org || echo "DNS Test Failed - Check journalctl -u dnscrypt-proxy"
+
+  # Create hook to automate dnscrypt on and off based on VPN on and off
+  sudo tee /etc/NetworkManager/dispatcher.d/90-dnscrypt-vpn > /dev/null << 'EOF'
+  #!/bin/bash
+  set -euo pipefail
+
+  IFACE="$1"
+  STATUS="$2"
+
+  CONNECTION=$(nmcli -t -f GENERAL.CONNECTION device show "$IFACE" 2>/dev/null || true)
+
+  if [[ "$CONNECTION" == *VPN* || "$IFACE" == "tun0" || "$IFACE" == "wg0" ]]; then
+  case "$STATUS" in
+    up)
+      systemctl stop dnscrypt-proxy.socket
+      logger "VPN up ($IFACE): dnscrypt-proxy socket stopped"
+      ;;
+    down)
+      systemctl start dnscrypt-proxy.socket
+      logger "VPN down ($IFACE): dnscrypt-proxy socket started"
+      ;;
+  esac
+  fi
+  EOF
+  # NetworkManager dispatcher scripts run as root.
+  # No sudo is required inside this script.
+
+  # Set permissions
+  chmod +x /etc/NetworkManager/dispatcher.d/90-dnscrypt-vpn
+  systemctl enable dnscrypt-proxy.socket
+
+  # Verify DNS
+  # Using resolvectl status will not retrieve anything because we masked systemd-resolved 
+  ss -lnptu | grep :53
+  dog archlinux.org
+  dog +trace archlinux.org
+  grep nameserver /etc/resolv.conf
   ```
 - Configure USBGuard:
   ```bash
@@ -1869,8 +1950,13 @@
   InsertedDevicePolicy=apply-policy
 
   # Slightly more forgiving default for new devices (still blocks, but you get a notification)
-  ImplicitPolicyTarget=block
-
+  ImplicitPolicyTarget=allow
+  # Start with ImplicitPolicyTarget=allow for first month. Switch to block only after device list is stable.
+  # Use system for 2-4 weeks
+  usbguard generate-policy > /etc/usbguard/rules.conf  # Export stable device list
+  # Change to ImplicitPolicyTarget=block
+  systemctl restart usbguard
+  
   # Allow users in wheel group to talk to the daemon directly (complements Polkit)
   IPCAllowedGroups=wheel
   EOF
@@ -2481,7 +2567,7 @@
   getcap /usr/bin/ping
   # Test: The ping command should still function for unprivileged users. Repeat this process for any other minimal-privilege setuid binaries you identify.
   ```
-- Enable FSP in COMPLAIN mode
+- Enable Apparmor in COMPLAIN mode
   ```bash
   # This activates the *complete* AppArmor.d policy (1000+ profiles)
   # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
@@ -2501,7 +2587,7 @@
   # Regenerate UKI
   mkinitcpio -P && sbctl sign -s /boot/EFI/Linux/arch*.efi
 
-  echo "AppArmor FSP is now in COMPLAIN mode."
+  echo "AppArmor is now in COMPLAIN mode."
   echo "Use system normally for 1–2 days, then check denials:"
   echo "  journalctl -u apparmor | grep DENIED" # (THIS IS IMPORTANT STEP, MAKE SURE TO PERFORM IT)
   echo "  sudo aa-logprof"
@@ -2515,7 +2601,7 @@
   echo "       sudo aa-genprof <binary>  # e.g., Astal, supergfxctl"
   echo "  4. After tuning → ENFORCE:"
   echo "       sudo just fsp-enforce"
-  echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just fsp-enforce
+  echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just enforce
   echo "       sudo systemctl restart apparmor"
   ```
 ## Step 12: Configure eGPU (AMD)
@@ -3110,6 +3196,13 @@
 
     # Start the service for this script above
     sudo systemctl enable --now pci-latency.service
+
+    # Before unplugging eGPU:
+    # 1. Close all GPU-accelerated apps
+    # 2. Switch to integrated graphics
+    # 3. Wait 5 seconds
+    # 4. Physically disconnect
+    # use suspend-before-unplug workflow
     ```
 ## Step 13: Configure Snapper and Snapshots
 
@@ -3430,7 +3523,7 @@
   DRI_PRIME=1 glxinfo | grep "OpenGL renderer" || echo "Warning: GLX test failed, trying Vulkan"
   DRI_PRIME=1 vulkaninfo --summary | grep deviceName
   systemctl status supergfxd
-  supergfxctl -s
+  # (DEPRECATED) supergfxctl -s
   sbctl verify /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko || { echo "Signing amdgpu module"; sbctl sign -s /lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu.ko; }
   ```
 - Test hibernation
@@ -3476,6 +3569,12 @@
     echo "Hibernation test skipped (recommended for first run)."
     echo "When you are ready later, just run:  systemctl hibernate"
   fi
+
+  # Test Hibernation
+  systemctl hibernate
+  # Wait 10 seconds
+  # Power on
+  # Verify applications restored
 
   echo ""
   echo "After resume (if it worked) run these checks:"
@@ -3640,8 +3739,12 @@
   ```
 - TPM Seal breaks
   ```bash
+  # Enter LUKS passphrase
+  # Boot succeeds
+  # Run fix-tpm
+  # (Optional) gated reenrollment service
   # Save the command to repair TPM in the note.
-  sudo tpm-seal-fix
+  # sudo tpm-seal or fix-tpm
   # echo "This re-measures the current boot state and re-enrolls TPM automatically."
   # echo "No manual PCR reading. No key regeneration. Just one line."
   ```
@@ -3684,6 +3787,14 @@
   # This allows you to re-sign kernels if you reinstall the OS
   sudo cp -r /usr/share/secureboot/keys /mnt/recovery/sbctl-keys-$DATE
   sudo chmod -R 600 /mnt/recovery/sbctl-keys-$DATE
+  # If UEFI variables are reset or Secure Boot is disabled:
+  # Boot Arch using passphrase or recovery USB
+  # Re-enroll keys:
+  sbctl enroll-keys -m -f
+  sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
+  sbctl sign -s /boot/EFI/Linux/*.efi
+  # Reboot and re-enable Secure Boot in firmware
+
 
   # Create Integrity Checksums
   cd /mnt/recovery && sha256sum * > checksums.txt
@@ -3703,7 +3814,12 @@
    - Type your LUKS Passphrase at the boot prompt.
   Once inside Arch, run:
    sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
-   sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7+11 /dev/nvme1n1p2
+   sudo systemd-cryptenroll /dev/nvme1n1p2 \
+   --tpm2-device=auto \
+   --tpm2-pcrs=7+11 \
+   --tpm2-pcrs-bank=sha256 \
+   --tpm2-public-key=/etc/tpm2-ukey.pem
+  # This restores the original TPM policy (PCRs + SHA256 bank + authorized signing key).
 
   b. **Scenario B: System Won't Boot (Live ISO Recovery)**:
    Boot Arch Linux Live ISO.
@@ -4016,51 +4132,49 @@
   # Restore example:
   # rustic restore --target /tmp/restore latest --path /home/user/Documents
   # Weekly integrity: systemctl status rustic-check.timer
+
+  echo "Verify password is in Bitwarden before continuing: "
+  read -p "Confirmed? (yes/no): " confirm
+  [[ "$confirm" != "yes" ]] && exit 1
   ```
 ## Step 18: Post-Installation Maintenance and Verification
 
 - **a) Update System Regularly**:
   - Keep the system up-to-date:
     ```bash
-    pacman -Syu --noconfirm || echo "pacman failed"
     paru -Syu --noconfirm || echo "paru failed"
     flatpak update -y || echo "flatpak failed"
     ```
 - **b) Monitor Logs**:
   - Check for errors in system logs:
     ```bash
+    # Check for high-priority errors from the current boot
     journalctl -p 3 -xb
     journalctl -b -p err --since "1 hour ago"
+
+    # Check for disk health (SSD)
+    sudo smartctl -t short /dev/nvme0n1 && sudo smartctl -t short /dev/nvme1n1
 
     # Review current security in place on systemd https://roguesecurity.dev/blog/systemd-hardening
     ```
 - **c) Check Snapshots**:
   - Verify Snapper snapshots:
     ```bash
+    # List snapshots and delete old manual ones to save BTRFS metadata space
     snapper list
     snapper status 0..1
-    ```
-- **d) Verify Secure Boot**:
-  - Confirm Secure Boot is active:
-    ```bash
-    sbctl status
-    sbctl verify
-    mokutil --sb-state
-    ```
-- **e) Test eGPU**:
-  - Verify eGPU detection and rendering:
-    ```bash
-    lspci | grep -i amd
-    DRI_PRIME=1 glxinfo | grep renderer
-    supergfxctl -g
-    DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
-    ```
-- **f) Firmware Updates**:
-  ```bash
 
+    # Clean up orphaned packages
+    paru -Rcns $(pacman -Qdtq)
+    ```
+- **d) Firmware Updates**:
+  ```bash
   fwupdmgr refresh --force
   fwupdmgr get-updates
+  
+  # If updates are available:
   fwupdmgr update
+  
   # After fwupdmgr update
   echo "WARNING: Firmware updates (BIOS, eGPU dock) will change TPM PCR values."
   echo "TPM auto-unlock will fail on next boot. You MUST enter your LUKS passphrase."
@@ -4071,10 +4185,30 @@
   echo "WARNING: Firmware updates change PCRs. TPM auto-unlock fails once; enter passphrase."
   echo "If TPM fails (e.g., Secure Boot change):"
   echo "1. Enter LUKS Passphrase."
-  echo "2. Run the automated fix script: sudo tpm-seal-fix"
+  echo "2. Run the automated fix script: sudo tpm-seal"
   tpm2_pcrread sha256:7,11 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
+- **e) Test eGPU**:
+  - Verify eGPU detection and rendering:
+    ```bash
+    lspci | grep -i amd
+    DRI_PRIME=1 glxinfo | grep renderer
+    # (DEPRECATED) supergfxctl -g
+    DRI_PRIME=1 glxgears -info | grep "GL_RENDERER"
+    # Check if the ReDriver/Link is running at full speed (x4 4.0)
+    sudo lspci -vvv -s $(lspci | grep AMD | awk '{print $1}') | grep LnkSta
+    ```
+- **f) Verify Secure Boot**:
+  - Confirm Secure Boot is active:
+    ```bash
+    sbctl status
+    sbctl verify
+    mokutil --sb-state
+
+    # Check the 'Exposure' score of systemd services (Aim for < 5.0 for critical ones)
+    systemd-analyze security | head -n 20
+    ```
 - **g) TPM seal breaks Maintenance**:
   ```bash
   # If the TPM seal breaks (e.g., hook failure). Update the permanent policy file (captures new PCRs 7 and 11)
@@ -4092,7 +4226,6 @@
 - **h) Security Audit**:
   ```bash
   lynis audit system > /root/lynis-report-$(date +%F).txt
-  rkhunter --check --sk > /root/rkhunter-report-$(date +%F).log
   aide --check | grep -v "unchanged" > /root/aide-report-$(date +%F).txt
 
   # Systemd Security Score (from RogueSecurity recommendations)
@@ -4116,82 +4249,106 @@
   ausearch -k priv_fail
 
   # Changes to identity files
-  ausearch -k identity
+  ausearch -k identity -i  # Who changed /etc/passwd or /etc/shadow?
   ```
-- **i) Adopt AppArmor.d for Full-System Policy and Automation (executed this one after a few months only)**:
+- **i) Adopt AppArmor.d for Enforce Policy and Automation (executed this one after a few months only)**:
   ```bash
-  # Enable policy caching (using a robust, non-destructive sed command)
+  # Preparation: Install notification tools for real-time monitoring
+  # Required for aa-notify desktop popups + dependencies
+  sudo pacman -S --needed python-notify2 python-psutil
+  echo "Installed aa-notify dependencies."
+
+  # Optional but strongly recommended: XDG_RUNTIME_DIR tunable (fixes many denials)
+  if [ ! -f /etc/apparmor.d/tunables/local/xdg.conf ]; then
+    echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf >/dev/null
+    echo "Added XDG_RUNTIME_DIR local tunable."
+  fi
+
+  # Enable policy caching (critical for boot speed with 1500+ profiles)
   sudo mkdir -p /etc/apparmor.d/cache
   sudo sed -i -E 's|^[[:space:]]*#?[[:space:]]*cache-loc.*|cache-loc = /etc/apparmor.d/cache|' /etc/apparmor/parser.conf
-  # Verify change (outputs the updated line)
   grep '^cache-loc' /etc/apparmor/parser.conf || echo "Warning: cache-loc not set correctly"
-  echo "Enabled AppArmor cache in parser.conf"
 
-  # Enable the FSP's built-in cache update timer
-  # (This timer is provided by the apparmor.d-git package)
-  if ! systemctl is-enabled --quiet apparmor.d-update.timer; then
+  # Enable automatic profile rebuild timer
+  if ! systemctl is-enabled --quiet apparmor.d-update.timer 2>/dev/null; then
     sudo systemctl enable --now apparmor.d-update.timer
-    echo "Enabled and started apparmor.d-update.timer"
+    echo "Enabled apparmor.d-update.timer"
   else
     echo "apparmor.d-update.timer already enabled"
   fi
+  systemctl status apparmor.d-update.timer --no-pager | head -5  # Quick confirmation
 
-  # Check timer status
-  systemctl status apparmor.d-update.timer --no-pager
+  # Reload profiles (builds cache if first time – can take 10–60s)
+  echo "Building/reloading AppArmor cache and profiles... (may take a minute)"
+  sudo apparmor_parser -r /etc/apparmor.d/ || echo "Warning: Reload showed issues – check journalctl -u apparmor"
 
-  # Create local tunable for XDG (from your V1, still a good idea)
-  if [ ! -f /etc/apparmor.d/tunables/local/xdg.conf ]; then
-    echo '@{XDG_RUNTIME_DIR}=/run/user/@{UID}' | sudo tee /etc/apparmor.d/tunables/local/xdg.conf > /dev/null
-    echo "Created XDG local tunable"
+  echo "--------------------------------------------------"
+  echo "RECOMMENDATION: Monitor in real-time:"
+  echo "  aa-notify -p -s 1 --display \$DISPLAY"
+  echo "Add to GNOME/KDE startup or run in background terminal."
+  echo "Use 'sudo aa-logprof' after normal usage to tune interactively."
+  echo "--------------------------------------------------"
+
+  # Switch to ENFORCE mode
+  read -p "Ready to switch apparmor.d profiles to ENFORCE mode? (y/N): " confirm
+  [[ $confirm =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
+
+  if command -v just >/dev/null 2>&1 && just --list 2>/dev/null | grep -q 'enforce'; then
+    echo "Using official 'just enforce' method..."
+    sudo just enforce
   else
-    echo "XDG local tunable already exists"
+    echo "Falling back to manual aa-enforce..."
+    sudo aa-enforce /etc/apparmor.d/* 2>/dev/null || echo "Some profiles failed enforcement – check dmesg/audit.log"
   fi
 
-  # Reload all AppArmor profiles to apply new abstractions/tunables
-  sudo apparmor_parser -r /etc/apparmor.d/
-  # Verify no parse errors
-  sudo aa-status | head -5 || echo "Warning: aa-status failed (check apparmor.service)"
+  # Explicit reload after mode change
+  sudo apparmor_parser -r /etc/apparmor.d/ || echo "Post-enforce reload had issues"
 
-  # Tune from logs (run after normal usage)
-  echo "---"
-  echo "Use the system normally for a while (1-2 days), then run:"
-  echo "  sudo aa-logprof   # To interactively tune profiles"
-  echo "  sudo aa-genprof <binary>   # To generate profiles for new apps"
-  echo "---"
-
-  # Switch to ENFORCE mode using the FSP helper
-  read -p "Ready to enforce AppArmor.d FSP? (y/N): " confirm_fsp
-  [[ $confirm_fsp =~ ^[Yy]$ ]] || exit 1
-
-  # Verify 'just' and fsp-enforce availability
-  if ! command -v just >/dev/null 2>&1 || ! just --list 2>/dev/null | grep -q fsp-enforce; then
-    echo "Error: 'just fsp-enforce' not available. Ensure apparmor.d-git is installed and up-to-date."
-    exit 1
-  fi
-
-  sudo just fsp-enforce
+  # Verify and Warm Cache on Boot
+  sudo mkdir -p /etc/systemd/system/apparmor.service.d
+  sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf >/dev/null <<'EOF'
+  [Service]
+  ExecStartPre=/usr/bin/apparmor_parser --cache-loc=/etc/apparmor.d/cache -r /etc/apparmor.d/*
+  EOF
+  sudo systemctl daemon-reload
   sudo systemctl restart apparmor
 
-  # Verify enforcement
-  aa-status | grep -E "(profiles are in enforce mode|complain)" || echo "Warning: Enforcement check failed"
-  echo "AppArmor FSP is now ENFORCED."
+  # Final Status & Confinement Check
+  echo "--- Enforcement Status Summary ---"
+  sudo aa-status | grep -E "profiles are in enforce mode|complain mode|are loaded" || echo "aa-status issue?"
 
-  # Warm cache on boot (using explicit cache-loc)
-  sudo mkdir -p /etc/systemd/system/apparmor.service.d
-  if [ ! -f /etc/systemd/system/apparmor.service.d/cache-warm.conf ]; then
-    sudo tee /etc/systemd/system/apparmor.service.d/cache-warm.conf > /dev/null <<'EOF'
-  [Service]
-  ExecStartPre=/usr/bin/apparmor_parser --cache-loc=/etc/apparmor.d/cache -r /usr/share/apparmor.d/*
-  EOF
-    echo "Created apparmor cache-warm override"
-  else
-    echo "apparmor cache-warm override already exists"
-  fi
+  echo ""
+  echo "--- Quick Confinement Check for Key Installed Apps ---"
+  echo "   (Make sure the apps are actually running/open before this check)"
+  echo ""
 
-  # Reboot to apply cache & early load
-  echo "Rebooting in 10 seconds to apply AppArmor.d cache..."
-  sleep 10
-  reboot
+  for app in brave torbrowser-launcher steam thunderbird nautilus gnome-shell; do
+    if pgrep -f "$app" >/dev/null; then
+        # Use -f for broader matching (e.g., torbrowser-launcher processes)
+        if aa-status | grep -q "$(pgrep -f "$app" | head -n 1)"; then
+            echo "✅ $app appears confined"
+        else
+            echo "⚠️ $app running but NOT showing as confined (check 'aa-status -x' or profile name)"
+        fi
+    else
+        echo "( $app not currently running )"
+    fi
+  done
+
+  # Special note for Mullvad Browser (manual install, not in standard path)
+  echo ""
+  echo "Mullvad Browser note:"
+  echo "  Since it's manually extracted (e.g., ~/Downloads/mullvad-browser/.../Browser/firefox),"
+  echo "  apparmor.d may not have a profile covering it by default."
+  echo "  Run it once → check 'sudo aa-notify' or 'sudo journalctl -u apparmor -f' for denials."
+  echo "  If confined under a firefox-like profile → good; else create local override or aa-genprof."
+
+  echo "CRITICAL RECOVERY TIP:"
+  echo "If boot/login fails due to enforcement:"
+  echo "  - At systemd-boot: press 'e', add 'apparmor=0' to kernel line, Ctrl+X to boot"
+  echo "  - Then revert with 'sudo aa-complain /etc/apparmor.d/*' and tune"
+  echo ""
+  echo "Reboot recommended to verify early cache load and full enforcement."
   ```
 - **j) Gentoo Migration: How to Use This Later**:
   ```bash
@@ -4227,6 +4384,9 @@
   # Toggle overlay: Default hotkey Shift+F1 (configurable)
   # ALERT: Do not use traditional MangoHud with Gamescope—it's unsupported. Use Gamescope's --mangoapp flag instead (e.g., gamescope --mangoapp -f -- %command%).
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
+  # Replace 'amd' with your specific GPU ID if you have multiple AMD cards
+  # RADV_PERFTEST=aco (Fast Shaders), LD_BIND_NOW=1 (Fast Loading)
+  # --mangoapp (Overlay), --fsr-sharpness (Upscaling)
   LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
   # For FPS caps with VRR: Set to refresh_rate - 3 (e.g., 117 for 120Hz) to avoid VSync stutter.
   # For AMD shaders: Add RADV_PERFTEST=aco for faster compilation (e.g., RADV_PERFTEST=aco gamemoderun %command%)
@@ -4292,6 +4452,10 @@
   sudo pacman -S zam-plugins
   sudo pacman -S calf
   sudo pacman -S mda.lv2
+
+  # Launch EasyEffects, then load a community preset (like "Laptop Deep Bass")
+  # This makes the ThinkBook speakers sound significantly better.
+  easyeffects &
   ```
 - **m) ACPI Troubleshooting**:
   ```bash
@@ -4317,9 +4481,24 @@
   ```bash
   # This is a manual verification. Do not create a hook to run this because it degrades performance.
   sudo pacman -Qkk | grep -i 'mismatch\|warning' # Only prints explicit errors
+  # Run this once a month. It checks every file on the system against the pacman DB.
+  # Any 'mismatch' could indicate disk corruption or unauthorized modification.
+  sudo pacman -Qkk | grep -v '0 alterations'
   # Explote adding this as event refreshing daily an widget in the Astal/AGS step 19
   ```
-- **o) Final Reboot & Lock**:
+- **o) Two ESPs is valid — but**:
+  ```bash
+  # fwupd updates often assume the first ESP
+  # Lenovo firmware tools can be sloppy
+  # You already plan to remove Windows
+  # Recommendation
+  # After Windows retirement:
+  # Migrate to a single ESP
+  # Copy Arch EFI files
+  # Delete the second ESP
+  # This improves firmware update reliability and simplifies Secure Boot signing.
+  ```
+- **p) Final Reboot & Lock**:
   ```bash
   # Sign only unsigned EFI binaries
   sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
@@ -4328,7 +4507,7 @@
   echo "System locked and ready. Final reboot recommended."
   reboot
   ```
-## Step 19: User Customizations ** To be refined post production!
+## Step 19: User Customizations ** To be refined post production! WIP - For now ignore this part.
 
 - Create script report for Astal/AGS
   ```bash
