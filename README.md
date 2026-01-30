@@ -652,7 +652,12 @@
   alias dig='dog'
   alias btop='btm'
   alias iftop='bandwhich --immediate --tree'
-  alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
+  # (DEPRECATED) alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
+  alias fix-tpm='sudo touch /etc/allow-tpm-reenroll && \
+  sudo systemctl start tpm-reenroll.service && \
+  sudo rm /etc/allow-tpm-reenroll && \
+  sudo journalctl -u tpm-reenroll.service -n 50 --no-pager'
+
   # Optional: make sudo preserve these aliases when you really want it
   # (rarely needed, but harmless)
   alias sudo='sudo '  # trailing space → sudo also expands aliases
@@ -825,14 +830,13 @@
   lsmod | grep -E 'firewire|pcspkr|cramfs|hfs|btusb'
   # Create a configuration file
   micro /etc/modprobe.d/99-local-blacklist.conf
-  # Prevents firewire core and all dependent modules from loading
-  install firewire-core /bin/true
   # Prevents the PC speaker module (for system beep)
   install pcspkr /bin/true
   # Blacklist legacy filesystems if not needed
   install cramfs /bin/true
   install hfs /bin/true
-  install hfsplus /bin/true 
+  install hfsplus /bin/true
+  blacklist firewire_core
 
   # Generate UKI
   # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
@@ -913,7 +917,7 @@
   ```
   ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
 
-## Step 9: TPM Auto-Healing, Recovery USB, Windows Entry & Final Archive (newly installed, booted Arch Linux OS, not the USB installer)
+## Step 9: TPM Seal, Recovery USB, Windows Entry & Final Archive (newly installed, booted Arch Linux OS, not the USB installer)
 
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
@@ -928,18 +932,45 @@
     echo "TPM public key saved to $TPM_PUBKEY"
   fi
 
-  # Raw PCR + Public-Key Enrollment - OCreate the systemd service file
+  # Create TPM Seal Script
+  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal > /dev/null
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  LUKS_DEV="/dev/mapper/cryptroot"
+  TPM_PUBKEY="/etc/tpm2-ukey.pem"
+
+  echo "Sealing LUKS device to TPM PCRs (7+11)..."
+
+  systemd-cryptenroll "$LUKS_DEV" \
+    --wipe-slot=tpm2 \
+    --tpm2-device=auto \
+    --tpm2-pcrs=7+11 \
+    --tpm2-pcrs-bank=sha256 \
+    --tpm2-public-key="$TPM_PUBKEY"
+
+  echo "TPM sealing complete."
+  EOF
+
+  sudo chmod +x /usr/local/bin/tpm-seal
+
+  # Final TPM Policy Sealing
+  echo "Sealing LUKS to TPM with PCR 7+11 and public key..."
+  [[ -d /boot/EFI ]] || { echo "ERROR: ESP not mounted at /boot!"; exit 1; }
+  sudo tpm-seal
+  
+  # Raw PCR + Public-Key Enrollment - Create the tpm-reenroll systemd service file that will be a wrapper of TPM Seal Script
   cat > /etc/systemd/system/tpm-reenroll.service << 'EOF'
   [Unit]
   Description=Re-enroll TPM2 policy if PCRs changed
   ConditionPathExists=/etc/allow-tpm-reenroll
   Documentation=man:systemd-cryptenroll(1)
 
-  # a. Wait until the LUKS device is unlocked and mapped
+  # Wait until the LUKS device is unlocked and mapped
   After=systemd-cryptsetup@cryptroot.service
   Requires=systemd-cryptsetup@cryptroot.service
 
-  # b. Also wait for TPM device
+  # Also wait for TPM device
   Requires=tpm2.target
   After=tpm2.target
 
@@ -947,40 +978,20 @@
   Type=oneshot
   RemainAfterExit=yes
 
-  # c. Use the *mapped* device (safe, always exists after unlock)
-  ExecStart=/usr/bin/bash -c '
-  ExecStartPre=/usr/bin/test -f /etc/allow-tpm-reenroll
-  set -euo pipefail
-
-  LUKS_DEV="/dev/mapper/cryptroot"
-  TPM_PUBKEY="/etc/tpm2-ukey.pem"
-
-  # d. Test current policy
-  if systemd-cryptenroll --tpm2-device=auto --tpm2-public-key="$TPM_PUBKEY" --test "$LUKS_DEV" >/dev/null 2>&1; then
-    echo "TPM policy valid. No action needed."
-    exit 0
-  fi
-
-  echo "TPM policy mismatch detected. Re-enrolling with current PCRs..."
-
-  # e. Wipe old TPM slot and re-enroll
-  systemd-cryptenroll "$LUKS_DEV" --wipe-slot=tpm2
-  systemd-cryptenroll "$LUKS_DEV" \
-    --tpm2-device=auto \
-    --tpm2-pcrs=7+11 \
-    --tpm2-public-key="$TPM_PUBKEY" \
-    --tpm2-pcrs-bank=sha256
+  # Execute the TPM Seal 
+  ExecStart=/usr/local/bin/tpm-seal
   
-  echo "TPM re-enrollment complete. Auto-unlock restored."
-  '
-
   [Install]
   WantedBy=multi-user.target
   EOF
   
   # Reload daemon and enable the service
   sudo systemctl daemon-reload
-  sudo systemctl enable --now tpm-reenroll.service
+  sudo systemctl enable tpm-reenroll.service
+  # Current Workflow:
+  # touch /etc/allow-tpm-reenroll
+  # systemctl start tpm-reenroll.service
+  # rm /etc/allow-tpm-reenroll
 
   # Main Arch Entry
   sudo tee /boot/loader/entries/arch.conf > /dev/null << 'EOF'
@@ -1011,6 +1022,8 @@
   
   # Verify
   sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
+  # If it fails:
+  fix-tpm
  
   # Final TPM unlock test
   sudo systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" && echo "TPM unlock test PASSED"
@@ -1635,6 +1648,14 @@
   sudo ufw default deny incoming
   # Allows the laptop to connect to the internet, servers, etc. (required)
   sudo ufw default allow outgoing
+  # Allow DHCP explicitly (prevents edge cases)
+  sudo ufw allow out 67,68/udp
+  # Explicitly allow loopback (defensive clarity)
+  sudo ufw allow in on lo
+  sudo ufw allow out on lo
+  # Allow VPN
+  sudo ufw allow in on wg0
+  sudo ufw allow out on wg0
   # Replace '51413' with the actual port number from your torrent client.
   sudo ufw allow 51413/tcp
   sudo ufw allow 51413/udp
@@ -1732,7 +1753,8 @@
   --failure silent
 
   ## Make rules immutable (-e 2)
-  -e 2
+  # Uncomment after tuning
+  # -e 2
 
   ## Identity & authentication files
   -w /etc/passwd      -p wa -k identity
@@ -1759,8 +1781,6 @@
   -w /etc/usbguard/rules.conf -p wa -k usbguard
 
   ## Privilege escalation & interesting failures
-  -a always,exit -F arch=b64 -S execve -F euid=0 -k root_exec
-  -a always,exit -F arch=b64 -S mount,setuid,setreuid -F exit=-EPERM -k priv_fail
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/sudo -k sudo_usage
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/run0 -k sudo_usage
   -a always,exit -F arch=b64 -S execve -F path=/usr/bin/pkexec -k pkexec_usage
@@ -3655,7 +3675,7 @@
 - TPM Seal breaks
   ```bash
   # Save the command to repair TPM in the note.
-  sudo tpm-seal-fix
+  sudo tpm-seal
   # echo "This re-measures the current boot state and re-enrolls TPM automatically."
   # echo "No manual PCR reading. No key regeneration. Just one line."
   ```
@@ -4079,7 +4099,7 @@
   echo "WARNING: Firmware updates change PCRs. TPM auto-unlock fails once; enter passphrase."
   echo "If TPM fails (e.g., Secure Boot change):"
   echo "1. Enter LUKS Passphrase."
-  echo "2. Run the automated fix script: sudo tpm-seal-fix"
+  echo "2. Run the automated fix script: sudo tpm-seal"
   tpm2_pcrread sha256:7,11 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
