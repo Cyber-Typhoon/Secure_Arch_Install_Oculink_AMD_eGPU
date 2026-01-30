@@ -1948,7 +1948,8 @@
   InsertedDevicePolicy=apply-policy
 
   # Slightly more forgiving default for new devices (still blocks, but you get a notification)
-  ImplicitPolicyTarget=block
+  ImplicitPolicyTarget=allow
+  # Start with ImplicitPolicyTarget=allow for first month. Switch to block only after device list is stable.
 
   # Allow users in wheel group to talk to the daemon directly (complements Polkit)
   IPCAllowedGroups=wheel
