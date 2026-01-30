@@ -1211,6 +1211,11 @@
   sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
   sudo sbctl status
   ```
+- Check Windows
+  ```bash
+  # Reboot to Windows and verify it boots
+  # Then reboot to Linux to continue
+  ```
 ## Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can pause at this point
 
 ## Step 10: Install and Configure DE and Applications
@@ -1473,9 +1478,6 @@
   # Allow Flatpaks to read/write their own config/data only
   flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
   flatpak override --user --socket=wayland --socket=x11
-  # Allow GPU access for Steam:
-  flatpak override --user com.valvesoftware.Steam --device=dri --filesystem=~/Games:create
-  # It causes crashes due to ABI mismatches with the Flatpak runtime (glibc version differences).
   # Rely on Flatpak's bubblewrap sandbox for application isolation instead.
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
@@ -3190,6 +3192,13 @@
 
     # Start the service for this script above
     sudo systemctl enable --now pci-latency.service
+
+    # Before unplugging eGPU:
+    # 1. Close all GPU-accelerated apps
+    # 2. Switch to integrated graphics
+    # 3. Wait 5 seconds
+    # 4. Physically disconnect
+    # use suspend-before-unplug workflow
     ```
 ## Step 13: Configure Snapper and Snapshots
 
@@ -3556,6 +3565,12 @@
     echo "Hibernation test skipped (recommended for first run)."
     echo "When you are ready later, just run:  systemctl hibernate"
   fi
+
+  # Test Hibernation
+  systemctl hibernate
+  # Wait 10 seconds
+  # Power on
+  # Verify applications restored
 
   echo ""
   echo "After resume (if it worked) run these checks:"
@@ -4113,6 +4128,10 @@
   # Restore example:
   # rustic restore --target /tmp/restore latest --path /home/user/Documents
   # Weekly integrity: systemctl status rustic-check.timer
+
+  echo "Verify password is in Bitwarden before continuing: "
+  read -p "Confirmed? (yes/no): " confirm
+  [[ "$confirm" != "yes" ]] && exit 1
   ```
 ## Step 18: Post-Installation Maintenance and Verification
 
