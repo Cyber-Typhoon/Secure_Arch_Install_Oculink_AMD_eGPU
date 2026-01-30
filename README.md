@@ -836,7 +836,7 @@
   # Hardware-specific check:
   lsmod | grep -E 'firewire|pcspkr|cramfs|hfs|btusb'
   # Create a configuration file
-  micro /etc/modprobe.d/99-local-blacklist.conf
+  cat > /etc/modprobe.d/99-local-blacklist.conf <<EOF
   # Prevents the PC speaker module (for system beep)
   install pcspkr /bin/true
   # Blacklist legacy filesystems if not needed
@@ -844,6 +844,7 @@
   install hfs /bin/true
   install hfsplus /bin/true
   blacklist firewire_core
+  EOF
 
   # Generate UKI
   # Arch Wiki order REQUIRED: mkinitcpio -P -> bootctl install -> sbctl sign
