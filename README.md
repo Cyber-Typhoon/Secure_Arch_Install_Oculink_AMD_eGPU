@@ -435,7 +435,7 @@
   \
   # Graphics
   mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel intel-compute-runtime \
-  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo xorg-xwayland intel-gpu-tools lact \
+  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo xorg-xwayland intel-gpu-tools lact-libadwaita \
   \
   # Audio
   pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
@@ -1317,7 +1317,7 @@
   torbrowser-launcher thunderbird virt-manager libvirt qemu-desktop \
   \
   # Games
-  steam mangohud gamemode lib32-gamemode gamescope umu-launcher \
+  steam mangohud gamemode lib32-gamemode gamescope umu-launcher goverlay \
   \
   # Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
@@ -2904,13 +2904,149 @@
   echo "Choose one: simple performance via GameMode, or complex system-wide tuning via Ananicy-cpp."
   echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). You would need to create a script for this."
   ```
-- Performance optimization template (add to Steam/Lutris/Heroic)
+- Configure LACT for GPU Control
   ```bash
-  # Template 1: For regular gamnig (without gamescope, light games or native desktop resolution)
+  # Enable LACT daemon
+  sudo systemctl enable --now lactd
+
+  # Open GUI (after reboot into graphical environment)
+  lact
+
+  # Recommended LACT Settings for Gaming:
+
+  # Power Profile: 3dmark or VR (max performance)
+  # Power Limit: Max (depends on dock cooling - monitor temps)
+  # Performance Level: high or manual
+  # Fan Curve: Aggressive (eGPU docks have limited cooling)
+  # Clock Limits: Leave at max unless thermal throttling
+  # VRAM Clock: Max
+  # VRR: Enable (if not auto-detected)
+  ```
+- Create MangoHud Configuration
+  ```bash
+  mkdir -p ~/.config/MangoHud
+  cat > ~/.config/MangoHud/MangoHud.conf << 'EOF'
+  ############
+  # DISPLAY
+  ############
+  # Position: top-left is safest for OLED (avoids bottom burn-in)
+  position=top-left
+  font_size=24
+  no_small_font
+
+  # OLED-friendly colors (avoid pure white, use slight gray)
+  text_color=E0E0E0
+  gpu_color=95E095
+  cpu_color=95E0E0
+  vram_color=95A0E0
+  ram_color=E0E095
+  fps_color=E0E095
+
+  # Background opacity (0-100, lower = less burn-in risk)
+  background_alpha=0.4
+
+  ############
+  # METRICS
+  ############
+  # Core stats
+  fps
+  fps_sampling_period=500
+  fps_color_change
+  fps_value=30,60
+
+  # GPU
+  gpu_stats
+  gpu_temp
+  gpu_core_clock
+  gpu_mem_clock
+  gpu_power
+  gpu_load_change
+  gpu_load_value=50,90
+  vram
+  amdgpu_voltage
+
+  # CPU  
+  cpu_stats
+  cpu_temp
+  cpu_mhz
+  cpu_load_change
+  cpu_load_value=50,90
+  core_load
+
+  # Memory
+  ram
+  swap
+
+  # Frame timing (critical for diagnosing stutters)
+  frame_timing=1
+  frametime
+  histogram
+
+  # 1% and 0.1% lows (critical for smoothness perception)
+  fps_metrics=avg,0.01,0.1
+
+  ############
+  # FPS LIMITING
+  ############
+  # For 240Hz OLED with VRR: limit to 237 fps (240 - 3)
+  # This prevents tearing while staying in VRR range
+  fps_limit=237
+
+  # Use 'early' method for lower latency (recommended for competitive)
+  # Use 'late' for smoother frame pacing (recommended for single-player)
+  fps_limit_method=early
+
+  # Toggle FPS limit on/off with Shift_R+F1
+  toggle_fps_limit=Shift_R+F1
+
+  ############
+  # LOGGING
+  ############
+  # Benchmark logging
+  output_folder=/home/$USER/Documents/mangohud_logs
+  log_duration=30
+  toggle_logging=Shift_R+F2
+  upload_log=F5
+
+  ############
+  # OTHER
+  ############
+  # Show MangoHud version
+  version
+
+  # Vsync indicator (shows when vsync is forced)
+  vsync=0
+
+  # Engine version (useful for debugging)
+  engine_version
+  wine
+
+  # Hotkeys
+  toggle_hud=Shift_R+F12
+  reload_cfg=Shift_R+F4
+  EOF
+  ```
+- Performance optimization template (for Gamesopce add to Steam/Heroic)
+  ```bash
+  # Template: For regular gamnig (without gamescope, light games or native desktop resolution)
   # MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun mangohud %command%
 
-  # Template 2: For gamescope gaming (with eGPU)
-  # LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
+  # Templates for gamescope gaming (with eGPU)
+  # Template 1: Native 4K 240Hz (for games that can hit >100 fps)
+  # Steam Launch Options:
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -W 3840 -H 2160 -w 3840 -h 2160 -r 240 --adaptive-sync --mangoapp -- %command%
+  
+  # Template 2: 1440p → 4K Upscale (for demanding games)
+  # Uses FSR to upscale 1440p to 4K (better performance)
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
+
+  # Template 3: 1080p → 4K Upscale (for very demanding games)
+  # Uses FSR to upscale 1080p to 4K (best performance)
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -w 1920 -h 1080 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
+
+  # Template 4: High Refresh Priority (for competitive games)
+  # 1080p native, max refresh, low latency
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -w 1920 -h 1080 -W 1920 -H 1080 -r 240 --adaptive-sync --immediate-flips --mangoapp -- %command%
   
   # Verify Gaming Settings
   sysctl -a | grep vm.swappiness # (should be 10)
@@ -2918,6 +3054,42 @@
   DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
   # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
   # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
+
+  # Gamescope Flags Explained:
+  # -w/-h: Game internal resolution
+  # -W/-H: Display output resolution
+  # -r: Refresh rate cap (use 240 for max)
+  # --adaptive-sync: Enable VRR (better than -r for variable fps)
+  # --fsr-sharpness: 0-20, higher = sharper (3-5 recommended for upscaling)
+  # --mangoapp: MangoHud overlay (don't use mangohud wrapper with gamescope)
+  # --immediate-flips: Lower latency (may cause tearing without VRR)
+  ```
+- Configure FPS Limiting Strategy
+  ```bash
+  For 240Hz OLED with VRR:
+  Option A: Let VRR Handle It (Recommended for most games)
+
+  Don't set FPS limit
+  Let game run uncapped within VRR range
+  Smoother experience with variable frame times
+
+  Option B: Cap at 237 FPS (For consistency)
+
+  Prevents exceeding VRR max (240Hz)
+  Avoids VSync fallback and tearing
+  Use MangoHud: fps_limit=237 + fps_limit_method=early
+
+  Option C: Cap at Half Refresh (For demanding games)
+
+  Cap at 120 fps for 240Hz display
+  Guarantees smooth frame pacing
+  Use MangoHud: fps_limit=120 + fps_limit_method=late
+
+  In-Game vs MangoHud vs Gamescope:
+
+  In-game FPS limit (best): Use if available, lowest latency
+  MangoHud (fps_limit_method=early): Good latency, works everywhere
+  Gamescope (-r flag): Adds latency, use only for VRR ceiling
   ```
 - (OPTIONAL - FALLBACK IF HOT PLUG DOES NOT WORK) Install and configure `supergfxctl` for GPU switching:
   ```bash
