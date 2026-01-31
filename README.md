@@ -1936,6 +1936,15 @@
   dog +trace archlinux.org
   grep nameserver /etc/resolv.conf
   ```
+- Check if there is a VPN or DNS leak:
+  ```bash
+  # Verify (check IP and no leaks)
+  # Proton VPN ON
+  curl ifconfig.me  # Should show Proton IP
+
+  # Proton VPN OFF
+  curl ifconfig.me  # Should show DNSCrypt IP
+  ```
 - Configure USBGuard:
   ```bash
   # Generate initial policy for currently connected devices (keyboard, mouse, etc.)
