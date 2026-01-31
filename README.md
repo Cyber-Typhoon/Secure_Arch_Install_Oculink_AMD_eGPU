@@ -3931,11 +3931,170 @@
   dmesg | grep -i "goodix"
   # If touchpad is with issue try this kernel patch https://github.com/ty2/goodix-gt7868q-linux-driver
   ```
-- (DEPRECATED) Verify fwupd. # Updating the BIOS is better placed in Step 18.
+- Validation Checklist:
   ```bash
-  echo "fwupd tests moved to Step 18 for BIOS/firmware updates."
+  # Create and run this one-shot script to validate critical components. This catches errors like UUID mismatches in fstab, unsigned files, or TPM issues.
+  ```bash
+  cat << 'EOF' | sudo tee /usr/local/bin/pre-reboot-check.sh
+  #!/usr/bin/env bash
+  set -euo pipefail
+  
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  NC='\033[0m'
+  
+  ERRORS=0
+  
+  echo "=== PRE-REBOOT VALIDATION ==="
+  echo ""
+  
+  # 1. Bootloader
+  echo "=== 1. systemd-boot ==="
+  if bootctl status >/dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} systemd-boot installed"
+  else
+    echo -e "${RED}✗${NC} systemd-boot missing"
+    ((ERRORS++))
+  fi
+  
+  if [ -f /boot/EFI/Linux/arch.efi ]; then
+    echo -e "${GREEN}✓${NC} UKI exists"
+  else
+    echo -e "${RED}✗${NC} UKI missing"
+    ((ERRORS++))
+  fi
+  echo ""
+  
+  # 2. Secure Boot
+  echo "=== 2. Secure Boot ==="
+  if sbctl verify 2>&1 | grep -q "Verifying"; then
+    if sbctl verify 2>&1 | grep -q "✓"; then
+      echo -e "${GREEN}✓${NC} All EFI files signed"
+    else
+      echo -e "${RED}✗${NC} Unsigned files detected:"
+      sbctl verify
+      ((ERRORS++))
+    fi
+  else
+    echo -e "${RED}✗${NC} sbctl verify failed"
+    ((ERRORS++))
+  fi
+  
+  if sbctl status 2>&1 | grep -q "Secure Boot:.*Enabled"; then
+    echo -e "${GREEN}✓${NC} Secure Boot enabled in BIOS"
+  else
+    echo -e "${YELLOW}⚠${NC} Secure Boot not enabled (enable after boot)"
+  fi
+  echo ""
+  
+  # 3. TPM
+  echo "=== 3. TPM Auto-Unlock ==="
+  if systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 >/dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} TPM unlock test passed"
+  else
+    echo -e "${RED}✗${NC} TPM unlock test FAILED"
+    echo "Run: sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2"
+    ((ERRORS++))
+  fi
+  echo ""
+  
+  # 4. fstab UUID Validation (CRITICAL)
+  echo "=== 4. fstab UUID Validation ==="
+  FSTAB_OK=true
+  while read -r line; do
+    UUID=$(echo "$line" | cut -d= -f2 | awk '{print $1}')
+    if blkid | grep -q "$UUID"; then
+      echo -e "${GREEN}✓${NC} UUID $UUID valid"
+    else
+      echo -e "${RED}✗${NC} UUID $UUID NOT FOUND in blkid"
+      echo "This WILL cause boot failure. Fix /etc/fstab before proceeding."
+      FSTAB_OK=false
+      ((ERRORS++))
+    fi
+  done < <(grep -E '^UUID=' /etc/fstab 2>/dev/null || true)
+  
+  if $FSTAB_OK; then
+    echo -e "${GREEN}✓${NC} All fstab UUIDs validated"
+  fi
+  echo ""
+  
+  # 5. Snapper
+  echo "=== 5. Snapper Snapshots ==="
+  if snapper list-configs >/dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} Snapper configured"
+    if snapper --config root list 2>/dev/null | grep -q "timeline"; then
+      echo -e "${GREEN}✓${NC} Timeline snapshots active"
+    else
+      echo -e "${YELLOW}⚠${NC} No timeline snapshots (may be normal if just installed)"
+    fi
+  else
+    echo -e "${RED}✗${NC} Snapper not configured"
+    ((ERRORS++))
+  fi
+  echo ""
+  
+  # 6. Critical Services
+  echo "=== 6. Critical Services ==="
+  for service in gdm NetworkManager systemd-timesyncd; do
+    if systemctl is-enabled $service >/dev/null 2>&1; then
+      echo -e "${GREEN}✓${NC} $service enabled"
+    else
+      echo -e "${YELLOW}⚠${NC} $service not enabled"
+    fi
+  done
+  echo ""
+  
+  # 7. Recovery Files
+  echo "=== 7. Recovery Preparation ==="
+  if [ -f /mnt/usb/luks-header-backup ]; then
+    echo -e "${GREEN}✓${NC} LUKS header backup found"
+  else
+    echo -e "${YELLOW}⚠${NC} LUKS header backup not found on USB"
+  fi
+  
+  if [ -f /etc/tpm2-ukey.pem ]; then
+    echo -e "${GREEN}✓${NC} TPM public key exists"
+  else
+    echo -e "${YELLOW}⚠${NC} TPM public key missing"
+  fi
+  echo ""
+  
+  # Summary
+  echo "======================================="
+  if [ $ERRORS -eq 0 ]; then
+    echo -e "${GREEN}✓ ALL CRITICAL CHECKS PASSED${NC}"
+    echo ""
+    echo "SAFE TO REBOOT"
+    echo ""
+    echo "Delete this script after successful boot:"
+    echo "  sudo rm /usr/local/bin/pre-reboot-check.sh"
+    exit 0
+  else
+    echo -e "${RED}✗ $ERRORS CRITICAL ERROR(S) FOUND${NC}"
+    echo ""
+    echo "DO NOT REBOOT UNTIL ERRORS ARE FIXED"
+    echo ""
+    echo "After fixing, re-run: sudo /usr/local/bin/pre-reboot-check.sh"
+    exit 1
+  fi
+  EOF
+  
+  sudo chmod +x /usr/local/bin/pre-reboot-check.sh
+  
+  # Run validation
+  echo "Running pre-reboot validation..."
+  if sudo /usr/local/bin/pre-reboot-check.sh; then
+    echo ""
+    echo "Pre-reboot validation passed. Proceeding to final signing."
+  else
+    echo ""
+    echo "VALIDATION FAILED. Fix errors above before proceeding."
+    echo "Re-run validation: sudo /usr/local/bin/pre-reboot-check.sh"
+    exit 1
+  fi
   ```
-- (Optional) Test Windows boot.
+- Test Windows boot.
   ```bash
   echo "Reboot and select Windows from the boot menu (F12 or Enter). Verify Windows boots correctly."
   sbctl verify /boot/EFI/Microsoft/Boot/bootmgfw.efi || { echo "Signing Windows bootloader"; sbctl sign -s /boot/EFI/Microsoft/Boot/bootmgfw.efi; }
