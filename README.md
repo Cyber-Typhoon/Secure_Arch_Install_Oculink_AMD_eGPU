@@ -2626,6 +2626,20 @@
   echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just enforce
   echo "       sudo systemctl restart apparmor"
   ```
+- (Optional) Disable storage of Coredumps to prevent sensitive data leaks on crash
+  ```bash
+  sudo mkdir -p /etc/systemd/coredump.conf.d
+  cat <<EOF | sudo tee /etc/systemd/coredump.conf.d/custom.conf
+  [Coredump]
+  Storage=none
+  ProcessSizeMax=0
+  EOF
+  ```
+- Check for TME support (If your CPU support it and is active in the BIOS this is a check)
+  ```bash
+  dmesg | grep -i "Memory Encryption"
+  # If you see "TME: enabled", your RAM is encrypted against physical extraction.
+  ```
 ## Step 12: Configure eGPU (AMD)
 
 - Install AMD drivers and microcode:
