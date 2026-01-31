@@ -6,6 +6,7 @@
 - The laptop has **two M.2 NVMe slots**; we will install **Windows 11 Pro** on one slot (`/dev/nvme0n1`) for BIOS and firmware updates, and **Arch Linux** on the second slot (`/dev/nvme1n1`).
 - **Observation**: The `linux-hardened` kernel and hardened malloc are avoided due to complexities with eGPU setup, performance penalties, more specific linux-hardened does not support hibernation, hardened malloc will make games crash randomly and Firefox's browsers performance will significantly decrease because replacemant of jemalloc which is highly optimized for browser rendering. Instead, we manually incorporate security enhancements inspired by `linux-hardened`, such as kernel parameters for memory safety and mitigations. If desired, post-installation, linux-hardened and hardened malloc can be explored.
 - **Attention**: Commands involving `dd`, `mkfs`, `cryptsetup`, `parted`, and `efibootmgr` can **destroy data** if executed incorrectly. **Re-read each command multiple times** to confirm the target device/partition is correct. Test **LUKS and TPM unlocking** thoroughly before enabling **Secure Boot**, and verify **Secure Boot** functionality before configuring the **eGPU**.
+- Unfortunatelly this CPU doesn't support Intel Total Memory Encryption because it isn't a vPRO model. In case you have a vPRO Intel CPU activate the TME in the BIOS.
 
 ## Step 1: Verify Hardware
 
@@ -2002,6 +2003,27 @@
 
   EOS
   ```
+- Harden Bluetooth Connections:
+  ```bash
+  cat >> /etc/bluetooth/main.conf <<EOF
+  [Policy]
+  AutoEnable=false  # Don't auto-enable on boot
+  ReconnectAttempts=0
+  ReconnectIntervals=1,2,4,8,16
+
+  [General]
+  Discoverable=false
+  DiscoverableTimeout=0
+  EOF
+  ```
+- Harden CUPS (Printer Attack Surface):
+  ```bash
+  # Add to /etc/cups/cupsd.conf
+  <Location />
+  Order allow,deny
+  Allow localhost
+  </Location>
+  ```
 - Configure Lynis audit and log management:
   ```bash
   # Create a dedicated, secure log directory
@@ -2811,6 +2833,14 @@
   ```bash
   pacman -S --needed switcheroo-control
   systemctl enable --now switcheroo-control
+  ```
+- Explicit IOMMU group check for eGPU isolation
+  ```bash
+  for d in /sys/kernel/iommu_groups/*/devices/*; do
+    n=${d#*/iommu_groups/*}; n=${n%%/*}
+    printf 'IOMMU Group %s ' "$n"
+    lspci -nns "${d##*/}"
+  done | grep -i amd
   ```
 - Configure systemd-logind for reliable GPU switching
   ```bash
