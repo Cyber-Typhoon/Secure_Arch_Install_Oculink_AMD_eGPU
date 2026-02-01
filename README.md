@@ -1312,7 +1312,7 @@
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo wine \
+  libva-utils libva-vdpau-driver vulkan-tools clinfo wine 7zip exfatprogs \
   \
   # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
   torbrowser-launcher thunderbird virt-manager libvirt qemu-desktop \
