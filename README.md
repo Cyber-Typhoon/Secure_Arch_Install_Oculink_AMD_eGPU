@@ -2635,15 +2635,6 @@
   echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just enforce
   echo "       sudo systemctl restart apparmor"
   ```
-- (Optional) Disable storage of Coredumps to prevent sensitive data leaks on crash
-  ```bash
-  sudo mkdir -p /etc/systemd/coredump.conf.d
-  cat <<EOF | sudo tee /etc/systemd/coredump.conf.d/custom.conf
-  [Coredump]
-  Storage=none
-  ProcessSizeMax=0
-  EOF
-  ```
 - Check for TME support (If your CPU support it and is active in the BIOS this is a check)
   ```bash
   dmesg | grep -i "Memory Encryption"
@@ -4871,7 +4862,23 @@
   sudo pacman -Qkk | grep -v '0 alterations'
   # Explote adding this as event refreshing daily an widget in the Astal/AGS step 19
   ```
-- **o) Two ESPs is valid — but**:
+- **o) Disable storage of Coredumps after system stability (3-6 months)**:
+  ```bash
+  sudo mkdir -p /etc/systemd/coredump.conf.d
+  cat <<EOF | sudo tee /etc/systemd/coredump.conf.d/custom.conf
+  [Coredump]
+  Storage=none
+  ProcessSizeMax=0
+  EOF
+  
+  # Wipe coredump artifacts from stabilization phase
+  sudo rm -rf /var/lib/systemd/coredump/*
+  sudo journalctl --vacuum-time=1s
+  sudo systemctl daemon-reload
+  
+  echo "Coredumps disabled. Production security posture active."
+  ```
+- **p) Two ESPs is valid — but**:
   ```bash
   # fwupd updates often assume the first ESP
   # Lenovo firmware tools can be sloppy
@@ -4883,7 +4890,7 @@
   # Delete the second ESP
   # This improves firmware update reliability and simplifies Secure Boot signing.
   ```
-- **p) Final Reboot & Lock**:
+- **q) Final Reboot & Lock**:
   ```bash
   # Sign only unsigned EFI binaries
   sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
