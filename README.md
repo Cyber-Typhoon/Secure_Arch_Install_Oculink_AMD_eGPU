@@ -432,7 +432,7 @@
   intel-ucode sbctl cryptsetup tpm2-tools tpm2-tss tpm2-abrmd btrfs-progs efibootmgr dosfstools \
   \
   # Hardware / Firmware
-  sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb cups \
+  sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
   \
   # Graphics
   mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel intel-compute-runtime \
@@ -574,7 +574,6 @@
   systemctl enable fwupd-refresh.timer    
   systemctl enable paccache.timer
   systemctl enable shadow.timer
-  systemctl enable cups.service
   systemctl enable rtkit         
   ```
 - TTY console
@@ -1301,7 +1300,7 @@
   gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator libappindicator \
   \
   # Hardware
-  bluez bluez-utils fprintd \
+  bluez bluez-utils cups fprintd \
   \
   # Networking & Privacy
   dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
@@ -1346,7 +1345,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service cups.service
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
