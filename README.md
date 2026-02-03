@@ -439,7 +439,7 @@
   vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo xorg-xwayland intel-gpu-tools lact-libadwaita \
   \
   # Audio
-  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware \
+  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware rtkit lib32-pipewire gst-plugin-pipewire \
   \
   # System
   sudo polkit udisks2 thermald acpi acpid ethtool namcap dmidecode apparmor \
@@ -574,7 +574,8 @@
   systemctl enable fwupd-refresh.timer    
   systemctl enable paccache.timer
   systemctl enable shadow.timer
-  systemctl enable cups.service         
+  systemctl enable cups.service
+  systemctl enable rtkit         
   ```
 - TTY console
   ```bash
@@ -1479,6 +1480,10 @@
   # Allow Flatpaks to read/write their own config/data only
   flatpak override --user --filesystem=xdg-config:ro --filesystem=xdg-data:create
   flatpak override --user --socket=wayland --socket=x11
+  # Enable GPU device access for video players. For Example: Showtime
+  # In Flatseal, select org.gnome.Showtime, then:
+  # Devices → Enable GPU access (checkbox)
+  # This grants /dev/dri/* access inside the sandbox
   # Rely on Flatpak's bubblewrap sandbox for application isolation instead.
   # Flatpak GUI - Test
   flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
@@ -1694,8 +1699,8 @@
   # User paths ($HOME/.local/bin) added in ~/.zshrc
   EOF
   #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
-  LIBVA_DRIVER_NAME=radeonsi
-  LIBVA_DRIVER_NAME=iHD
+  # LIBVA_DRIVER_NAME=radeonsi
+  # LIBVA_DRIVER_NAME=iHD
 
   cat >> ~/.zshrc <<'EOF'
   # XDG BASE DIRECTORIES (FHS COMPLIANT)
@@ -4829,9 +4834,34 @@
   sudo pacman -S calf
   sudo pacman -S mda.lv2
 
-  # Launch EasyEffects, then load a community preset (like "Laptop Deep Bass")
-  # This makes the ThinkBook speakers sound significantly better.
+  # Launch EasyEffects only when using laptop speakers
+  # DO NOT enable effects globally or permanently for all outputs
+  # Recommended:
+  #   - Enable effects only on the "Built-in Audio" sink
+  #   - Disable EasyEffects entirely when gaming or using external DAC/headphones
+  #   - Avoid heavy presets during video calls or screen sharing
   easyeffects &
+  # To prevent latency issues, do NOT enable EasyEffects autostart by default
+
+  # Media Verification Checklist
+  # Use vainfo + intel_gpu_top + radeontop
+  vainfo
+  intel_gpu_top
+  radeontop
+
+  # Geck browser audio settings
+  about:config:
+  media.ffmpeg.vaapi.enabled = true
+  media.rdd-ffmpeg.enabled = true
+  Verify in about:support
+  Look for:
+  Hardware decoding: yes
+  VAAPI enabled
+
+  # Chromium/Brave:
+  chrome://gpu
+  Video Acceleration section must show:
+  Decode: Hardware accelerated
   ```
 - **m) ACPI Troubleshooting**:
   ```bash
