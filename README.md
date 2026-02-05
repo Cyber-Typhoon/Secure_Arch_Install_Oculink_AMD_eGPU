@@ -4815,6 +4815,56 @@
 
   # Open Steam Client and make sure to "Enable" Steam Overlay
 
+  ### HDR Configuration (Per-Game, AMD eGPU)
+
+  **Important**: HDR in GNOME + Gamescope has a known limitation. Gamescope HDR will appear "washed out" when used with GNOME due to protocol incompatibility (GNOME uses xx-color-management-v4, Gamescope expects frog-color-management-v1). See: https://gitlab.gnome.org/GNOME/mutter/-/issues/4083
+
+  This section documents per-game HDR as a starting point. Full gamescope-session is NOT recommended until the protocol conflict is resolved.
+
+  ### Enable HDR in GNOME Display Settings
+  
+  # Launch GNOME Settings
+  # Settings → Displays → Select your HDR monitor → Enable HDR toggle
+  # (Requires mutter >= 48.0, which Arch provides)
+  
+  ### Configure Steam for HDR (Global Settings)
+  1. Launch Steam
+  2. **Settings → Display**:
+   - Enable **HDR**
+   - Enable **Experimental HDR Support**
+
+  ### Enable HDR for Individual Games
+  For each HDR-compatible game:
+  1. Right-click game → **Properties**
+  2. **Compatibility** tab:
+   - Set: **Force the use of a specific Steam Play compatibility tool**
+   - Select: **Proton 8.0** or **Proton Experimental** (both support HDR)
+  3. **General** tab → **Launch Options**:
+  ENABLE_HDR_WSI=1 DXVK_HDR=1 gamescope -f --hdr-enabled --hdr-itm-enable -W 3840 -H 2160 -w 3840 -h 2160 --adaptive-sync --mangoapp -- %command%
+     - Adjust `-W/-H` (output resolution) and `-w/-h` (game internal resolution) as needed
+     - Use `-r 240` to cap refresh rate if needed
+  4. Launch the game and enable HDR in in-game settings
+
+  ### Verify HDR is Working
+  # In a game with HDR enabled, check MangoHud overlay (configured with --mangoapp above)
+  # Should show HDR status if configured correctly
+  # Check Gamescope is actually running:
+  ps aux | grep gamescope
+
+
+  ### Known Limitations
+  - **Washed out appearance**: When you Alt+Tab back to GNOME, colors will look washed out due to the protocol mismatch. The game itself should render correctly while in focus.
+  - **AMD RADV only**: Your AMD eGPU uses RADV (Mesa's Vulkan driver), which natively supports HDR. NVIDIA has critical HDR issues with Gamescope.
+  - **Wait for upstream fix**: Monitor the GNOME issue (#4083) for resolution. When fixed, this will work properly without workarounds.
+
+  ### Future: gamescope-session (Not Recommended Yet)
+  Full gamescope-session (boot into Gamescope from GDM) would solve the washed-out issue, but:
+  - The AUR package (gamescope-session-steam-git) hasn't been updated since 2024
+  - Adds complexity (separate session, switching between GNOME and Gamescope)
+  - Wait until GNOME + Gamescope protocol compatibility is resolved
+
+  For now, per-game HDR with the washed-out caveat is the most practical approach.
+
   # Disable Steam telemetry for privacy (create or edit the file)
   mkdir -p ~/.steam/
   echo "STEAM_DISABLE_TELEMETRY=1" >> ~/.steam/steam.cfg
