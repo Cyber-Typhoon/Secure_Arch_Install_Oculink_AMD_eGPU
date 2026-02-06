@@ -624,13 +624,6 @@
     source <(fzf --zsh)
   fi
 
-  # AUR wrapper: force paru, block yay:
-  if command -v paru >/dev/null 2>&1; then
-    alias yay='paru'
-  else
-    alias yay='echo -e "\nERROR: paru not installed. Run: sudo pacman -S --needed paru\n"; false'
-  fi
-
   # Block 'yay' via pacman
   pacman() {
   for arg in "$@"; do
@@ -643,8 +636,7 @@
   }
   
   # Modern CLI tool alias:
-  if [[ $- == *i* ]]; then
-  alias sysctl='systeroid'          
+  if [[ $- == *i* ]]; then        
   alias grep='rg --color=auto'
   alias find='fd --color=auto --hidden --no-ignore'
   alias ls='eza --icons --git --color=auto --group-directories-first --header'
@@ -654,12 +646,7 @@
   alias dig='dog'
   alias btop='btm'
   alias iftop='bandwhich --immediate --tree'
-  # (DEPRECATED) alias fix-tpm='sudo systemctl start tpm-reenroll.service && journalctl -u tpm-reenroll.service -f'
-  alias fix-tpm='sudo touch /etc/allow-tpm-reenroll && \
-  sudo systemctl start tpm-reenroll.service && \
-  sudo rm /etc/allow-tpm-reenroll && \
-  sudo journalctl -u tpm-reenroll.service -n 50 --no-pager'
-
+  
   # Optional: make sudo preserve these aliases when you really want it
   # (rarely needed, but harmless)
   alias sudo='sudo '  # trailing space → sudo also expands aliases
@@ -993,6 +980,53 @@
   [Install]
   WantedBy=multi-user.target
   EOF
+
+  # Create fix-tpm script
+  cat << 'EOF' | sudo tee /usr/local/bin/fix-tpm > /dev/null
+  #!/bin/bash
+  # Re-enroll TPM2 LUKS unlock after PCR changes (e.g., firmware updates)
+  # Creates temporary flag file, triggers service, then shows logs
+
+  set -euo pipefail
+
+  echo "Re-enrolling TPM2 LUKS unlock..."
+
+  # Create allow-file (tpm-reenroll.service checks for this)
+  sudo touch /etc/allow-tpm-reenroll
+
+  # Start the service
+  if sudo systemctl start tpm-reenroll.service; then
+    echo "✓ Re-enrollment triggered"
+  else
+    echo "✗ Re-enrollment failed"
+    sudo rm -f /etc/allow-tpm-reenroll
+    exit 1
+  fi
+
+  # Clean up flag file
+  sudo rm -f /etc/allow-tpm-reenroll
+
+  # Show recent logs
+  echo ""
+  echo "=== Recent TPM Re-enrollment Logs ==="
+  sudo journalctl -u tpm-reenroll.service -n 50 --no-pager
+
+  # Final status
+  if sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 >/dev/null 2>&1; then
+    echo ""
+    echo "✓ TPM unlock test PASSED"
+  else
+    echo ""
+    echo "✗ TPM unlock test FAILED - manual intervention needed"
+    exit 1
+  fi
+  EOF
+
+  sudo chmod +x /usr/local/bin/fix-tpm
+  echo "Created /usr/local/bin/fix-tpm script"
+
+  # Test fix-tpm
+  fix-tpm --help 2>/dev/null || echo "fix-tpm ready (run without args to re-enroll)"
   
   # Reload daemon and enable the service
   sudo systemctl daemon-reload
@@ -1288,6 +1322,10 @@
   # Set build directory
   echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
   mkdir -p ~/.cache/paru-build
+
+  # Create yay → paru symlink for AUR helper script compatibility
+  sudo ln -sf /usr/bin/paru /usr/local/bin/yay
+  echo "Created /usr/local/bin/yay → paru symlink (AUR script compatibility)"
   ```
 - Install Pacman applications:
   ```bash
@@ -2351,10 +2389,10 @@
   EOF
 
   # === SYSTEROID VALIDATION: Audit for misses, explanations, and interactive review ===
-  # Requires: systeroid (aliased to sysctl) + linux-docs package
+  # Requires: systeroid + linux-docs package
   echo "=== Auditing hardening config with systeroid ==="
 
-  # Load & apply config, ignore errors for validation
+  # Parse & validate sysctl config file (NO enforcement)
   sudo systeroid --load=/etc/sysctl.d/99-hardening.conf -e --quiet
 
   # Search for key hardening categories (check for misses/overrides)
@@ -2378,13 +2416,13 @@
   sudo systeroid --system -n > /tmp/sys-loaded.txt  # Loaded names/values
   sudo systeroid -A -n > /tmp/sys-runtime.txt       # Current runtime
   echo "Differences (should be minimal/expected):"
-  sudo diff /tmp/sys-loaded.txt /tmp/sys-runtime.txt  # Any mismatches? Investigate
-  sudo rm /tmp/{sys-loaded,sys-runtime}.txt      # Cleanup
+  sudo diff /tmp/sys-loaded.txt /tmp/sys-runtime.txt || true  # Any mismatches? Investigate
+  sudo rm -f /tmp/sys-{loaded,runtime}.txt      # Cleanup
 
   echo "=== Audit complete. Review outputs above for gaps (e.g., add IPv6 martians if missing). ==="
 
   # Apply if validation passes (or reboot for full effect)
-  sudo systeroid -p -q
+  sudo sysctl --system
   sudo etckeeper commit "Final sysctl hardening: secure, compatible, gaming-optimized"
   ```
 - MGLRU + THP madvise:
