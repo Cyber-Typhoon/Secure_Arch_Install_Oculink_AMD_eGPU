@@ -677,6 +677,10 @@
   # Safe update alias
   alias update='paru -Syu'
   echo "Run 'update' weekly. Use 'paru -Syu' for full control."
+  # NOTE: The following are now system-wide tools, not aliases:
+  # - fix-tpm       → /usr/local/bin/fix-tpm (script)
+  # - yay           → /usr/local/bin/yay (symlink to paru)
+  # - sysctl/systeroid → separate tools (no alias, use each for its purpose)
   EOF
 
   # Set ownership and permissions
