@@ -1384,9 +1384,9 @@
   steam mangohud gamemode lib32-gamemode gamescope umu-launcher goverlay \
   \
   # Fonts (Emoji/symbol coverage + CJK support)
-  noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font \
-  ttf-roboto ttf-roboto-mono ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-fira-code \
-  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono \
+  noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font otf-hermit ttf-mona-sans ttf-monaspace-frozen	ttf-monaspace-variable \
+  ttf-roboto ttf-roboto-mono ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-fira-code ttf-atkinson-hyperlegible otf-ipaexfont ttf-libertinus ttf-liberation \
+  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono ttf-croscore ttf-victor-mono-nerd \
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
