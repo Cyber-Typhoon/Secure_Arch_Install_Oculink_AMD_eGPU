@@ -576,6 +576,25 @@
   systemctl enable shadow.timer
   systemctl enable rtkit         
   ```
+- Configure PipeWire audio latency (prevents robotic/delayed audio):
+  ```bash
+  # Create PipeWire quantum config to fix browser video audio issues
+  mkdir -p ~/.config/pipewire/pipewire.conf.d
+  cat > ~/.config/pipewire/pipewire.conf.d/99-latency.conf <<'EOF'
+  context.properties = {
+    default.clock.rate          = 48000
+    default.clock.allowed-rates = [ 44100 48000 88200 96000 ]
+    default.clock.quantum       = 800
+    default.clock.min-quantum   = 512
+    default.clock.max-quantum   = 1024
+  }
+  EOF
+  
+  # Restart PipeWire to apply
+  systemctl --user restart pipewire wireplumber pipewire-pulse
+  
+  echo "PipeWire latency configured (prevents robotic audio in browsers)"
+  ```
 - TTY console
   ```bash
   echo "KEYMAP=us" > /etc/vconsole.conf
@@ -1383,7 +1402,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer pipewire wireplumber pipewire-pulse xdg-desktop-portal-gnome systemd-oomd upower.service cups.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer xdg-desktop-portal-gnome systemd-oomd upower.service cups.service
   sudo systemctl --failed  # Check for failed services
   sudo journalctl -p 3 -xb
   ```
@@ -1460,7 +1479,22 @@
   WaylandEnable=true
   DefaultSession=gnome.desktop
   EOF
-  sudo systemctl restart gdm # and reboot (start working on Gnome)
+  sudo systemctl restart gdm
+  # and reboot (start working on Gnome) -- This is the point that you start seeing your Desktop Environment
+  ```
+- Enable Brave hardware video encoding (for WebRTC/screen sharing):
+  ```bash
+  # Copy Brave .desktop to local override
+  mkdir -p ~/.local/share/applications
+  cp /usr/share/applications/brave-browser.desktop ~/.local/share/applications/
+  
+  # Add hardware encode flag to all Exec lines
+  sed -i 's|Exec=/usr/bin/brave-browser|Exec=/usr/bin/brave-browser --enable-features=AcceleratedVideoEncoder|g' \
+    ~/.local/share/applications/brave-browser.desktop
+  
+  echo "Brave hardware video encoding enabled"
+  
+  # Verify at brave://gpu → Video Acceleration section
   ```
 - Install Mullvad Browser (Updates are going to be managed via browser):
   ```bash
