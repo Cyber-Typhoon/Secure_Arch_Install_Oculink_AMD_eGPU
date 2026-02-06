@@ -296,8 +296,10 @@
     btrfs quota enable /mnt
     btrfs qgroup create 0/1 /mnt/.snapshots        # 0/1 is an arbitrary but safe ID
     btrfs qgroup limit 100G 0/1 /mnt/.snapshots
-    # Optional: make it permanent in fstab so it survives reinstalls
-    echo "qgroup 0/1 limit 50G /.snapshots" >> /mnt/etc/fstab
+    # Verify
+    btrfs qgroup show /mnt
+    # NOTE: Btrfs qgroup limits persist via filesystem metadata.
+    # Do NOT add qgroup rules to /etc/fstab.
     ```
 - **e) Configure Swap File**:
   - Create a swap file on the `@swap` subvolume:
@@ -2428,6 +2430,7 @@
 
   # === SYSTEROID VALIDATION: Audit for misses, explanations, and interactive review ===
   # Requires: systeroid + linux-docs package
+  # NOTE: sysctl is NOT aliased; systeroid is used only for audit/inspection
   echo "=== Auditing hardening config with systeroid ==="
 
   # Parse & validate sysctl config file (NO enforcement)
