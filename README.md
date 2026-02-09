@@ -3169,27 +3169,42 @@
   reload_cfg=Shift_R+F4
   EOF
   ```
+- Configure gaming environment variables:
+  ```bash
+  mkdir -p ~/.config/environment.d
+  cat > ~/.config/environment.d/50-gaming.conf <<'EOF'
+  # AMD Mesa shader cache (centralized location)
+  # Note: ACO is the default RADV compiler on modern Mesa;
+  # no explicit RADV_PERFTEST flags are required.
+  MESA_SHADER_CACHE_DIR=$HOME/.cache/mesa_shader_cache
+  MESA_SHADER_CACHE_MAX_SIZE=10G
+  EOF
+  
+  echo "✓ Gaming environment variables configured (session-wide)"
+  echo "  Shader cache: ~/.cache/mesa_shader_cache (10GB max)"
+  echo "  ACO: default RADV compiler on modern Mesa (no forcing needed)"
+  ```
 - Performance optimization template (for Gamesopce add to Steam/Heroic)
   ```bash
-  # Template: For regular gamnig (without gamescope, light games or native desktop resolution)
+  # Template: For regular gaming (without gamescope, light games or native desktop resolution)
   # MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun mangohud %command%
 
   # Templates for gamescope gaming (with eGPU)
   # Template 1: Native 4K 240Hz (for games that can hit >100 fps)
   # Steam Launch Options:
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -W 3840 -H 2160 -w 3840 -h 2160 -r 240 --adaptive-sync --mangoapp -- %command%
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -W 3840 -H 2160 -w 3840 -h 2160 -r 240 --adaptive-sync --mangoapp -- %command%
   
   # Template 2: 1440p → 4K Upscale (for demanding games)
   # Uses FSR to upscale 1440p to 4K (better performance)
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
 
   # Template 3: 1080p → 4K Upscale (for very demanding games)
   # Uses FSR to upscale 1080p to 4K (best performance)
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -w 1920 -h 1080 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -w 1920 -h 1080 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
 
   # Template 4: High Refresh Priority (for competitive games)
   # 1080p native, max refresh, low latency
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 RADV_PERFTEST=aco gamemoderun gamescope -w 1920 -h 1080 -W 1920 -H 1080 -r 240 --adaptive-sync --immediate-flips --mangoapp -- %command%
+  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -w 1920 -h 1080 -W 1920 -H 1080 -r 240 --adaptive-sync --immediate-flips --mangoapp -- %command%
   
   # Verify Gaming Settings
   sysctl -a | grep vm.swappiness # (should be 10)
