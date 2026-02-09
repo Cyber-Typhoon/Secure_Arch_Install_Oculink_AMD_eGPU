@@ -3384,10 +3384,6 @@
   echo "For AMD eGPU reset issues: paru -S vendor-reset-dkms-git"
   echo "Add 'vendor_reset' to MODULES in /etc/mkinitcpio.conf, then mkinitcpio -P."
 
-  # Wiki: Disable split lock mitigation (kernel 6.12+)
-  echo "kernel.split_lock_mitigate=0" | sudo tee /etc/sysctl.d/99-vfio.conf
-  sysctl -p /etc/sysctl.d/99-vfio.conf
-
   # Optional: Resizable BAR udev rule for Code 43
   cat << 'EOF' | sudo tee /etc/udev/rules.d/01-amd-bar.rules
   ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{resource0_resize}="14"
