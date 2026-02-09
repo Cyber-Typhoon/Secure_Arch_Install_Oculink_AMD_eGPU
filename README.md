@@ -4875,18 +4875,17 @@
   # ALERT: Do not use traditional MangoHud with Gamescope—it's unsupported. Use Gamescope's --mangoapp flag instead (e.g., gamescope --mangoapp -f -- %command%).
   # Example: Use Gamescope to run game at 1080p, FSR scale to 1440p, locked at 144 FPS
   # Replace 'amd' with your specific GPU ID if you have multiple AMD cards
-  # RADV_PERFTEST=aco (Fast Shaders), LD_BIND_NOW=1 (Fast Loading)
   # --mangoapp (Overlay), --fsr-sharpness (Upscaling)
-  LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
+  LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun gamescope -w 2560 -h 1440 -W 2560 -H 1440 --fsr-sharpness 1 --mangoapp --adaptive-sync -- %command%
   # For FPS caps with VRR: Set to refresh_rate - 3 (e.g., 117 for 120Hz) to avoid VSync stutter.
-  # For AMD shaders: Add RADV_PERFTEST=aco for faster compilation (e.g., RADV_PERFTEST=aco gamemoderun %command%)
 
   # Steam/Lutris/Heroic add in launch options:
   gamemoderun %command%
 
   # If you experience flickering, stutter, or other issues with VRR, or if your hardware does not support it try testing those options below in order:
   echo "# If issues with VRR, try fixed refresh rate ('-r 144' instead of '--adaptive-sync'):"
-  echo "# LD_BIND_NOW=1 gamemoderun RADV_PERFTEST=aco gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 144 -- %command%"
+  echo "# LD_BIND_NOW=1 gamemoderun gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 144 -- %command%"
+  echo "  ACO: default RADV compiler on modern Mesa (no forcing needed)"
 
   # Tune games individually using the application "Scopebuddy" (GUI for Gamescope settings)
 
