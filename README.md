@@ -667,6 +667,16 @@
   alias dig='dog'
   alias btop='btm'
   alias iftop='bandwhich --immediate --tree'
+
+  # Ignore trivial & sensitive commands
+  setopt HIST_IGNORE_SPACE
+  setopt HIST_REDUCE_BLANKS
+  export HISTSIZE=5000
+  export SAVEHIST=5000
+  export HISTFILE=~/.zsh_history
+
+  # Don't record obvious secrets
+  export HISTIGNORE="*password*:*token*:*secret*:*--key*"
   
   # Optional: make sudo preserve these aliases when you really want it
   # (rarely needed, but harmless)
@@ -1381,7 +1391,8 @@
   torbrowser-launcher thunderbird virt-manager libvirt qemu-desktop \
   \
   # Games
-  steam mangohud gamemode lib32-gamemode gamescope umu-launcher goverlay \
+  steam mangohud gamemode lib32-gamemode gamescope umu-launcher goverlay lib32-alsa-plugins lib32-giflib lib32-gst-plugins-base-libs lib32-gtk3 libjpeg-turbo lib32-libjpeg-turbo \
+  lib32-libva lib32-mpg123 lib32-ocl-icd lib32-openal libxslt mpg123 openal protontricks winetricks \
   \
   # Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font otf-hermit ttf-mona-sans ttf-monaspace-frozen	ttf-monaspace-variable \
@@ -1497,10 +1508,14 @@
   # Add hardware encode flag to all Exec lines
   sed -i 's|Exec=/usr/bin/brave-browser|Exec=/usr/bin/brave-browser --enable-features=AcceleratedVideoEncoder|g' \
     ~/.local/share/applications/brave-browser.desktop
-  
+
   echo "Brave hardware video encoding enabled"
   
   # Verify at brave://gpu → Video Acceleration section
+
+  # Add performance flags to Steam itself
+  sed -i 's|Exec=/usr/bin/steam|Exec=/usr/bin/steam -noverifyfiles -nobootstrapupdate -skipmovies -nofriendsui|g' \
+    ~/.local/share/applications/steam.desktop  
   ```
 - Install Mullvad Browser (Updates are going to be managed via browser):
   ```bash
@@ -2418,6 +2433,7 @@
   vm.page_lock_unfairness=1
   vm.zone_reclaim_mode=0
   kernel.sched_nr_migrate=128
+  kernel.split_lock_mitigate=0         # May improve frametimes in some Proton / DXVK titles. Disable if you experience instability
 
   # === I/O SMOOTHNESS (Smoothness/Latency) ===
   vm.dirty_bytes=100000000
