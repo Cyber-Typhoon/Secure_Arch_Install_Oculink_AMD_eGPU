@@ -1388,7 +1388,7 @@
   libva-utils libva-vdpau-driver vulkan-tools clinfo wine 7zip exfatprogs \
   \
   # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
-  torbrowser-launcher thunderbird virt-manager libvirt qemu-desktop \
+  torbrowser-launcher thunderbird protonmail-bridge virt-manager libvirt qemu-desktop \
   \
   # Games
   steam mangohud gamemode lib32-gamemode gamescope umu-launcher goverlay lib32-alsa-plugins lib32-giflib lib32-gst-plugins-base-libs lib32-gtk3 libjpeg-turbo lib32-libjpeg-turbo \
