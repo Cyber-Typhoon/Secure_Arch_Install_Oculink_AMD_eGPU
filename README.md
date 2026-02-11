@@ -823,7 +823,7 @@
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
   default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf iommu.passthrough=0 \
+  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf \
   randomize_kstack_offset=on hash_pointers=always mitigations=auto \
   page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
   rd.systemd.show_status=auto rd.udev.log_priority=3 \
@@ -1187,6 +1187,15 @@
   umount /mnt/usb
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
+  ```
+- Ensure the LUKS keyfile was deleted
+  ```bash
+  if [ -f /crypto_keyfile ]; then
+    echo "WARNING: /crypto_keyfile still exists. Securely wiping it now."
+    sudo shred -vfz -n 3 /crypto_keyfile
+    sudo rm -f /crypto_keyfile
+  fi
+  ls -la /crypto_keyfile || echo "✓ Keyfile wiped"
   ```
 - Full LUKS+UKI+TPM config snapshot - archive-system-config.sh (helpful in case of a Gentoo migration)
   ```bash
