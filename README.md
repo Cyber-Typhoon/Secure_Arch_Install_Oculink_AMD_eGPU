@@ -2957,6 +2957,9 @@
   ```
 - Configure systemd-logind for reliable GPU switching
   ```bash
+  # Enable KillUserProcesses for clean eGPU switching
+  # WARNING: This will close background apps (Discord, Spotify) on logout
+  # If you want them to persist, set to 'no' (but may cause eGPU issues)
   sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
   systemctl restart systemd-logind
   ```
@@ -4202,6 +4205,17 @@
     echo "VALIDATION FAILED. Fix errors above before proceeding."
     echo "Re-run validation: sudo /usr/local/bin/pre-reboot-check.sh"
     exit 1
+  fi
+  ```
+- ntsync Verification
+  ```bash
+  echo "=== Verify ntsync support (Linux 6.14+) ==="
+  KERNEL_VER=$(uname -r | cut -d. -f1-2)
+  if [[ $(echo "$KERNEL_VER >= 6.14" | bc) -eq 1 ]]; then
+    echo "✓ Kernel $KERNEL_VER supports ntsync"
+    zgrep NTSYNC /proc/config.gz && echo "✓ ntsync enabled" || echo "✗ ntsync not compiled"
+  else
+    echo "○ Kernel $KERNEL_VER < 6.14 (ntsync unavailable, using fsync fallback)"
   fi
   ```
 - Test Windows boot.
