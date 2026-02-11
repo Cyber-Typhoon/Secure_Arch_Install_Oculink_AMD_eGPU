@@ -1392,7 +1392,7 @@
   \
   # Games
   steam mangohud gamemode lib32-gamemode gamescope umu-launcher goverlay lib32-alsa-plugins lib32-giflib lib32-gst-plugins-base-libs lib32-gtk3 libjpeg-turbo lib32-libjpeg-turbo \
-  lib32-libva lib32-mpg123 lib32-ocl-icd lib32-openal libxslt mpg123 openal protontricks winetricks \
+  lib32-libva lib32-mpg123 lib32-ocl-icd lib32-openal lib32-libpulse lib32-libxcomposite lib32-libxinerama libxslt mpg123 openal protontricks winetricks \
   \
   # Fonts (Emoji/symbol coverage + CJK support)
   noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font otf-hermit ttf-mona-sans ttf-monaspace-frozen	ttf-monaspace-variable \
