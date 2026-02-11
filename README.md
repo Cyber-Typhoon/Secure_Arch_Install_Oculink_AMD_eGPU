@@ -95,6 +95,16 @@
   Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableWindowsConsumerFeatures" -Value 1
   Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableSoftLanding" -Value 1
   ```
+- Configure Windows to use UTC time (prevents dual-boot time drift):
+  ```powershell
+  # In Windows (Administrator PowerShell):
+  reg add "HKLM\System\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /d 1 /t REG_DWORD /f
+  
+  # Restart Time service to apply
+  net stop w32time && net start w32time
+  
+  echo "Windows now uses UTC (matches Linux hardware clock)"
+  ```
 - Enable **tamper protection** and **real-time protection**:
   - Navigate to **Settings > Windows Security > Virus & Threat Protection** and enable both.
 - Back up the **Windows EFI partition UUID** for dual-boot compatibility:
@@ -534,7 +544,8 @@
   ```bash
   ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime
   hwclock --systohc
-  timedatectl set-local-rtc 1 --adjust-system-clock
+  # Force the system to treat the hardware clock as UTC (Production Standard)
+  timedatectl set-local-rtc 0 --adjust-system-clock
   echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
   locale-gen
   echo 'LANG=en_US.UTF-8' > /etc/locale.conf
