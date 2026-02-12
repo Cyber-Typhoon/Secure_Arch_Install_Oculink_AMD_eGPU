@@ -1457,7 +1457,6 @@
     gst-thumbnailers \
     gst-plugins-rs-git \
     brave-bin \
-    proton-ge-custom-bin \
     kanagawa-icon-theme-git \
     kanagawa-gtk-theme-git \
     rose-pine-cursor \
