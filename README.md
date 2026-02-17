@@ -1685,12 +1685,11 @@
   sudo systemctl list-unit-files | grep paru-update
   sudo systemctl status "paru-update@$USER.service"
   ```
-- Fonts suppress bloat duplication:
+- Suppress font duplication/clutter in UIs (hides variants without uninstalling):
   ```bash
-  # Create the file
-  sudo micro /etc/fonts/conf.d/99-hide-font-variants.conf
-
-  # Paste this XML
+  # Create the rule
+  sudo tee /etc/fonts/conf.d/99-hide-variants.conf <<'EOF'
+  
   <?xml version="1.0"?>
   <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 
@@ -1726,6 +1725,10 @@
        Both the base "Nerd Font" (proportional, no monospace enforcement)
        and "Nerd Font Propo" (v3 rename of same thing) are hidden.
        Only "Nerd Font Mono" remains visible in pickers.
+
+       OPTIONAL: If you use Nerd icons in proportional GUI contexts
+          (e.g., Waybar), comment out the base "Nerd Font" patterns
+          (every second line below) and keep only the "Propo" patterns.
        ════════════════════════════════════════════════════════════════ -->
 
   <selectfont>
@@ -1733,48 +1736,63 @@
 
       <!-- JetBrains Mono (ttf-jetbrains-mono-nerd) -->
       <pattern><patelt name="family"><string>JetBrainsMono Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>JetBrainsMono Nerd Font</string></patelt></pattern>
       
       <!-- Fira Code (ttf-firacode-nerd) -->
       <pattern><patelt name="family"><string>FiraCode Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>FiraCode Nerd Font</string></patelt></pattern>
 
-      <!-- RobotoMono Nerd Font Propo (ttf-roboto-mono-nerd) -->
+      <!-- RobotoMono (ttf-roboto-mono-nerd) -->
       <pattern><patelt name="family"><string>RobotoMono Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>RobotoMono Nerd Font</string></patelt></pattern>
             
       <!-- Cascadia Code → renamed CaskaydiaCove (ttf-cascadia-code-nerd) -->
       <pattern><patelt name="family"><string>CaskaydiaCove Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>CaskaydiaCove Nerd Font</string></patelt></pattern>
       
       <!-- Hack (ttf-hack-nerd) -->
       <pattern><patelt name="family"><string>Hack Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>Hack Nerd Font</string></patelt></pattern>
       
       <!-- Iosevka (ttf-iosevka-nerd) -->
       <pattern><patelt name="family"><string>Iosevka Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>Iosevka Nerd Font</string></patelt></pattern>
       
       <!-- Source Code Pro → renamed SauceCodePro (ttf-sourcecodepro-nerd) -->
       <pattern><patelt name="family"><string>SauceCodePro Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>SauceCodePro Nerd Font</string></patelt></pattern>
       
       <!-- Anonymous Pro → renamed AnonymicePro (ttf-anonymouspro-nerd) -->
       <pattern><patelt name="family"><string>AnonymicePro Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>AnonymicePro Nerd Font</string></patelt></pattern>
       
       <!-- DejaVu → renamed DejaVuSansM (ttf-dejavu-nerd) -->
       <pattern><patelt name="family"><string>DejaVuSansM Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>DejaVuSansM Nerd Font</string></patelt></pattern>
       
       <!-- Victor Mono (ttf-victor-mono-nerd) -->
       <pattern><patelt name="family"><string>VictorMono Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>VictorMono Nerd Font</string></patelt></pattern>
       
       <!-- Ubuntu Mono (ttf-ubuntu-mono-nerd) -->
       <pattern><patelt name="family"><string>UbuntuMono Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>UbuntuMono Nerd Font</string></patelt></pattern>
       
       <!-- Ubuntu (ttf-ubuntu-nerd) -->
       <pattern><patelt name="family"><string>Ubuntu Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>Ubuntu Nerd Font</string></patelt></pattern>
       
       <!-- IBM Plex Mono → renamed BlexMono (ttf-ibmplex-mono-nerd) -->
       <pattern><patelt name="family"><string>BlexMono Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>BlexMono Nerd Font</string></patelt></pattern>
       
       <!-- Hermit → renamed Hurmit (otf-hermit, if nerd-patched) -->
       <pattern><patelt name="family"><string>Hurmit Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>Hurmit Nerd Font</string></patelt></pattern>
       
       <!-- Symbols Only (ttf-nerd-fonts-symbols-mono) -->
       <pattern><patelt name="family"><string>Symbols Nerd Font Propo</string></patelt></pattern>
+      <pattern><patelt name="family"><string>Symbols Nerd Font</string></patelt></pattern>
       
     </rejectfont>
   </selectfont>
@@ -1849,7 +1867,8 @@
   </alias>
 
   </fontconfig>
-
+  EOF
+  
   # Rebuild cache
   fc-cache -fv
 
