@@ -1415,9 +1415,9 @@
   lib32-libva lib32-mpg123 lib32-ocl-icd lib32-openal lib32-libpulse lib32-libxcomposite lib32-libxinerama libxslt mpg123 openal protontricks winetricks \
   \
   # Fonts (Emoji/symbol coverage + CJK support)
-  noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd ttf-jetbrains-mono ttf-noto-noto-nerd inter-font otf-hermit ttf-mona-sans ttf-monaspace-frozen	ttf-monaspace-variable \
-  ttf-roboto ttf-roboto-mono ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-fira-code ttf-atkinson-hyperlegible otf-ipaexfont ttf-libertinus ttf-liberation \
-  ttf-firacode-nerd ttf-cascadia-code ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono ttf-croscore ttf-victor-mono-nerd \
+  noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd inter-font otf-hermit ttf-mona-sans	ttf-monaspace-variable \
+  ttf-roboto ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-atkinson-hyperlegible otf-ipaexfont ttf-libertinus ttf-liberation \
+  ttf-firacode-nerd ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono ttf-croscore ttf-victor-mono-nerd \
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
@@ -1684,6 +1684,182 @@
   # === VERIFY ===
   sudo systemctl list-unit-files | grep paru-update
   sudo systemctl status "paru-update@$USER.service"
+  ```
+- Fonts suppress bloat duplication:
+  ```bash
+  # Create the file
+  sudo micro /etc/fonts/conf.d/99-hide-font-variants.conf
+
+  # Paste this XML
+  <?xml version="1.0"?>
+  <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+
+  <fontconfig>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       PART 1: HIDE NOTO WEIGHT VARIANTS
+       noto-fonts-extra ships Condensed, Thin, ExtraLight, Black, Heavy
+       across every script — dozens of entries per script family.
+       Regular and Bold remain fully visible and available.
+       ════════════════════════════════════════════════════════════════ -->
+
+  <selectfont>
+    <rejectfont>
+      <glob>/usr/share/fonts/noto/Noto*Condensed*</glob>
+      <glob>/usr/share/fonts/noto/Noto*Cond*</glob>
+      <glob>/usr/share/fonts/noto/Noto*Thin*</glob>
+      <glob>/usr/share/fonts/noto/Noto*ExtraLight*</glob>
+      <glob>/usr/share/fonts/noto/Noto*ExtraThin*</glob>
+      <glob>/usr/share/fonts/noto/Noto*Black*</glob>
+      <glob>/usr/share/fonts/noto/Noto*Heavy*</glob>
+      <!-- Specialist subsets rarely needed in UI pickers -->
+      <glob>/usr/share/fonts/noto/NotoSansMath*</glob>
+      <glob>/usr/share/fonts/noto/NotoSansSymbols2*</glob>
+    </rejectfont>
+  </selectfont>
+
+
+  <!-- ════════════════════════════════════════════════════════════════
+       PART 2: HIDE NERD FONT PROPORTIONAL AND PROPO VARIANTS
+       Merged into one block (cleaner than two separate blocks).
+
+       Both the base "Nerd Font" (proportional, no monospace enforcement)
+       and "Nerd Font Propo" (v3 rename of same thing) are hidden.
+       Only "Nerd Font Mono" remains visible in pickers.
+       ════════════════════════════════════════════════════════════════ -->
+
+  <selectfont>
+    <rejectfont>
+
+      <!-- JetBrains Mono (ttf-jetbrains-mono-nerd) -->
+      <pattern><patelt name="family"><string>JetBrainsMono Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Fira Code (ttf-firacode-nerd) -->
+      <pattern><patelt name="family"><string>FiraCode Nerd Font Propo</string></patelt></pattern>
+
+      <!-- RobotoMono Nerd Font Propo (ttf-roboto-mono-nerd) -->
+      <pattern><patelt name="family"><string>RobotoMono Nerd Font Propo</string></patelt></pattern>
+            
+      <!-- Cascadia Code → renamed CaskaydiaCove (ttf-cascadia-code-nerd) -->
+      <pattern><patelt name="family"><string>CaskaydiaCove Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Hack (ttf-hack-nerd) -->
+      <pattern><patelt name="family"><string>Hack Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Iosevka (ttf-iosevka-nerd) -->
+      <pattern><patelt name="family"><string>Iosevka Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Source Code Pro → renamed SauceCodePro (ttf-sourcecodepro-nerd) -->
+      <pattern><patelt name="family"><string>SauceCodePro Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Anonymous Pro → renamed AnonymicePro (ttf-anonymouspro-nerd) -->
+      <pattern><patelt name="family"><string>AnonymicePro Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- DejaVu → renamed DejaVuSansM (ttf-dejavu-nerd) -->
+      <pattern><patelt name="family"><string>DejaVuSansM Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Victor Mono (ttf-victor-mono-nerd) -->
+      <pattern><patelt name="family"><string>VictorMono Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Ubuntu Mono (ttf-ubuntu-mono-nerd) -->
+      <pattern><patelt name="family"><string>UbuntuMono Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Ubuntu (ttf-ubuntu-nerd) -->
+      <pattern><patelt name="family"><string>Ubuntu Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- IBM Plex Mono → renamed BlexMono (ttf-ibmplex-mono-nerd) -->
+      <pattern><patelt name="family"><string>BlexMono Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Hermit → renamed Hurmit (otf-hermit, if nerd-patched) -->
+      <pattern><patelt name="family"><string>Hurmit Nerd Font Propo</string></patelt></pattern>
+      
+      <!-- Symbols Only (ttf-nerd-fonts-symbols-mono) -->
+      <pattern><patelt name="family"><string>Symbols Nerd Font Propo</string></patelt></pattern>
+      
+    </rejectfont>
+  </selectfont>
+
+
+  <!-- ════════════════════════════════════════════════════════════════
+       PART 3: ALIAS REDIRECTS — complete set for all 14 Nerd fonts
+       When any app requests a font by its hidden base proportional name,
+       redirect to the Mono variant. Ensures WezTerm, Helix, Starship,
+       and dotfiles copied from other machines resolve correctly.
+       ════════════════════════════════════════════════════════════════ -->
+
+  <alias>
+    <family>JetBrainsMono Nerd Font</family>
+    <prefer><family>JetBrainsMono Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>FiraCode Nerd Font</family>
+    <prefer><family>FiraCode Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>RobotoMono Nerd Font</family>
+    <prefer><family>RobotoMono Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>CaskaydiaCove Nerd Font</family>
+    <prefer><family>CaskaydiaCove Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>Hack Nerd Font</family>
+    <prefer><family>Hack Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>Iosevka Nerd Font</family>
+    <prefer><family>Iosevka Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>SauceCodePro Nerd Font</family>
+    <prefer><family>SauceCodePro Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>AnonymicePro Nerd Font</family>
+    <prefer><family>AnonymicePro Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>DejaVuSansM Nerd Font</family>
+    <prefer><family>DejaVuSansM Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>VictorMono Nerd Font</family>
+    <prefer><family>VictorMono Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>UbuntuMono Nerd Font</family>
+    <prefer><family>UbuntuMono Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>Ubuntu Nerd Font</family>
+    <prefer><family>Ubuntu Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>BlexMono Nerd Font</family>
+    <prefer><family>BlexMono Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>Hurmit Nerd Font</family>
+    <prefer><family>Hurmit Nerd Font Mono</family></prefer>
+  </alias>
+  <alias>
+    <family>Symbols Nerd Font</family>
+    <prefer><family>Symbols Nerd Font Mono</family></prefer>
+  </alias>
+
+  </fontconfig>
+
+  # Rebuild cache
+  fc-cache -fv
+
+  # Validate, all three should return zero output if the config is working:
+  fc-list : family | grep "Nerd Font" | grep -v "Mono" | grep -v "Propo"
+  fc-list | grep -i "propo"
+  fc-list | grep -i "condensed"
+
+  # These should still show your 14 Mono entries:
+  fc-list | grep -i "nerd font mono"
   ```
 - Edit the Wezterm Visuals:
   ```bash
