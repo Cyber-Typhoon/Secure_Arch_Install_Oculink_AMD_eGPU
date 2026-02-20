@@ -4291,6 +4291,9 @@
   systemctl is-active apparmor && echo "✓ AppArmor active"
   sysctl kernel.unprivileged_userns_clone 2>/dev/null | grep "= 0" && echo "✓ User namespaces restricted"
   systemctl list-timers | grep paru-update && echo "✓ Auto-updates enabled (mitigates ~8-9 CVEs/day in 2026)"
+
+  # Verify Intel TSX is enabled (kernel 7.0+)
+  grep -E 'hle|rtm' /proc/cpuinfo && echo "✓ Intel TSX enabled (automatic in 7.0+)" || echo "○ TSX not supported/enabled"
   ```
 - Validation Checklist:
   ```bash
