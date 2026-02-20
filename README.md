@@ -4457,7 +4457,7 @@
   ```
 - ntsync Verification
   ```bash
-  echo "=== Verify ntsync support (Linux 6.14+) ==="
+  echo "=== Verify ntsync support (Linux 7.0+) ==="
   KERNEL_VER=$(uname -r | cut -d. -f1-2)
   if [[ $(echo "$KERNEL_VER >= 7.0" | bc) -eq 1 ]]; then
     echo "✓ Kernel $KERNEL_VER supports ntsync"
