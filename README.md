@@ -597,6 +597,9 @@
   context.properties = {
     default.clock.rate          = 48000
     default.clock.allowed-rates = [ 44100 48000 88200 96000 ]
+    # NOTE (Feb 2026): PipeWire 1.6+ has improved adaptive scheduling.
+    # This quantum override fixes browser audio crackling but may be unnecessary on newer PipeWire.
+    # If experiencing latency or XRuns, consider removing these override below and relying on auto-scheduling:
     default.clock.quantum       = 800
     default.clock.min-quantum   = 512
     default.clock.max-quantum   = 1024
@@ -830,7 +833,9 @@
   lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
-  # Remove any i915.* parameters. You generally do not need xe.force_probe on Arch Linux kernels (6.12+) as Meteor Lake is now stable, but if the GPU isn't detected, you can add xe.force_probe=8086:7d55
+  # Remove any i915.* parameters. Xe driver is default and stable for Meteor Lake (Core Ultra 7 255H) on kernel 6.12+.
+  # No xe.force_probe needed. i915 is kept in MODULES (line 2985) as fallback only.
+  # Mesa 26.0+ includes BTI prefetch for Intel ANV (better Arc 140T Vulkan performance) and ACO compiler for RadeonSI (faster AMD shader compile).
   # If when we start using the laptop we experience random freezes add i915.enable_dc=0, test if resolves, if not update intel_idle.max_cstate=1. Source: https://wiki.archlinux.org/title/Intel_graphics#Crash/freeze_on_low_power_Intel_CPUs
   # i915.enable_psr=0 → prevents random black screens on Meteor Lake OLED panels
   # pcie_bus_perf,realloc=1 → required for stable >200 W power delivery over OCuLink
@@ -1618,6 +1623,12 @@
   ```
 - Install Extensions from extensions.gnome.org using Extension Manager application flatpak
   ```bash
+  # GNOME Extension Compatibility Note (GNOME 50 - March 2026):
+  # Some extensions may break with GNOME 50 release. Check compatibility at:
+  # https://extensions.gnome.org/local/
+  # Affected extensions typically include: AppIndicator, Dash to Dock, custom themes.
+  # Wait for extension updates if GNOME Shell crashes after 'pacman -Syu' to GNOME 50.
+  
   echo "Install GSConnect from https://extensions.gnome.org/extension/1319/gsconnect/ using Extension Manager"
   echo "Install Copyous from https://extensions.gnome.org/extension/8834/copyous/ using Extension Manager"
   echo "Install Just Perfection from https://extensions.gnome.org/extension/3843/just-perfection/ using Extension Manager"
@@ -2980,6 +2991,12 @@
   options amdgpu ras_enable=1
   EOF
 
+  # If experiencing AMD eGPU reset issues (black screen after suspend/hotplug):
+  # Uncomment and test reset methods (kernel 7.0+ has improved reset handling):
+  # options amdgpu reset_method=2    # BACO (Bus Alive, Chip Off) - most stable
+  # options amdgpu reset_method=3    # Mode1 (display reset only)
+  # See: https://wiki.archlinux.org/title/AMDGPU#Reset_methods
+
   # === Early KMS: load xe (iGPU), i915 (fallback), and amdgpu at boot ===
   sudo sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
   echo 'MODULES=(xe i915 amdgpu)' | sudo tee -a /etc/mkinitcpio.conf
@@ -3196,8 +3213,13 @@
 - Enable VRR for 4K OLED
   ```bash
   # === Enable VRR in GNOME Mutter (Wayland) ===
-  # Enable Variable Refresh Rate support
-  gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
+  # VRR Configuration (GNOME 50+ - March 2026)
+  # VRR is now stable and enabled by default in Settings > Displays > Refresh Rate
+  # Verify VRR capability:
+  gnome-randr | grep -i variable || xrandr --prop | grep -i vrr
+
+  # If VRR doesn't auto-enable, force with:
+  # gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
 
   # NOTE: Actual VRR range configuration is handled via GNOME Control Center
   # (Settings -> Displays) after this flag is enabled.
@@ -4258,6 +4280,18 @@
   dmesg | grep -i "goodix"
   # If touchpad is with issue try this kernel patch https://github.com/ty2/goodix-gt7868q-linux-driver
   ```
+- Kernel 7.0 & Security Context
+  ```bash
+  echo "--- Linux 7.0 & Mesa 26.0 Status ---"
+  uname -r | grep -E "^7\." && echo "✓ Kernel 7.0+ installed" || echo "○ Kernel 6.x (7.0 available via 'pacman -Syu' from April 2026)"
+  pacman -Q mesa | grep -E "26\." && echo "✓ Mesa 26.0+ installed (AMD RT +36-52% perf boost)" || echo "○ Mesa <26.0"
+  pacman -Q pipewire | grep -E "1\.[6-9]|1\.[0-9]{2}" && echo "✓ PipeWire 1.6+ (LDAC support)" || echo "○ PipeWire <1.6"
+
+  echo "--- Security CVE Mitigation Check ---"
+  systemctl is-active apparmor && echo "✓ AppArmor active"
+  sysctl kernel.unprivileged_userns_clone 2>/dev/null | grep "= 0" && echo "✓ User namespaces restricted"
+  systemctl list-timers | grep paru-update && echo "✓ Auto-updates enabled (mitigates ~8-9 CVEs/day in 2026)"
+  ```
 - Validation Checklist:
   ```bash
   # Create and run this one-shot script to validate critical components. This catches errors like UUID mismatches in fstab, unsigned files, or TPM issues.
@@ -4425,11 +4459,11 @@
   ```bash
   echo "=== Verify ntsync support (Linux 6.14+) ==="
   KERNEL_VER=$(uname -r | cut -d. -f1-2)
-  if [[ $(echo "$KERNEL_VER >= 6.14" | bc) -eq 1 ]]; then
+  if [[ $(echo "$KERNEL_VER >= 7.0" | bc) -eq 1 ]]; then
     echo "✓ Kernel $KERNEL_VER supports ntsync"
     zgrep NTSYNC /proc/config.gz && echo "✓ ntsync enabled" || echo "✗ ntsync not compiled"
   else
-    echo "○ Kernel $KERNEL_VER < 6.14 (ntsync unavailable, using fsync fallback)"
+    echo "○ Kernel $KERNEL_VER < 7.0 (ntsync unavailable, using fsync fallback)"
   fi
   ```
 - Test Windows boot.
@@ -5139,6 +5173,8 @@
   export LD_BIND_NOW=1
   # Gaming Env Vars (comment out if issues)
   # export RADV_FORCE_VRS=1  # VRS perf boost (toggle per-game if glitches)
+  # NOTE (Feb 2026): Mesa 26.0+ may enable Variable Rate Shading automatically for compatible games.
+  # Only force VRS if you confirm performance gain without visual artifacts. Test per-game.
   # export MANGOHUD=1        # Always-on HUD (Setting this globally is NOT recommended due to conflicts)
   # export MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing"
   EOF
@@ -5244,6 +5280,11 @@
   chrome://gpu
   Video Acceleration section must show:
   Decode: Hardware accelerated
+
+  # Note: PipeWire 1.6 (released Feb 19, 2026) includes native LDAC decoder for high-quality Bluetooth audio.
+  # LDAC will auto-negotiate for compatible headphones. Configure codecs in:
+  # /etc/wireplumber/wireplumber.conf.d/51-bluez-config.conf if needed.
+  # See: https://wiki.archlinux.org/title/PipeWire#Bluetooth
   ```
 - **m) ACPI Troubleshooting**:
   ```bash
