@@ -593,7 +593,7 @@
   ```
 - Create a user account with appropriate groups:
   ```bash
-  read -p "Enter your username: " username
+  username="Enter your username"
 
   # Create user with Zsh as default shell
   useradd -m -G wheel,video,input,storage,audio,power,lp -s /usr/bin/zsh "$username"
