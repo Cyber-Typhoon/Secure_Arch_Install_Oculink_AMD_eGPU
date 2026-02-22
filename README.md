@@ -391,7 +391,12 @@
     ```bash
     genfstab -U /mnt | tee /mnt/etc/fstab
     ```
-  - Manually edit `/mnt/etc/fstab` to verify subvolume options and add security settings.
+  - **Record the Arch and Windows UUID**:
+  - List ESP UUIDs to confirm:
+    ```bash
+    blkid | grep -E 'nvme0n1p1|nvme1n1p1'
+    ```
+  - Manually edit with nano `/mnt/etc/fstab` to verify subvolume options and add security settings.
   - **BTRFS Subvolume and Mount Options**:
     - Replace `$ROOT_UUID` with the actual UUID from `blkid`:
       ```bash
@@ -424,32 +429,16 @@
   - **Add Swapfile Entry**:
     - Replace `$SWAP_OFFSET` with the actual value:
       ```bash
-      SWAP_OFFSET_VALUE=$(cat /mnt/etc/swap_offset) # Retrieve the saved value
-      grep -q "[/]swap/swapfile" /mnt/etc/fstab || cat <<EOF >> /mnt/etc/fstab
       /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
-      EOF
-      ```
-  - **Validation Steps**:
-    - List ESP UUIDs to confirm:
-      ```bash
-      blkid | grep -E 'nvme0n1p1|nvme1n1p1'
       ```
     - Verify the generated fstab:
       ```bash
       cat /mnt/etc/fstab
       ```
-    - Check all UUIDs:
-      ```bash
-      blkid | grep -E "$ROOT_UUID|$LUKS_UUID|$ARCH_ESP_UUID|$WINDOWS_ESP_UUID"
-      ```
 - **g) Check Network**:
   - Verify connectivity:
     ```bash
     ping -c 3 archlinux.org
-    ```
-  - If using Wi-Fi, connect:
-    ```bash
-    nmcli device wifi connect <SSID> password <password>
     ```
   - Copy resolver configuration:
     ```bash
