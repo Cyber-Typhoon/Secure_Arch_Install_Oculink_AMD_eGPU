@@ -362,6 +362,7 @@
   - Obtain the swapfile’s physical offset for hibernation:
     ```bash
     SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile | awk '{print $NF}')
+    mkdir -p /mnt/etc
     echo $SWAP_OFFSET > /mnt/etc/swap_offset # Save for later use
     echo "SWAP_OFFSET: $SWAP_OFFSET"  # Record this number. Should output a numerical offset like 12345678
     ```
