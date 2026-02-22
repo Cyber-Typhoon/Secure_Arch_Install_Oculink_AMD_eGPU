@@ -227,7 +227,7 @@
     n (new partition), 1 (partition number), default first sector, +1G (size for ESP)
     t (change type), 1 (partition), EF (EFI System)
     n (new partition), 2 (partition number), default first sector, default last sector (use remainder)
-    t (change type), 2 (partition), 83 (Linux filesystem—default, but confirm)
+    t (change type), 2 (partition), linux (Linux filesystem—default, but confirm)
     p (print table to verify)
     w (write changes and exit)
     fdisk -l /dev/nvme1n1
