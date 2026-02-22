@@ -373,8 +373,6 @@
     btrfs inspect-internal map-swapfile -r /mnt/swap/swapfile > /dev/null \
       && echo "Swapfile 100 % BTRFS-compliant" \
       || { echo "FATAL: map-swapfile failed"; exit 1; }
-    btrfs property get /mnt/swap/swapfile compression | grep -q none \
-      || { echo "FATAL: compression still on"; exit 1; }
     ```
   - Add to fstab (REPLACE $SWAP_OFFSET with the computed value)
     ```bash
