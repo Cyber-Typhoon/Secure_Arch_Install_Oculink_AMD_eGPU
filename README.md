@@ -248,15 +248,14 @@
     ```bash
     # (REPLACED) cryptsetup luksFormat --type luks2 /dev/nvme1n1p2 --pbkdf pbkdf2 --pbkdf-force-iterations 500000 *GRUB not supporting argon2id only applies if GRUB itself is unlocking the drive (e.g., to read an encrypted /boot partition, which you don't have).
     # PBKDF choice is irrelevant to GRUB because boot is via UKI; systemd unlocks LUKS.
+    # Use this first command if your threat model isn't aggresive, if it is use the alternative:
     cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --hash sha512 --iter-time 5000 --key-size 512 --pbkdf argon2id --sector-size 4096 /dev/nvme1n1p2
+    (OPTIONAL ALTERNATIVE) Add dm-integrity for tampering detection (wiki recommends for high security; ~10% perf hit), for a gaming laptop this is a skip, use the command above:
+    cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --hash sha512 --iter-time 5000 --key-size 512 --pbkdf argon2id --integrity hmac-sha256 /dev/mapper/cryptroot cryptintegrit --sector-size 4096 /dev/nvme1n1p2
     ```
   - Open the LUKS partition:
     ```bash
     cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
-    ```
-  - (OPTIONAL) Add dm-integrity for tampering detection (wiki recommends for high security; ~10% perf hit):
-    ```bash
-    cryptsetup open --integrity hmac-sha256 /dev/mapper/cryptroot cryptintegrity # If adding integrity
     ```
   - Create a recovery keyfile (not used in initramfs, only for GRUB rescue):
     ```bash
