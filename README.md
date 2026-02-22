@@ -471,11 +471,11 @@
   sof-firmware intel-media-driver fwupd nvme-cli wireless-regdb \
   \
   # Graphics
-  mesa mesa-demos mesa-vdpau lib32-mesa vulkan-intel lib32-vulkan-intel intel-compute-runtime \
-  vulkan-radeon lib32-vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo xorg-xwayland intel-gpu-tools lact-libadwaita \
+  mesa mesa-demos mesa-utils vulkan-intel intel-compute-runtime \
+  vulkan-radeon vulkan-icd-loader lib32-vulkan-icd-loader vdpauinfo xorg-xwayland intel-gpu-tools lact-libadwaita \
   \
   # Audio
-  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware rtkit lib32-pipewire gst-plugin-pipewire \
+  pipewire wireplumber pipewire-pulse pipewire-alsa pipewire-jack alsa-utils alsa-firmware rtkit gst-plugin-pipewire \
   \
   # System
   sudo polkit udisks2 thermald acpi acpid ethtool namcap dmidecode apparmor \
