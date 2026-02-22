@@ -211,9 +211,13 @@
     ```
   - NVMe Sanitize:
     ```bash
+    # If sanitize doesn't work use the format command only:
     nvme sanitize /dev/nvme1 --sanact=0x02  # Block erase (quick, no overwrite)
     nvme sanitize-log /dev/nvme1  # Monitor progress
     partprobe  # Reload partition table (clears old Windows remnants)
+
+    # Alternatice to sanitize, format:
+    nvme format /dev/nvme1n1 -l 0
     ```
   - Create a GPT partition table with an ESP and a LUKS partition:
     ```bash
