@@ -645,10 +645,7 @@
   # Verify it was created correctly:
   ls -la /home/$USERNAME/.config/pipewire/pipewire.conf.d/99-latency.conf
   # Should show: -rw-r--r-- 1 username username ...
-  
-  # Restart PipeWire to apply
-  systemctl --user restart pipewire wireplumber pipewire-pulse
-  
+ 
   echo "PipeWire latency configured (prevents robotic audio in browsers)"
   ```
 - TTY console
