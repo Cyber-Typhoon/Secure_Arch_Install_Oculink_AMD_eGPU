@@ -435,7 +435,7 @@
       ```bash
       cat /mnt/etc/fstab
       ```
-- **g) Check Network**:
+- **g) Address some potential little pitfalls**:
   - Verify connectivity:
     ```bash
     ping -c 3 archlinux.org
@@ -444,7 +444,18 @@
     ```bash
     cp /etc/resolv.conf /mnt/etc/resolv.conf
     ```
-
+  - Create vconsole.conf that might be requested by the pacstrap:
+    ```bash
+    # Create a minimal vconsole.conf (optional):
+    echo "KEYMAP=us" > /mnt/etc/vconsole.conf
+    echo "FONT=ter-v16n" >> /mnt/etc/vconsole.conf
+    ```
+  - Observations
+    ```bash
+    # Eventually we might see the following excuting the pacstrap:
+    # "Secureboot key directory doesn't exist, not signing!" --> It can be safely ignored the Secure Boot is addressed later
+    # "warning:  /mnt/etc/fstab installed as /mnt/etc/fstab.pacnew" --> It can be safely ignored this file new file can be removed later since we already. This is a generic fstab created by the pacstrap and we created it earlier.
+    ```
 ## Milestone 2: After Step 4f (fstab Generation) - Can pause at this point
 
 ## Step 5: Install Arch Linux
