@@ -272,12 +272,12 @@
     lsblk  # Identify USB device (e.g., /dev/sdX1)
     mount /dev/sdX1 /mnt/usb # **Replace sdX1 with USB partition confirmed via lsblk previously executed**
     cp /mnt/crypto_keyfile /mnt/usb/crypto_keyfile
-    echo "WARNING: Store the LUKS keyfile (/mnt/usb/crypto_keyfile) securely in Bitwarden for recovery purposes."
+    # "WARNING: Store the LUKS keyfile (/mnt/usb/crypto_keyfile) securely in Bitwarden for recovery purposes."
     ```
   - **LUKS for rd.luks.uuid and Partition UUID**:
     - After encrypting `/dev/nvme1n1p2` with LUKS, retrieve its UUID:
       ```bash
-      LUKS_UUID=$(cryptsetup luksUUID --header /dev/nvme1n1p2)
+      LUKS_UUID=$(cryptsetup luksUUID /dev/nvme1n1p2)
       echo $LUKS_UUID  # Should output a UUID like a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8
       ```
       - **Record this UUID** for use in `/etc/crypttab` and kernel parameters (`rd.luks.uuid=...`).
