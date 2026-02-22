@@ -625,8 +625,8 @@
 - Configure PipeWire audio latency (prevents robotic/delayed audio):
   ```bash
   # Create PipeWire quantum config to fix browser video audio issues
-  mkdir -p ~/.config/pipewire/pipewire.conf.d
-  cat > ~/.config/pipewire/pipewire.conf.d/99-latency.conf <<'EOF'
+  mkdir -p /home/$USERNAME/.config/pipewire/pipewire.conf.d
+  cat > /home/$USERNAME/.config/pipewire/pipewire.conf.d/99-latency.conf <<'EOF'
   context.properties = {
     default.clock.rate          = 48000
     default.clock.allowed-rates = [ 44100 48000 88200 96000 ]
@@ -638,6 +638,13 @@
     default.clock.max-quantum   = 1024
   }
   EOF
+
+  # Fix ownership (critical - file must be owned by the user):
+  chown -R $USERNAME:$USERNAME /home/$USERNAME/.config/pipewire
+
+  # Verify it was created correctly:
+  ls -la /home/$USERNAME/.config/pipewire/pipewire.conf.d/99-latency.conf
+  # Should show: -rw-r--r-- 1 username username ...
   
   # Restart PipeWire to apply
   systemctl --user restart pipewire wireplumber pipewire-pulse
