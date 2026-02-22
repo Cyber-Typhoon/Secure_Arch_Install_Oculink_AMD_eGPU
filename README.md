@@ -141,10 +141,6 @@
   - Use **Rufus** in Windows, selecting **DD mode** for reliable writing. The alternatives are KDE ISO Image Writer and USBImager but Rufus should be a good option here.
   - **Avoid Ventoy** and **Balena Etcher** due to potential trackers and reliability issues.
 - Test the USB by rebooting and selecting it in the **BIOS boot menu** (press `F1`).
-- Verify network connectivity in the live environment:
-  ```bash
-  ping -c 3 archlinux.org
-  ```
 - If Wi-Fi is needed, configure it:
   ```bash
   ip link
@@ -158,7 +154,10 @@
   iwctl station <device> get-networks
   # Connect to the desired network:
   iwctl station <device> connect <SSID>
-  ping archlinux.org
+  ```
+- Verify network connectivity in the live environment:
+  ```bash
+  ping -c 3 archlinux.org
   ```
 - Console Font and Keyboard Setup
   ```bash
