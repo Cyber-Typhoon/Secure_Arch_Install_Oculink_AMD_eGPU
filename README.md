@@ -109,13 +109,16 @@
   - Navigate to **Settings > Windows Security > Virus & Threat Protection** and enable both.
 - Back up the **Windows EFI partition UUID** for dual-boot compatibility:
   ```powershell
-  # Insert a USB drive (e.g., F:)
+  # Insert a USB drive (e.g., E:)
+  # CMD
   mountvol Z: /S
-  robocopy Z:\ F:\EFI-Backup /MIR /XJ  # Replace F: with the USB drive letter
-  Get-Partition -DiskNumber 0 -PartitionNumber 1 | Select-Object -ExpandProperty Guid | Out-File F:\windows-esp-uuid.txt
+  robocopy Z:\ E:\EFI-Backup /MIR /XJ /XF BCD* /R:0 /W:0 # Replace E: with the USB drive letter
+  bcdedit /export E:\EFI-Backup\BCD-Backup # Replace E: with the USB drive letter
   mountvol Z: /D
+  # Powershell
+  Get-Partition -DiskNumber 0 -PartitionNumber 1 | Select-Object -ExpandProperty Guid | Out-File E:\windows-esp-uuid.txt # Replace E: with the USB drive letter
   ```
-- **WARNING**: Store `F:\EFI-Backup` and `F:\windows-esp-uuid.txt` securely in **Bitwarden** or an encrypted cloud service.
+- **WARNING**: Store `E:\EFI-Backup` and `F:\windows-esp-uuid.txt` securely in **Bitwarden** or an encrypted cloud service.
 - **WARNING**: Ensure the USB drive is encrypted or physically secure to prevent unauthorized access to the EFI backup.
 
 ## Milestone 1: After Step 2 (Windows Installation) - Can pause at this point
