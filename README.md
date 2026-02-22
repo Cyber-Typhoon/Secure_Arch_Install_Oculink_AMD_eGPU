@@ -130,7 +130,12 @@
   - Follow instructions on the Arch Linux website for `gpg` verification.
   - Example:
     ```bash
+    # Windows Powershell
+    Get-FileHash .\archlinux-2026.02.01-x86_64.iso -Algorithm SHA256
+    # Linux
     gpg --keyserver-options auto-key-retrieve --verify archlinux-<version>-x86_64.iso.sig
+
+    # Compare to Arch Download page
     ```
 - Create a bootable USB drive:
   - Use **Rufus** in Windows, selecting **DD mode** for reliable writing. The alternatives are KDE ISO Image Writer and USBImager but Rufus should be a good option here.
