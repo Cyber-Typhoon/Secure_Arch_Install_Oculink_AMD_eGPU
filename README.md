@@ -234,9 +234,9 @@
     ```
   - Verify partitions:
     ```bash
-    lsblk -f /dev/nvme0n1 /dev/nvme1n1  # Confirm /dev/nvme0n1p1 (Windows ESP) and /dev/nvme1n1p1 (Arch ESP)
+    lsblk -f /dev/nvme0n1 /dev/nvme1n1  # Confirm /dev/nvme0n1p1 (Windows ESP) 
     fdisk -l # This should list the partitions in case the command above didn't return any outputs
-    efibootmgr  # Check if UEFI recognizes both ESPs
+    efibootmgr  # Check if UEFI recognizes Windows boot
     ```
 - **b) Format ESP**:
   - Format the Arch ESP as FAT32:
