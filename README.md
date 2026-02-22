@@ -175,9 +175,33 @@
   ```bash
   timedatectl
   ```
+- Before proceeding with partitioning, identify which drive is which. Windows Disk 0/1 numbering does NOT match Linux device names.
+  ```bash  
+   # List all disks
+   lsblk -o NAME,SIZE,MODEL,FSTYPE,LABEL,MOUNTPOINT
+   
+   # Identify Windows drive (look for EFI + NTFS partitions)
+   fdisk -l | grep -A 10 "Disk /dev/nvme"
+   
+   # Note the device names:
+   # - Windows drive: /dev/nvmeXn1 (has EFI partition ~260MB, NTFS partition)
+   # - Empty Arch drive: /dev/nvmeYn1 (no partitions)
+
+  **VERIFY BEFORE PROCEEDING**:
+   - If Windows is on `/dev/nvme0n1` and empty drive is `/dev/nvme1n1`:
+     ✅ **Follow Step 4 exactly as written**
+   
+   - If Windows is on `/dev/nvme1n1` and empty drive is `/dev/nvme0n1`:
+     ⚠️ **SWAP all device names in Step 4**:
+     - Replace `/dev/nvme1n1` → `/dev/nvme0n1` (for Arch)
+     - Avoid touching `/dev/nvme0n1` → `/dev/nvme1n1` (Windows)
+
+  **Double-check before any destructive command**:
+   # Before running parted or cryptsetup, verify disk is empty:
+   lsblk /dev/nvmeXn1   # Should show no partitions if new drive
+  ```
 ## Step 4: Pre-Arch Installation Steps
 
-- Boot from the **Arch Live USB**.
 - **a) Partition the Second NVMe M.2 (/dev/nvme1n1)**:
   - Check optimal sector size (should be 512 for most NVMe; 4096 for some)
     ```bash
