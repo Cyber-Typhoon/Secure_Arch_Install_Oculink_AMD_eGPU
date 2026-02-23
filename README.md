@@ -856,16 +856,19 @@
   # LUKS configuration is intentionally not passed via kernel parameters.
   # TPM auto-unlock is handled exclusively via /etc/crypttab.initramfs + sd-encrypt hook.
 
+  # This creates the standard file that UKI builders (like ukify) use by default
+  mkdir -p /etc/kernel
+  cat << EOF > /etc/kernel/cmdline
+  root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf
+  EOF
+  # Double check if the $ROOT_UUID and $RESUME_OFFSET are numerical and not variables.
+
   # Main Preset (linux)
   tee /etc/mkinitcpio.d/linux.preset > /dev/null << EOF
+  PRESETS=('default')
+  ALL_kver="/boot/vmlinuz-linux"
   default_uki="/boot/EFI/Linux/arch.efi"
   all_config="/etc/mkinitcpio.conf"
-  default_options="root=UUID=$ROOT_UUID rootflags=subvol=@ resume_offset=$RESUME_OFFSET rw quiet splash \
-  intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf \
-  randomize_kstack_offset=on hash_pointers=always mitigations=auto \
-  page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 \
-  rd.systemd.show_status=auto rd.udev.log_priority=3 \
-  lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
   # Remove any i915.* parameters. Xe driver is default and stable for Meteor Lake (Core Ultra 7 255H) on kernel 6.12+.
@@ -888,10 +891,20 @@
   # LTS preset (atomic copy, just rename the UKI)
   sed "s/arch\.efi/arch-lts\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-lts.preset
   echo "Created /etc/mkinitcpio.d/linux-lts.preset."
+  # It should have something like this:
+  # PRESETS=('default')
+  # ALL_kver="/boot/vmlinuz-linux-lts"
+  # all_config="/etc/mkinitcpio.conf"
+  # default_uki="/boot/EFI/Linux/arch-lts.efi"
 
   # Fallback (identical options, different UKI name)
   sed "s/arch\.efi/arch-fallback\.efi/g" /etc/mkinitcpio.d/linux.preset > /etc/mkinitcpio.d/linux-fallback.preset
   echo "Created /etc/mkinitcpio.d/linux-fallback.preset"
+  # It should have something like this:
+  # PRESETS=('default')
+  # ALL_kver="/boot/vmlinuz-linux"
+  # all_config="/etc/mkinitcpio.conf"
+  # default_uki="/boot/EFI/Linux/arch-fallback.efi"
 
   # Plymouth set the default theme:
   plymouth-set-default-theme -R bgrt
