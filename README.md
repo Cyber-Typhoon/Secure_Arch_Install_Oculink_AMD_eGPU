@@ -972,7 +972,12 @@
   EOF
 
   # Set a fast boot menu timeout (e.g., 3 seconds, or menu-hidden for fastest boot)
-  bootctl set-timeout menu-hidden
+  # This creates or overwrites the loader.conf with the hidden menu setting
+  cat << EOF > /boot/loader/loader.conf
+  timeout 0
+  console-mode max
+  editor no
+  EOF
   echo "Set systemd-boot timeout hidden. Pressing and holding a key (the Space bar is commonly cited and the most reliable)."
 
   # Create Pacman hooks to automatically sign EFI binaries after updates:
