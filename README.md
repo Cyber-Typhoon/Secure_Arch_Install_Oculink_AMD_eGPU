@@ -1006,6 +1006,10 @@
   bootctl list | grep -E "(title|efi)"
   echo -e "\nresume_offset in presets:"
   grep resume_offset /etc/mkinitcpio.d/linux*.preset
+  sbctl verify
+  # **MUST show all signed** (✓)
+  # If ANY show "✗ Not signed" 
+  # sbctl sign -s $path
   
   #If you get a black screen, to debug:
   # Reboot.
