@@ -380,11 +380,9 @@
     /swap/swapfile none swap defaults,discard=async,noatime,resume_offset=$SWAP_OFFSET 0 0
     EOF
     ```
-  - Unmount the swap subvolume:
+  - Validate the swap subvolume:
     ```bash
     swapon --show | grep swapfile && swapoff /mnt/swap/swapfile
-    umount /mnt/swap
-    echo "Swap subvolume unmounted – you are DONE"
     ```
 - **f) Generate fstab**:
   - Generate the initial fstab:
