@@ -981,6 +981,7 @@
   echo "Set systemd-boot timeout hidden. Pressing and holding a key (the Space bar is commonly cited and the most reliable)."
 
   # Create Pacman hooks to automatically sign EFI binaries after updates:
+  mkdir -p /etc/pacman.d/hooks
   cat << 'EOF' > /etc/pacman.d/hooks/90-uki-sign.hook
   [Trigger]
   Operation = Install
