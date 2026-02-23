@@ -16,6 +16,7 @@
   - Set a **strong UEFI BIOS password** (at least 12 characters, mid case, numbers, and symbols).
   - **Store the UEFI BIOS password in Bitwarden** or another secure password manager.
   - Temporarily disable **Secure Boot** in the UEFI settings to simplify initial setup.
+  - Reset to **Setup Mode** in the BIOS.
 - Visit the eGPU community builds for reference:
   - Filter by "Thinkbook" at https://egpu.io/best-external-graphics-card-builds/.
   - Confirm compatibility of the **OCuP4V2 OCuLink GPU Dock** with your AMD eGPU model.
