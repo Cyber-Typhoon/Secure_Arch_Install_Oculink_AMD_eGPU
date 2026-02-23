@@ -941,6 +941,7 @@
   # Double-check after mkinitcpio -P that no stray rd.luks.* crept in:
   grep -i rd.luks /boot/loader/entries/*.conf  # should return nothing
   grep -i rd.luks /etc/mkinitcpio.d/*.preset   # should return nothing
+  strings /boot/EFI/Linux/arch.efi | grep "resume_offset=" # should return the custom entries
 
   # Install `systemd-boot`:
   # Creates /boot/loader/, installs systemd-bootx64.efi.
