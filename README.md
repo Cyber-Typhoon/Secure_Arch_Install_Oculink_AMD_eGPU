@@ -1153,16 +1153,20 @@
   echo "Main Arch boot entry created."
 
   # Windows Entry (if /windows-efi mount exists from install)
-  if [ -d "/windows-efi" ]; then
-    sudo rsync -aHAX /windows-efi/EFI/Microsoft /boot/EFI/
-    sudo umount /windows-efi
+  sudo mkdir -p /boot/EFI
+  sudo mkdir -p /mnt/windows-efi
+  sudo mount /dev/nvme0n1p1 /mnt/windows-efi
+  if [ -d "/mnt/windows-efi/EFI/Microsoft" ]; then
+    sudo rsync -aHAX /mnt/windows-efi/EFI/Microsoft /boot/EFI/
     sudo tee /boot/loader/entries/windows.conf > /dev/null << 'EOF'
   title   Windows 11
   efi     /EFI/Microsoft/Boot/bootmgfw.efi
   EOF
     echo "Windows boot entry created."
   fi
-
+  sudo umount /mnt/windows-efi 2>/dev/null || true
+  sudo rm -rf /mnt/windows-efi
+  
   # Set Boot Order – main Arch → LTS → Fallback → Windows (robust & future-proof)
   echo "Setting final UEFI boot order..."
   sudo efibootmgr --bootorder \
@@ -1172,14 +1176,13 @@
   $(sudo efibootmgr | grep -i 'windows boot manager' | awk '{print $1}' | cut -c5-) \
   2>/dev/null || echo "Boot order set (some entries may be missing – this is fine)"
   
-  # Verify
-  sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 && echo "TPM unlock test PASSED"
-  # If it fails:
-  fix-tpm
- 
-  # Final TPM unlock test
-  sudo systemd-cryptenroll --tpm2-device=auto --test "$LUKS_DEV" && echo "TPM unlock test PASSED"
-  # Should return 0 and print "Unlocking with TPM2... success".
+  # Verify the TPM Seal one last time using the physical device
+  if sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2; then
+    echo "✓ TPM unlock test PASSED: System is ready for password-less boot."
+  else
+    echo "✗ TPM unlock test FAILED: Running repair..."
+  sudo fix-tpm
+  fi
 
   # Confirm Secure Boot is active
   sbctl status
