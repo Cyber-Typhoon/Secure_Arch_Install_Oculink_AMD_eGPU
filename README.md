@@ -1025,7 +1025,7 @@
   ## In UEFI (BIOS - F1), enable **Secure Boot** and enroll the sbctl key when prompted. You may need to reboot twice: once to enroll, once to activate.
 
 ## Step 9: TPM Seal, Recovery USB, Windows Entry & Final Archive (newly installed, booted Arch Linux OS, not the USB installer)
-
+- Warning Log with your username not root.
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
   # Generate stable TPM public key (once only)
