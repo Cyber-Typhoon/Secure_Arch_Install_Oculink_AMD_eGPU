@@ -1166,6 +1166,9 @@
   fi
   sudo umount /mnt/windows-efi 2>/dev/null || true
   sudo rm -rf /mnt/windows-efi
+
+  # Before moving to the efibootmgr check the Linux and Microsoft boot are created (arch.efi inside the Linux folder and the microsof boot inside the Microsoft folder)
+  ls -R /boot/EFI
   
   # Set Boot Order – main Arch → LTS → Fallback → Windows (robust & future-proof)
   echo "Setting final UEFI boot order..."
