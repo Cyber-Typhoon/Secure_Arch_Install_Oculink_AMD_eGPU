@@ -1033,7 +1033,7 @@
   if [ ! -f "$TPM_PUBKEY" ]; then
     echo "Generating TPM public key..."
     sudo tpm2_createek --ek-context /tmp/ek.ctx --key-algorithm rsa --public /tmp/ek.pub
-    sudo tpm2_readpublic -c /tmp/ek.ctx -o "$TPM_PUBKEY"
+    sudo tpm2_readpublic -c /tmp/ek.ctx -f pem -o "$TPM_PUBKEY"
     sudo rm /tmp/ek.*
     sudo chmod 644 "$TPM_PUBKEY"
     echo "TPM public key saved to $TPM_PUBKEY"
@@ -1044,7 +1044,7 @@
   #!/usr/bin/env bash
   set -euo pipefail
 
-  LUKS_DEV="/dev/mapper/cryptroot"
+  LUKS_DEV="YOUR_CRYPT_PHYSICAL_DRIVE" # Type your phsyical drive, for example /dev/nvme1n1p2
   TPM_PUBKEY="/etc/tpm2-ukey.pem"
 
   echo "Sealing LUKS device to TPM PCRs (7+11)..."
@@ -1053,7 +1053,6 @@
     --wipe-slot=tpm2 \
     --tpm2-device=auto \
     --tpm2-pcrs=7+11 \
-    --tpm2-pcrs-bank=sha256 \
     --tpm2-public-key="$TPM_PUBKEY"
 
   echo "TPM sealing complete."
