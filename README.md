@@ -1073,8 +1073,7 @@
   Documentation=man:systemd-cryptenroll(1)
 
   # Wait until the LUKS device is unlocked and mapped
-  After=systemd-cryptsetup@cryptroot.service
-  Requires=systemd-cryptsetup@cryptroot.service
+  After=cryptsetup.target
 
   # Also wait for TPM device
   Requires=tpm2.target
@@ -1093,7 +1092,7 @@
 
   # Create fix-tpm script
   cat << 'EOF' | sudo tee /usr/local/bin/fix-tpm > /dev/null
-  #!/bin/bash
+  #!/usr/bin/env bash
   # Re-enroll TPM2 LUKS unlock after PCR changes (e.g., firmware updates)
   # Creates temporary flag file, triggers service, then shows logs
 
