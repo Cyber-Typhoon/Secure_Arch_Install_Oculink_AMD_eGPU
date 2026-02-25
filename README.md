@@ -1026,6 +1026,26 @@
 
 ## Step 9: TPM Seal, Recovery USB, Windows Entry & Final Archive (newly installed, booted Arch Linux OS, not the USB installer)
 - Warning Log with your username not root.
+- Save-kernel-config.sh (for archive script)
+  ```bash
+  sudo tee /usr/local/bin/save-kernel-config.sh > /dev/null << 'EOF'
+  #!/bin/bash
+  set -e
+  KERNEL_VERSION=$(uname -r)
+  mkdir -p /etc/kernel
+  if [ -f /proc/config.gz ]; then
+    zcat /proc/config.gz > /etc/kernel/config-${KERNEL_VERSION}
+    echo "Kernel config saved from /proc/config.gz"
+  elif [ -f /boot/config-${KERNEL_VERSION} ]; then
+    cp /boot/config-${KERNEL_VERSION} /etc/kernel/config-${KERNEL_VERSION}
+    echo "Kernel config saved from /boot"
+  else
+    echo "Kernel config not found"
+    exit 1
+  fi
+  EOF
+  sudo chmod +x /usr/local/bin/save-kernel-config.sh
+  ```
 - Update TPM PCR policy after enabling Secure Boot:
   ```bash
   # Generate stable TPM public key (once only)
@@ -1040,14 +1060,19 @@
   fi
 
   # Create TPM Seal Script
-  cat << 'EOF' | sudo tee /usr/local/bin/tpm-seal > /dev/null
+  sudo tee /usr/local/bin/tpm-seal > /dev/null << EOF
   #!/usr/bin/env bash
   set -euo pipefail
 
-  LUKS_DEV="YOUR_CRYPT_PHYSICAL_DRIVE" # Type your phsyical drive, for example /dev/nvme1n1p2
+  LUKS_DEV="/dev/disk/by-uuid/${LUKS_UUID}"
   TPM_PUBKEY="/etc/tpm2-ukey.pem"
 
-  echo "Sealing LUKS device to TPM PCRs (7+11)..."
+  if ! test -f "$TPM_PUBKEY"; then
+    echo "ERROR: TPM key missing at $TPM_PUBKEY"
+    exit 1
+  fi
+
+  echo "Sealing LUKS to TPM PCRs 7+11..."
 
   systemd-cryptenroll "$LUKS_DEV" \
     --wipe-slot=tpm2 \
@@ -1057,13 +1082,65 @@
 
   echo "TPM sealing complete."
   EOF
-
   sudo chmod +x /usr/local/bin/tpm-seal
 
+  # Create fix-tpm
+  sudo tee /usr/local/bin/fix-tpm > /dev/null << EOF
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  LUKS_DEV="/dev/disk/by-uuid/${LUKS_UUID}"
+
+  echo "Re-enrolling TPM2 LUKS unlock..."
+
+  sudo touch /etc/allow-tpm-reenroll
+
+  if sudo systemctl start tpm-reenroll.service; then
+    echo "Re-enrollment triggered"
+  else
+    echo "Re-enrollment failed"
+    sudo rm -f /etc/allow-tpm-reenroll
+    exit 1
+  fi
+
+  sudo rm -f /etc/allow-tpm-reenroll
+
+  echo ""
+  echo "=== Recent TPM Re-enrollment Logs ==="
+  sudo journalctl -u tpm-reenroll.service -n 20 --no-pager
+
+  if sudo systemd-cryptenroll --tpm2-device=auto --test "\$LUKS_DEV" >/dev/null 2>&1; then
+  echo ""
+    echo "TPM unlock test PASSED"
+  else
+  echo ""
+    echo "TPM unlock test FAILED"
+    exit 1
+  fi
+  EOF
+  sudo chmod +x /usr/local/bin/fix-tpm
+  
+  # TPM metadata (for documentation)
+  sudo tee /etc/tpm-policy-info.txt << EOF
+  PCRs: 7,11
+  Hash: sha256 (auto-selected by modern systemd)
+  Sealed: $(date)
+  SecureBoot: Enabled
+  LUKS UUID: ${LUKS_UUID}
+  ROOT UUID: ${ROOT_UUID}
+  EOF
+
   # Final TPM Policy Sealing
-  echo "Sealing LUKS to TPM with PCR 7+11 and public key..."
-  [[ -d /boot/EFI ]] || { echo "ERROR: ESP not mounted at /boot!"; exit 1; }
+  # Wipe any existing TPM enrollment (safe even if none exists):
+  echo "Wiping any existing TPM slot..."
+  sudo systemd-cryptenroll /dev/nvme1n1p2 --wipe-slot=tpm2 2>/dev/null || echo "No existing TPM slot to wipe"
+
+  # Run the seal:
+  echo "Running TPM seal..."
   sudo tpm-seal
+
+  # Test it (a slot should show tpm2):
+  sudo systemd-cryptenroll /dev/nvme1n1p2
   
   # Raw PCR + Public-Key Enrollment - Create the tpm-reenroll systemd service file that will be a wrapper of TPM Seal Script
   cat > /etc/systemd/system/tpm-reenroll.service << 'EOF'
