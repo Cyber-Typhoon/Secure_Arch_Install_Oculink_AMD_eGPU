@@ -452,7 +452,7 @@
   - Observations
     ```bash
     # Eventually we might see the following excuting the pacstrap:
-    # "Secureboot key directory doesn't exist, not signing!" --> It can be safely ignored, the Secure Boot is addressed later
+    # "Secureboot key directory doesn't exist, not signing! " --> It can be safely ignored, the Secure Boot is addressed later
     # "warning:  /mnt/etc/fstab installed as /mnt/etc/fstab.pacnew" --> It can be safely ignored, this new file can be removed later since we already created the fstab. This is a generic fstab created by the pacstrap and we created it earlier.
     ```
 ## Milestone 2: After Step 4f (fstab Generation) - Can pause at this point
@@ -799,7 +799,7 @@
   ```bash
   echo "=== LUKS Header Backup ==="
   echo "Insert a USB drive (will be FORMATTED)"
-  echo "WARNING: ALL DATA ON THE USB WILL BE ERASED!"
+  echo "WARNING: ALL DATA ON THE USB WILL BE ERASED! "
   mkdir -p /mnt/usb
   lsblk  # Identify USB device
   mkfs.fat -F32 /dev/sdX1  # Replace sdX1 with USB partition
@@ -832,7 +832,7 @@
   # Dynamic Resume Offset Calculation (REQUIRED for BTRFS swapfile)
   RESUME_OFFSET=$(btrfs inspect-internal map-swapfile -r /swap/swapfile)
   if [[ -z "$RESUME_OFFSET" ]]; then
-      echo "ERROR: resume_offset not found – check swapfile and fstab!"
+      echo "ERROR: resume_offset not found – check swapfile and fstab! "
       exit 1
   fi
   echo "Detected resume_offset = $RESUME_OFFSET"
@@ -1403,7 +1403,7 @@
     -czf "$FINAL_ARCHIVE" .
 
   log "Verifying archive integrity..."
-  gzip -t "$FINAL_ARCHIVE" || die "Corrupted archive!"
+  gzip -t "$FINAL_ARCHIVE" || die "Corrupted archive! "
 
   # Checksum 
   sha256sum "$FINAL_ARCHIVE" > "${FINAL_ARCHIVE}.sha256"
@@ -2661,7 +2661,7 @@
     notify-desktop --urgency=low --icon=security-high "AIDE Check" "$SUMMARY"; \
   else \
     STATUS="alert"; \
-    SUMMARY="AIDE: Potential unauthorized changes detected!"; \
+    SUMMARY="AIDE: Potential unauthorized changes detected! "; \
     notify-desktop --urgency=critical --icon=security-high --expire-time=0 "AIDE Alert" "$SUMMARY"; \
     # Also make a loud sound so you really notice it \
     canberra-gtk-play -i dialog-warning & \
@@ -4248,7 +4248,7 @@
 
   # Verify the baked-in parameters
   echo "Verifying parameters inside the EFI binary..."
-  strings /boot/EFI/Linux/arch.efi | grep -E "resume|resume_offset" || echo "ERROR: Resume not baked into UKI!"
+  strings /boot/EFI/Linux/arch.efi | grep -E "resume|resume_offset" || echo "ERROR: Resume not baked into UKI! "
 
   # [Proceed with the existing safety checks and systemctl hibernate]
   echo -n "swap file status  → "
@@ -5014,7 +5014,7 @@
 - Test + Notes
   ```bash
   echo "Running a quick test backup..."
-  /usr/local/bin/rustic-backup.sh && echo "Test backup succeeded!"
+  /usr/local/bin/rustic-backup.sh && echo "Test backup succeeded! "
   systemctl list-timers --all
   journalctl -u rustic-backup.timer -n 20
 
@@ -5384,7 +5384,7 @@
 
   # Verify
   sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope
-  gamemoded -t && echo "GameMode is working!"
+  gamemoded -t && echo "GameMode is working! "
   ```
 - **l) Audio and Software Enhancements**:
   ```bash
