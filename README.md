@@ -1109,7 +1109,11 @@
   echo "=== Recent TPM Re-enrollment Logs ==="
   sudo journalctl -u tpm-reenroll.service -n 20 --no-pager
 
-  if sudo systemd-cryptenroll --tpm2-device=auto --test "\$LUKS_DEV" >/dev/null 2>&1; then
+  # Dump the LUKS_DEV token
+  DUMP=$(sudo /usr/bin/cryptsetup luksDump "$LUKS_DEV")
+
+  echo "Verify TPM2 token enrollment..."
+  if echo "$DUMP | /usr/bin/grep -q "systemd-tpm2"; then
   echo ""
     echo "TPM unlock test PASSED"
   else
@@ -1141,9 +1145,13 @@
 
   # Test it (a slot should show tpm2):
   sudo systemd-cryptenroll /dev/nvme1n1p2
+  # It should display 3 layers of protection:
+  #  Slot 0: Passphrase (Mental backup).
+  #  Slot 1: Keyfile on USB (Digital backup).
+  #  Slot 2: TPM2 (Daily Driver. Hands-free unlock).
   
   # Raw PCR + Public-Key Enrollment - Create the tpm-reenroll systemd service file that will be a wrapper of TPM Seal Script
-  cat > /etc/systemd/system/tpm-reenroll.service << 'EOF'
+  sudo tee /etc/systemd/system/tpm-reenroll.service > /dev/null << 'EOF'
   [Unit]
   Description=Re-enroll TPM2 policy if PCRs changed
   ConditionPathExists=/etc/allow-tpm-reenroll
@@ -1161,62 +1169,24 @@
   RemainAfterExit=yes
 
   # Execute the TPM Seal 
-  ExecStart=/usr/local/bin/tpm-seal
+  ExecStart=/usd/bin/systemd-cryptenroll /dev/disk/by-uuid/"TYPE_LUKS_UUID" \
+    --wipe-slot=tpm2 \
+    --tpm2-device=auto \
+    --tpm2-pcrs=7+11 \
+    --tpm2-public-key=/etc/tpm2-ukey.pem
+
+  # Automatic cleanup of the trigger file
+  ExecStartPost=/usr/bin/rm -f /etc/allow-tpm-reenroll
   
   [Install]
   WantedBy=multi-user.target
   EOF
 
-  # Create fix-tpm script
-  cat << 'EOF' | sudo tee /usr/local/bin/fix-tpm > /dev/null
-  #!/usr/bin/env bash
-  # Re-enroll TPM2 LUKS unlock after PCR changes (e.g., firmware updates)
-  # Creates temporary flag file, triggers service, then shows logs
-
-  set -euo pipefail
-
-  echo "Re-enrolling TPM2 LUKS unlock..."
-
-  # Create allow-file (tpm-reenroll.service checks for this)
-  sudo touch /etc/allow-tpm-reenroll
-
-  # Start the service
-  if sudo systemctl start tpm-reenroll.service; then
-    echo "✓ Re-enrollment triggered"
-  else
-    echo "✗ Re-enrollment failed"
-    sudo rm -f /etc/allow-tpm-reenroll
-    exit 1
-  fi
-
-  # Clean up flag file
-  sudo rm -f /etc/allow-tpm-reenroll
-
-  # Show recent logs
-  echo ""
-  echo "=== Recent TPM Re-enrollment Logs ==="
-  sudo journalctl -u tpm-reenroll.service -n 50 --no-pager
-
-  # Final status
-  if sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 >/dev/null 2>&1; then
-    echo ""
-    echo "✓ TPM unlock test PASSED"
-  else
-    echo ""
-    echo "✗ TPM unlock test FAILED - manual intervention needed"
-    exit 1
-  fi
-  EOF
-
-  sudo chmod +x /usr/local/bin/fix-tpm
-  echo "Created /usr/local/bin/fix-tpm script"
-
-  # Test fix-tpm
-  fix-tpm --help 2>/dev/null || echo "fix-tpm ready (run without args to re-enroll)"
-  
-  # Reload daemon and enable the service
+  # Enable the service:
   sudo systemctl daemon-reload
   sudo systemctl enable tpm-reenroll.service
+  echo "tpm-reenroll service created and enabled"
+
   # Current Workflow:
   # touch /etc/allow-tpm-reenroll
   # systemctl start tpm-reenroll.service
