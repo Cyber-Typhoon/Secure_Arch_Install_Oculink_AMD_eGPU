@@ -1410,6 +1410,7 @@
   ```bash
   # Reboot to Windows and verify it boots
   # Then reboot to Linux to continue
+  # REMEMBER: If something get strange this is the sequence to get thing right: fix-tpm (if is only the passphrase coming in every login try this first, if doesn't fix continue) --> **Check if BIOS (F1) is in Reset to Setup Mode** --> sudo sbctl enroll-keys -m --> sudo sbctl sign-all -g --> sudo sbctl verify --> efibootmgr (Linux Boot Manager First) --> **Reboot Turn Secure Boot On** --> fix-tpm
   ```
 ## Milestone 5: After Step 9 (systemd-boot and UKI Setup) - Can pause at this point
 
