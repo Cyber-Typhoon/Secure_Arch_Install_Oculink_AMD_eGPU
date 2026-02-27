@@ -1215,16 +1215,14 @@
   sudo rm -rf /mnt/windows-efi
 
   # Before moving to the efibootmgr check the Linux and Microsoft boot are created (arch.efi inside the Linux folder and the microsof boot inside the Microsoft folder)
-  ls -R /boot/EFI
+  ls -R /boot/EFI | less
   
-  # Set Boot Order – main Arch → LTS → Fallback → Windows (robust & future-proof)
-  echo "Setting final UEFI boot order..."
-  sudo efibootmgr --bootorder \
-  $(sudo efibootmgr | grep -E 'Arch Linux( |$)' | grep -v 'LTS' | grep -v 'Fallback' | head -n 1 | awk '{print $1}' | cut -c5-),\
-  $(sudo efibootmgr | grep 'LTS Kernel' | awk '{print $1}' | cut -c5-),\
-  $(sudo efibootmgr | grep 'Fallback' | awk '{print $1}' | cut -c5-),\
-  $(sudo efibootmgr | grep -i 'windows boot manager' | awk '{print $1}' | cut -c5-) \
-  2>/dev/null || echo "Boot order set (some entries may be missing – this is fine)"
+  # Set Boot Order – main Arch 
+  echo "Setting Arch Linux as default boot..."
+  sudo bootctl set-default arch.conf
+  echo "Default boot entry set"
+  # Verify the motherboard order
+  sudo efibootmgr
   
   # Verify the TPM Seal one last time using the physical device
   if sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2; then
