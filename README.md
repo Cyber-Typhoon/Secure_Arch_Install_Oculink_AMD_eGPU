@@ -1277,11 +1277,6 @@
   sudo mkinitcpio -c /mnt/usb/mkinitcpio-rescue.conf -g /mnt/usb/initramfs-rescue.img
   sudo cp /mnt/usb/initramfs-rescue.img /mnt/usb/initramfs-linux.img
 
-  # Copy LUKS keyfile
-  sudo cp /crypto_keyfile /mnt/usb/luks-keyfile 2>/dev/null || \
-  echo "Warning: No keyfile found. Using passphrase only."
-  sudo chmod 600 /mnt/usb/luks-keyfile 2>/dev/null || true
-
   # GRUB config (Replace $LUKS_UUID and $ROOT_UUID with actual values in the menuentry)
   sudo tee /mnt/usb/boot/grub/grub.cfg > /dev/null << EOF
   set timeout=5
