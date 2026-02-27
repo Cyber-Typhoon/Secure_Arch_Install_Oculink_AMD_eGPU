@@ -1420,6 +1420,9 @@
 
 - Install the **GNOME desktop environment**:
   ```bash
+  # Update the System
+  sudo pacman -Syu
+  
   # Core Desktop Environment (Shell, Compositor, Login Manager)
   sudo pacman -S --needed mutter gnome-shell gdm gnome-control-center gnome-session gnome-settings-daemon \
 
