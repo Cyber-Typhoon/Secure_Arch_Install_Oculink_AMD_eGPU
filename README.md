@@ -1298,15 +1298,6 @@
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
   ```
-- Ensure the LUKS keyfile was deleted
-  ```bash
-  if [ -f /crypto_keyfile ]; then
-    echo "WARNING: /crypto_keyfile still exists. Securely wiping it now."
-    sudo shred -vfz -n 3 /crypto_keyfile
-    sudo rm -f /crypto_keyfile
-  fi
-  ls -la /crypto_keyfile || echo "✓ Keyfile wiped"
-  ```
 - Full LUKS+UKI+TPM config snapshot - archive-system-config.sh (helpful in case of a Gentoo migration)
   ```bash
   # Usage: sudo ./archive-system-config.sh [keep-staging]
