@@ -1241,7 +1241,7 @@
 - Backup PCR values post-Secure Boot:
   ```bash
   sudo mount /dev/sdX1 /mnt/usb  # Replace with your USB
-  sudo tpm2_pcrread sha256:7,11 > /mnt/usb/tpm-pcr-post-secureboot.txt
+  sudo tpm2_pcrread sha256:7,11 | sudo tee /mnt/usb/tpm-pcr-post-secureboot.txt > /dev/null
   sudo \cat /mnt/usb/tpm-pcr-post-secureboot.txt
   echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
   echo "WARNING: Compare PCR values to ensure TPM policy consistency."
@@ -1249,9 +1249,11 @@
 - Create a GRUB USB for recovery:
   ```bash
   lsblk  # Identify USB device (e.g., /dev/sdX1)
-  read -p "Enter USB partition (e.g. /dev/sdb1): " USB_PART
-  sudo mkfs.fat -F32 -n RESCUE_USB /dev/sdX1 # Make sure to enter the USB ID in use replacing the placeholder "/dev/sdX1"
+  read "USB_PART?Enter USB partition (e.g. /dev/sda1): "
+  sudo umount -l /dev/sda1
+  sudo mkfs.fat -F32 -n RESCUE_USB /dev/$USB_PART 
 
+  sudo mount /dev/sda1 /mnt/usb
   sudo mkdir -p /mnt/usb
   sudo mount /dev/sdX1 /mnt/usb # Replace /dev/sdX1 with your USB partition confirmed via lsblk
 
