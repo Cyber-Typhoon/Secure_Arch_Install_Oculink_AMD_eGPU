@@ -1431,6 +1431,7 @@
   ```
 - Create ~/Music, Pictures, Documents, Downloads, Desktop, Videos, Public, Git, Games etc. (for Lollypop, etc) (NO SUDO)
   ```bash
+  sudo chown -R username:username /home/username # Replace "username" with your username
   xdg-user-dirs-update 
   ```
 - Install **Paru and configure it**:
