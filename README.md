@@ -1269,7 +1269,7 @@
   # Copy AMD firmware for offline recovery
   echo "Copying AMD firmware to recovery USB..."
   sudo mkdir -p /mnt/usb/firmware
-  sudo cp -r /lib/firmware/amdgpu /mnt/usb/firmware/
+  sudo cp -rL /lib/firmware/amdgpu /mnt/usb/firmware/
 
   # Generate minimal rescue initramfs (no plymouth, resume)
   sudo cp /etc/mkinitcpio.conf /mnt/usb/mkinitcpio-rescue.conf
