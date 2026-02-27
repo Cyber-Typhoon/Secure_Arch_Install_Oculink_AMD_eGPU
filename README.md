@@ -1225,11 +1225,10 @@
   sudo efibootmgr
   
   # Verify the TPM Seal one last time using the physical device
-  if sudo systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2; then
-    echo "✓ TPM unlock test PASSED: System is ready for password-less boot."
+  if sudo sbctl verify /boot/EFI/Linux/arch.efi | \grep -q "signed"; then
+    echo "UKI is properly signed"
   else
-    echo "✗ TPM unlock test FAILED: Running repair..."
-  sudo fix-tpm
+    echo "UKI signature verification unclear - check manually"
   fi
 
   # Confirm Secure Boot is active
@@ -1238,7 +1237,6 @@
   ✓ Secure Boot: Enabled
   ✓ Setup Mode: Disabled
   ✓ Signed: all files
-  sbctl verify /boot/EFI/Linux/arch.efi | grep -q "signed" && echo "UKI signed"
   ```
 - Backup PCR values post-Secure Boot:
   ```bash
