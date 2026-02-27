@@ -1440,28 +1440,27 @@
 - Install **Paru and configure it**:
   ```bash   
   # Clone & build in a clean temp dir
-  TMP_PARU=$(mktemp -d --tmpdir=paru.XXXXXX)
-  git clone --depth 1 https://aur.archlinux.org/paru.git "$TMP_PARU"
-  (
-    cd "$TMP_PARU" || exit 1
-    set -e  # Fail fast on any error
-
-  # Make pacman non-interactive for deps (passes to internal pacman -S calls)
-  export PACMAN_OPTS=("--noconfirm")
+  mkdir -p /tmp/paru-build
+  git clone --depth 1 https://aur.archlinux.org/paru.git /tmp/paru-build
   
   # Build the package (creates the .pkg.tar.zst file)
-  makepkg -s --clean
+  (
+  cd /tmp/paru-build || exit 1
+  makepkg -src --noconfirm
   
   # NAMCAP AUDIT (Insert Check Here)
   echo "--- Running namcap audit on the built paru package ---"
   # Audits the built package. The || true allows the script to continue on warnings.
-  namcap PKGBUILD || true
-  namcap paru-*.pkg.tar.zst || true
+  if command -v namcap >/dev/null; then
+    echo "--- Running namcap audit ---"
+    namcap PKGBUILD || true
+    namcap paru-*.pkg.tar.zst || true
+  fi
   
   # Install the audited package
-  sudo pacman -U paru-*.pkg.tar.zst
+  sudo pacman -U --noconfirm paru-*.pkg.tar.zst
   )
-  rm -rf "$TMP_PARU"
+  rm -rf /tmp/paru-build  
 
   # Configure to show PKGBUILD diffs (edit the Paru config file):
   mkdir -p ~/.config/paru
