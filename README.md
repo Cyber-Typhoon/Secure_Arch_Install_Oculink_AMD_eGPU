@@ -1464,7 +1464,7 @@
 
   # Configure to show PKGBUILD diffs (edit the Paru config file):
   mkdir -p ~/.config/paru
-  cat << 'EOF' > ~/.config/paru/paru.conf
+  \cat << 'EOF' > ~/.config/paru/paru.conf
   [options]
   PgpFetch
   BottomUp
