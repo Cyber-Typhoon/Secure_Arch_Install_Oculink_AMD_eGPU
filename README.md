@@ -1294,7 +1294,7 @@
   sudo cp /mnt/usb/EFI/RescueUSB/grubx64.efi /mnt/usb/EFI/BOOT/BOOTX64.EFI
   sudo sbctl sign -s /mnt/usb/EFI/BOOT/BOOTX64.EFI
   sudo shred -u /crypto_keyfile # This may fail and you will need to enter the chroot, mount everything, then wipe
-  umount /mnt/usb
+  sudo umount /mnt/usb
   
   echo "WARNING: Store the GRUB USB securely; it contains the LUKS keyfile."
   ```
