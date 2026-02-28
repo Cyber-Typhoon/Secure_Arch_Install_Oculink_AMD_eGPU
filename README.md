@@ -1510,8 +1510,8 @@
   dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
   \
   # CLI Tools
-  atuin bat bandwhich bottom broot git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
-  helix httpie hyfetch linux-docs procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
+  atuin bat bandwhich bottom broot cmake extra-cmake-modules git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
+  helix httpie hyfetch linux-docs nasm procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
   yazi zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
