@@ -1516,7 +1516,7 @@
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
-  libva-utils libva-vdpau-driver vulkan-tools clinfo wine 7zip exfatprogs \
+  libva-utils vulkan-tools clinfo wine 7zip exfatprogs \
   \
   # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
   torbrowser-launcher thunderbird protonmail-bridge virt-manager libvirt qemu-desktop \
@@ -1565,6 +1565,7 @@
     fresh-editor-bin \
     aylurs-gtk-shell-git \
     libastal-meta  \
+    libva-vdpau-driver \
     gst-thumbnailers \
     gst-plugins-rs-git \
     brave-bin \
