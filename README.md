@@ -1510,9 +1510,9 @@
   dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
   \
   # CLI Tools
-  atuin bat bandwhich bottom broot delta dog dua eza fd fzf gcc gdb gitui glow gping \
+  atuin bat bandwhich bottom broot git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
   helix httpie hyfetch linux-docs procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
-  xdg-ninja yazi zoxide zsh-autosuggestions \
+  yazi zoxide zsh-autosuggestions \
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
@@ -1574,7 +1574,8 @@
     rose-pine-gtk-theme-full \
     stylepak-git \
     run0-sudo-shim-git \
-    wluma 
+    wluma \
+    xdg-ninja
   # Update linker cache (Requires Sudo)
   sudo ldconfig
   ```
