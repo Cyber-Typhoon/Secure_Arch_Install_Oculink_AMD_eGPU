@@ -1536,7 +1536,7 @@
   ```
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
-  sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $(command -v bandwhich)
+  sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep /usr/bin/bandwhich
   ```
 - Privacy measure to prevent laptop location identification:
   ```bash
