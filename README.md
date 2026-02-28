@@ -1550,8 +1550,9 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer xdg-desktop-portal-gnome systemd-oomd upower.service cups.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard logwatch.timer systemd-oomd upower.service cups.service
   sudo systemctl --failed  # Check for failed services
+  sudo usermod -aG libvirt $USER
   sudo journalctl -p 3 -xb
   ```
 - Install the AUR applications:
