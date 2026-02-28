@@ -3038,6 +3038,13 @@
   ```
 - Enable Apparmor in COMPLAIN mode
   ```bash
+  # Ensure the directory exists
+  sudo mkdir -p /etc/apparmor/earlypolicy/
+
+  # Add the cache location to the parser config
+  # We use 'tee -a' to safely append it
+  echo 'cache-loc /etc/apparmor/earlypolicy/' | sudo tee -a /etc/apparmor/parser.conf
+
   # This activates the *complete* AppArmor.d policy (1000+ profiles)
   # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
   
