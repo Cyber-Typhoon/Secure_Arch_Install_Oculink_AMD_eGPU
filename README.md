@@ -1469,23 +1469,25 @@
   PgpFetch
   BottomUp
   RemoveMake
-  CleanAfter = true
+  CleanAfter
   SudoLoop
-  EditMenu = true
-  CombinedUpgrade = false
+  UpgradeMenu
+
+  # Use 'CombinedUpgrade' if you want Repo and AUR updates in one list. 
+  # Keep it commented out if you prefer to see them separately. Recommended.
+  # CombinedUpgrade
 
   [bin]
-  DiffMenu = true
-  UseAsk = true
-  Chroot = true
+  # If you install 'bat', uncomment this for beautiful diffs:
+  # Pager = bat
   EOF
     
   # Verify if paru shows the PKGBUILD diffs
   paru -Pg | grep -E 'diffmenu|combinedupgrade|editmenu' || true # Should show: combinedupgrade: Off diffmenu: Edit editmenu: Edit
 
   # Set build directory
-  echo "BUILDDIR = $HOME/.cache/paru-build" | sudo tee -a /etc/makepkg.conf
   mkdir -p ~/.cache/paru-build
+  echo 'BuildDir = /home/'"$USER"'/.cache/paru-build' >> ~/.config/paru/paru.conf
 
   # Create yay → paru symlink for AUR helper script compatibility
   sudo ln -sf /usr/bin/paru /usr/local/bin/yay
