@@ -2574,31 +2574,36 @@
   /etc/apparmor.d SecGroup  # AppArmor profiles
   /etc/systemd SecGroup     # Systemd configs (e.g., hardening)
   !/var/log                 # Exclude logs (volatile)
-  /!/tmp                    # Exclude temp files
+  !/tmp                    # Exclude temp files
   !/proc                    # Exclude procfs
   !/dev                     # Exclude devices (but warn on dead symlinks)
   !/home                    # Exclude user home (add if needed)
-  /!/var/spool              # Exclude spools
+  !/var/spool              # Exclude spools
 
   # Warn on dead symlinks for security
   warn_dead_symlinks=yes
   EOF
   
   # Validate config
-  aide -D || { echo "Config error - check /etc/aide.conf"; exit 1; }
+  sudo aide -D || { echo "Config error - check /etc/aide.conf"; exit 1; }
   echo "AIDE config customized and validated."
 
   # Initialize with verbose output
-  aide --init --verbose=20
+  sudo aide --init --verbose=20
+  # Note that this process will take long (12 min for 600k files), will not output anything, and /var/lib/aide/aide.db.new.gz will appear empty until the process completes.
+  sudo aide --update 
 
   # Move new DB to production
   mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz  # Note: .gz if gzip_dbout=yes
 
   # Run initial check to verify
-  aide --check || { echo "Initial check failed - investigate changes"; }
+  sudo aide --check || { echo "Initial check failed - investigate changes"; }
   
   # Enable timer for daily checks
-  systemctl enable --now aide-check.timer
+  systemctl enable --now aidecheck.timer
+
+  # To check the results we can look the /var/log/aide.log or by running:
+  sudo journalctl -abu aidecheck
 
   # Pacman hook to auto-update DB after upgrades (convenience: no manual mv/review unless daily check alerts)
   cat << 'EOF' > /etc/pacman.d/hooks/99-aide-update.hook
