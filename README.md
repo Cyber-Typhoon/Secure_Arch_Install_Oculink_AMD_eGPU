@@ -3041,15 +3041,24 @@
   # Ensure the directory exists
   sudo mkdir -p /etc/apparmor/earlypolicy/
 
+  # Enable cache writing
+  echo 'write-cache' | sudo tee -a /etc/apparmor/parser.conf
+
   # Add the cache location to the parser config
   # We use 'tee -a' to safely append it
   echo 'cache-loc /etc/apparmor/earlypolicy/' | sudo tee -a /etc/apparmor/parser.conf
+
+  # Enable fast compression
+  echo 'Optimize=compress-fast' | sudo tee -a /etc/apparmor/parser.conf
+
+  # Restart Apparmor Service
+  sudo systemctl restart apparmor.service
 
   # This activates the *complete* AppArmor.d policy (1000+ profiles)
   # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
   
   # Enable the upstream-sync timer (weekly profile updates)
-  sudo systemctl enable --now apparmor.d-update.timer
+  sudo systemctl enable --now apparmor.d.timer
   
   # Load Full System Policy in COMPLAIN mode
   sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
