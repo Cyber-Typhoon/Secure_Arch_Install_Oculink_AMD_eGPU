@@ -860,7 +860,7 @@
   # This creates the standard file that UKI builders (like ukify) use by default
   mkdir -p /etc/kernel
   cat << EOF > /etc/kernel/cmdline
-  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity
+  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51
   EOF
   # Double check if the $ROOT_UUID and $RESUME_OFFSET are numerical and not variables.
 
