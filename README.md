@@ -1637,12 +1637,14 @@
   # Copy Brave .desktop to local override
   mkdir -p ~/.local/share/applications
   cp /usr/share/applications/brave-browser.desktop ~/.local/share/applications/
-  
-  # Add hardware encode flag to all Exec lines
-  sed -i 's|Exec=/usr/bin/brave-browser|Exec=/usr/bin/brave-browser --enable-features=AcceleratedVideoEncoder|g' \
-    ~/.local/share/applications/brave-browser.desktop
 
-  echo "Brave hardware video encoding enabled"
+  # Add our successful Wayland and Hardware Acceleration flags to all Exec lines
+  sed -i 's|Exec=/usr/bin/brave-browser|Exec=env LIBVA_DRIVER_NAME=iHD /usr/bin/brave-browser --ozone-platform=wayland --ignore-gpu-blocklist --disable-gpu-driver-bug-workarounds --enable-features=VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization --disable-features=UseChromeOSDirectVideoDecoder|g' ~/.local/share/applications/brave-browser.desktop
+
+  # If the desktop file uses /opt/brave-bin/brave instead, catch that too
+  sed -i 's|Exec=/opt/brave-bin/brave|Exec=env LIBVA_DRIVER_NAME=iHD /opt/brave-bin/brave --ozone-platform=wayland --ignore-gpu-blocklist --disable-gpu-driver-bug-workarounds --enable-features=VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization --disable-features=UseChromeOSDirectVideoDecoder|g' ~/.local/share/applications/brave-browser.desktop
+
+  echo "Brave Wayland & GPU optimizations permanently enabled!"
   
   # Verify at brave://gpu → Video Acceleration section
 
