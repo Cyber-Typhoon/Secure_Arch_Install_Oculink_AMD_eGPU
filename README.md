@@ -1694,7 +1694,7 @@
     echo "WezTerm config already exists – skipping to protect your settings."
   fi
   ```
-- Enable Brave and Steam hardware video accelaration (for WebRTC/screen sharing):
+- Enable Brave hardware video accelaration (for WebRTC/screen sharing) and Steam running with high-performance flags:
   ```bash
   # Copy Brave .desktop to local override
   mkdir -p ~/.local/share/applications
