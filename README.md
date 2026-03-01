@@ -1632,14 +1632,14 @@
   sudo systemctl restart gdm
   # and reboot (start working on Gnome) -- This is the point that you start seeing your Desktop Environment
   ```
-- Edit the Wezterm Visuals:
+- Edit the Wezterm Visuals (this is basics, just to move forward, later can make more aesthetic udpates):
   ```bash
   # The "Super" Pro-Tip for GNOME
   # Since you are on GNOME, there is a "hidden" feature that makes resizing terminals 10x faster than hunting for a 1-pixel border:
   # Hold the Super key (Windows key).
   # Middle-Click (or right-click) anywhere inside the terminal window and drag.
   # The window will resize from whichever corner is closest to your cursor.
-  # CTRL + SHIFT + C = Copy || CTRL + SHIFT + Y = PASTE
+  # CTRL + SHIFT + C = Copy || CTRL + SHIFT + V = PASTE
 
   # Optimized WezTerm Setup for Arch (Wayland + Intel ARL)
   mkdir -p ~/.config/wezterm
