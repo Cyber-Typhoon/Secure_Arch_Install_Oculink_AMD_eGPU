@@ -1632,7 +1632,69 @@
   sudo systemctl restart gdm
   # and reboot (start working on Gnome) -- This is the point that you start seeing your Desktop Environment
   ```
-- Enable Brave hardware video encoding (for WebRTC/screen sharing):
+- Edit the Wezterm Visuals:
+  ```bash
+  # The "Super" Pro-Tip for GNOME
+  # Since you are on GNOME, there is a "hidden" feature that makes resizing terminals 10x faster than hunting for a 1-pixel border:
+  # Hold the Super key (Windows key).
+  # Middle-Click (or right-click) anywhere inside the terminal window and drag.
+  # The window will resize from whichever corner is closest to your cursor.
+  # CTRL + SHIFT + C = Copy || CTRL + SHIFT + Y = PASTE
+
+  # Optimized WezTerm Setup for Arch (Wayland + Intel ARL)
+  mkdir -p ~/.config/wezterm
+
+  if [[ ! -f ~/.config/wezterm/wezterm.lua ]]; then
+    cat <<'EOF' > ~/.config/wezterm/wezterm.lua
+  local wezterm = require 'wezterm'
+  local config = wezterm.config_builder()
+
+  -- Fonts & Rendering
+  config.font = wezterm.font_with_fallback({
+    { family = "JetBrains Mono", weight = "Regular" },
+    { family = "Symbols Nerd Font Mono", scale = 1.0 },
+    "Noto Color Emoji",
+  })
+  config.font_size           = 12.5
+  config.line_height         = 1.03
+  config.harfbuzz_features   = { 'liga', 'calt', 'ss01', 'ss02', 'ss03', 'ss04', 'ss05' }
+
+  -- Appearance
+  config.color_scheme             = 'rose-pine'
+  config.window_background_opacity = 0.90
+  config.text_background_opacity   = 1.0
+  config.window_padding = {
+    left   = '12px',
+    right  = '12px',
+    top    = '8px',
+    bottom = '8px',
+  }
+
+  -- RESIZE allows the "Super+MiddleClick" trick and standard edge dragging
+  config.window_decorations     = "RESIZE" 
+  config.hide_tab_bar_if_only_one_tab = true
+
+  -- Performance (WebGpu is king for Intel ARL)
+  config.front_end    = "WebGpu"
+  config.webgpu_power_preference = "HighPerformance"
+  config.enable_wayland = true
+
+  -- Quality of Life
+  config.audible_bell = 'Disabled'
+  config.visual_bell  = {
+    target = 'BackgroundColor',
+    fade_in_duration_ms = 100,
+    fade_out_duration_ms = 100,
+  }
+
+  return config
+  EOF
+    echo "WezTerm configuration created successfully!"
+  else
+    echo "WezTerm config already exists – skipping to protect your settings."
+  fi
+  ```
+- Enable Brave and Steam hardware video accelaration (for WebRTC/screen sharing):
   ```bash
   # Copy Brave .desktop to local override
   mkdir -p ~/.local/share/applications
@@ -2001,65 +2063,6 @@
 
   # These should still show your 14 Mono entries:
   fc-list | grep -i "nerd font mono"
-  ```
-- Edit the Wezterm Visuals:
-  ```bash
-  # Configure WezTerm
-  mkdir -p ~/.config/wezterm
-  if [[ ! -f ~/.config/wezterm/wezterm.lua ]]; then
-    cat <<'EOF' > ~/.config/wezterm/wezterm.lua
-  local wezterm = require 'wezterm'
-  local config = wezterm.config_builder()
-
-  # Fonts & Rendering
-  config.font = wezterm.font_with_fallback({
-    { family = "JetBrains Mono", weight = "Regular" },
-    { family = "Symbols Nerd Font Mono", scale = 1.0 },
-    "Noto Color Emoji",   -- very useful fallback nowadays
-  })
-
-  config.font_size           = 12.5           -- ← most popular range on 14–16" 3K/4K laptops
-  config.line_height         = 1.03           -- ← subtle improvement in readability
-  config.harfbuzz_features   = { 'liga', 'calt', 'ss01', 'ss02', 'ss03', 'ss04', 'ss05' }
-
-  # Appearance
-  config.color_scheme             = 'rose-pine'
-  config.window_background_opacity = 0.90       -- ← bit stronger blur, modern preference
-  config.text_background_opacity   = 1.0        -- ← keep! very important with transparency
-
-  config.window_padding = {
-    left   = '12px',
-    right  = '12px',
-    top    = '8px',
-    bottom = '8px',
-  }
-
-  config.window_decorations     = "RESIZE"      -- ← clean look, GNOME-friendly
-  config.hide_tab_bar_if_only_one_tab = true
-
-  # Performance / Backend
-  config.front_end    = "WebGpu"       -- ← still the best choice on Linux Intel+AMD in 2026
-  config.enable_wayland = true         -- ← can usually be removed (auto-detected), but explicit is fine
-
-  # Quality of Life
-  config.audible_bell = 'Disabled'
-  config.visual_bell  = {
-    fade_in_duration_ms  = 100,
-    fade_out_duration_ms = 100,
-    target               = 'BackgroundColor',
-  }
-
-  # Dim inactive panes — very helpful when using many splits
-  config.inactive_pane_hsb = {
-    saturation = 0.85,
-    brightness = 0.75,
-  }
-
-  return config
-  EOF
-  else
-    echo "WezTerm config already exists – skipping"
-  fi
   ```
 - Final full system update + UKI rebuild
   ```bash
