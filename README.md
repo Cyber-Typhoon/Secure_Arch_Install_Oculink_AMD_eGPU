@@ -1812,7 +1812,7 @@
   # Setting the Default in GNOME
   gsettings set org.gnome.desktop.default-applications.terminal exec 'wezterm'
   ```
-- (OPTIONAL) Using Fresh Text Editor CLI as the Default Text Editor
+- (OPTIONAL/RECOMMENDED) Using Fresh Text Editor CLI as the Default Text Editor. If we don't do this install the Gnome Text Editor Flatpak Applications for this purporse.
   ```bash
   # Create the Desktop Entry
   cat <<EOF > ~/.local/share/applications/fresh.desktop
