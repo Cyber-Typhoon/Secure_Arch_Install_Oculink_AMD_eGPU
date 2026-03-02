@@ -1507,7 +1507,7 @@
   bluez bluez-utils cups fprintd \
   \
   # Networking & Privacy
-  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app \
+  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app dnsmasq \
   \
   # CLI Tools
   atuin bat bandwhich bottom broot cmake extra-cmake-modules git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
@@ -2082,7 +2082,7 @@
   # Intel iGPU Power Saving
   # NOTE: enable_psr (Panel Self Refresh) is omitted to prevent screen flickering on OLED/High-Refresh displays.
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
-  echo 'options i915 enable_fbc=1' >> /etc/modprobe.d/i915.conf
+  echo 'options xe force_probe=7d51' >> /etc/modprobe.d/xe.conf
   ```
 - Default deny incoming network via firewall (ufw):
   ```bash
@@ -2156,17 +2156,28 @@
   [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
   EOF
   ```
-- [OUTDATED] Configure MAC randomization (Those are introduced earlier in the Step 6 inside chroot):
+- Edit MAC randomization:
   ```bash
-  mkdir -p /etc/NetworkManager/conf.d
-  cat << 'EOF' > /etc/NetworkManager/conf.d/00-macrandomize.conf
+  # Remove the fragmented files
+  sudo rm -f /etc/NetworkManager/conf.d/wifi-backend.conf
+  sudo rm -f /etc/NetworkManager/conf.d/00-macrandomize.conf
+
+  # Create the one 'Master' network config
+  sudo tee /etc/NetworkManager/conf.d/99-hardened-network.conf > /dev/null <<'EOF'
   [device]
+  wifi.backend=iwd
   wifi.scan-rand-mac-address=yes
+  wifi.iwd.autoconnect=yes
+
   [connection]
+  # 'random' generates a new MAC every time you connect (Max Privacy)
+  # 'stable' generates one random MAC per SSID (Best for Home/Work stability)
   wifi.cloned-mac-address=random
+  ethernet.cloned-mac-address=random
   EOF
-  systemctl restart NetworkManager
-  nmcli connection down <connection_name> && nmcli connection up <connection_name>
+
+  # Restart to apply
+  sudo systemctl restart NetworkManager
   ```
 - Configure GNOME privacy:
   ```bash
