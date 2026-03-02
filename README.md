@@ -1810,7 +1810,7 @@
   echo "Install Floating Mini Panel from https://extensions.gnome.org/extension/8274/floating-mini-panel/ using Extension Manager"
   echo "Install Bastion from https://extensions.gnome.org/extension/8898/bastion/ using Extension Manager"
   echo "Install AppIndicator and KStatusNotifier from https://extensions.gnome.org/extension/615/appindicator-support/ using Extension Manager"
-  echo "After installing via Extension Manager, enable it and restart GNOME Shell (Alt+F2 → r → Enter)"
+  echo "After installing via Extension Manager, enable it and Log Out and Log back in"
   ```
 - Enroll fingerprint if device has a reader
   ```bash
