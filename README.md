@@ -1819,7 +1819,15 @@
   else
     echo "Fingerprint reader found! Run 'fprintd-enroll' to set it up (optional)"
   fi
-  # If fingerprint doesn't work try to install the thinkfinger from AUR.
+  # If fingerprint doesn't work try to install the libfprint from AUR. # DO NOT use thinkfinger (legacy).
+  # Install the TOD framework and the V2 Goodix driver
+  # paru -S libfprint-tod libfprint-2-tod1-goodix-v2
+
+  # You MUST restart the service to load the new driver
+  # sudo systemctl restart fprintd
+
+  # Check if fprintd now "sees" the hardware
+  # fprintd-list $USER
   ```
 - (OPTIONAL NOT RECOMMENDED) Setup Automated System/AUR Updates
   ```bash
