@@ -1791,6 +1791,53 @@
   # Optional: Allow system-installed Flatpak apps to READ the host system's GTK4 config
   sudo flatpak override --filesystem=xdg-config/gtk-4.0:ro
   ```
+- Clear some Orphan Packages:
+  ```bash
+  paru -Q | wc -1
+  paru -Qdt
+  sudo paru -Rs $LIST_THE_ORPHAN_PACKAGES
+  ```
+- Make Terminal Applications Icons Like Helix and Micro to open looking your Terminal
+  ```bash
+  paru -S xdg-terminal-exec
+  cat <<EOF > ~/.config/xdg-terminals.list
+    org.wezfurlong.wezterm.desktop
+    org.gnome.Console.desktop
+  EOF
+
+  # Valdiate
+  ls /usr/share/applications/ | grep wezterm
+  grep "Categories" /usr/share/applications/org.wezfurlong.wezterm.desktop
+
+  # Setting the Default in GNOME
+  gsettings set org.gnome.desktop.default-applications.terminal exec 'wezterm'
+  ```
+- (OPTIONAL) Using Fresh Text Editor CLI as the Default Text Editor
+  ```bash
+  # Create the Desktop Entry
+  cat <<EOF > ~/.local/share/applications/fresh.desktop
+  [Desktop Entry]
+  Name=Fresh
+  Comment=Quick CLI Text Editor
+  GenericName=Text Editor
+  # This assumes 'fresh' is in your PATH (e.g., /usr/bin/fresh)
+  Exec=fresh %F
+  # Important: This tells GNOME to use your new WezTerm handler
+  Terminal=true
+  Type=Application
+  Icon=text-editor
+  Categories=Utility;TextEditor;Development;
+  MimeType=text/plain;
+  Keywords=text;editor;cli;fresh;
+  StartupNotify=false
+  EOF
+
+  # Update the Desktop Database
+  update-desktop-database ~/.local/share/applications/
+
+  # Making it the "Default" for .txt files
+  xdg-mime default fresh.desktop text/plain
+  ```  
 - Install Extensions from extensions.gnome.org using Extension Manager application flatpak
   ```bash
   # GNOME Extension Compatibility Note (GNOME 50 - March 2026):
