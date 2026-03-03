@@ -1793,7 +1793,6 @@
   ```
 - Clear some Orphan Packages:
   ```bash
-  paru -Q | wc -1
   paru -Qdt
   sudo paru -Rs $LIST_THE_ORPHAN_PACKAGES
   ```
