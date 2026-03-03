@@ -1532,7 +1532,7 @@
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
-  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf
+  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf qt6-wayland qt5-wayland
   ```
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
