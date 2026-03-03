@@ -1507,7 +1507,7 @@
   bluez bluez-utils cups fprintd \
   \
   # Networking & Privacy
-  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app dnsmasq nethogs iotop \
+  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app dnsmasq nethogs iotop reflector \
   \
   # CLI Tools
   atuin bat bandwhich bottom broot cmake extra-cmake-modules git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
@@ -1531,7 +1531,7 @@
   ttf-firacode-nerd ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono ttf-croscore ttf-victor-mono-nerd \
   \
   # GNOME Extras
-  gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator \
+  gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gnome-font-viewer \
   gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf qt6-wayland qt5-wayland
   ```
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
