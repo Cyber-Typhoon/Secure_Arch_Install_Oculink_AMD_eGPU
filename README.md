@@ -395,6 +395,10 @@
     ```bash
     blkid | grep -E 'nvme0n1p1|nvme1n1p1'
     ```
+  - **Remove the generic pacstrap fstab, we already generated the correct one**:
+    ```bash
+    rm /mnt/etc/fstab.pacnew
+    ```
   - Manually edit with nano `/mnt/etc/fstab` to verify subvolume options and add security settings.
   - **BTRFS Subvolume and Mount Options**:
     - Replace `$ROOT_UUID` with the actual UUID from `blkid`:
