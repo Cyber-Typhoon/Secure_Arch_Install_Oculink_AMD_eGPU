@@ -1594,25 +1594,20 @@
     echo "WARNING: fwupd EFI binary not found – install fwupd first"
   fi
 
-  # Append fwupd trigger to existing 90-uki-sign.hook (ensure kernel targets)
-  if ! grep -q "Target = linux" /etc/pacman.d/hooks/90-uki-sign.hook; then
-    sed -i '/\[Trigger\]/a Target = linux\nTarget = linux-lts' /etc/pacman.d/hooks/90-uki-sign.hook || \
-    echo -e "\nTarget = linux\nTarget = linux-lts" | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
-  fi
-  if ! grep -q "Target = fwupd" /etc/pacman.d/hooks/90-uki-sign.hook; then
-    cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
+  # Create separate hook for fwupd signing
+  cat << 'EOF' | sudo tee /etc/pacman.d/hooks/91-fwupd-sign.hook
   [Trigger]
   Operation = Install
   Operation = Upgrade
   Type = Package
   Target = fwupd
+
   [Action]
   Description = Sign fwupd EFI for Secure Boot
   When = PostTransaction
   Exec = /usr/bin/sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi
   Depends = sbctl
   EOF
-  fi
 
   # Test fwupd signing
   sudo sbctl verify /usr/lib/fwupd/efi/fwupdx64.efi  # Should show "signed"
