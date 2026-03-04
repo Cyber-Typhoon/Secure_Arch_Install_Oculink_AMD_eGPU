@@ -5181,6 +5181,7 @@
 
     # Save and Valiate
     # Run the alias created in the Step 6 "update"
+    # If you see in the output some .pacnew that requires attention make sure to run this sudo env DIFFPROG=diff pacdiff
     ```
 - **b) Monitor Logs**:
   - Check for errors in system logs:
