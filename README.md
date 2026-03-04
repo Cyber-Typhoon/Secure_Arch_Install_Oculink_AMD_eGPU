@@ -737,7 +737,7 @@
   (( ${+commands[zoxide]} )) && eval "$(zoxide init zsh)"
     
   # Safe update alias
-  alias update='paru -Syu'
+  alias update='update-system' # This will be created in Step 18. Post Installation.
   echo "Run 'update' weekly. Use 'paru -Syu' for full control."
   # NOTE: The following are now system-wide tools, not aliases:
   # - fix-tpm       → /usr/local/bin/fix-tpm (script)
@@ -5089,8 +5089,98 @@
 - **a) Update System Regularly**:
   - Keep the system up-to-date:
     ```bash
-    paru -Syu --noconfirm || echo "paru failed"
-    flatpak update -y || echo "flatpak failed"
+    # Create File /usr/local/bin/update-system
+    #!/bin/bash
+
+    # =============================================
+    # Arch Updates
+    # =============================================
+
+    set -u          # Treat unset variables as errors
+    set -o pipefail # Catch errors in pipelines
+
+    # --- Colors (terminal only) ---
+    GREEN='\033[0;32m'
+    RED='\033[0;31m'
+    YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'
+    NC='\033[0m'
+
+    # --- Logging: colors on screen, plain text in log ---
+    # tee /dev/tty mirrors output to the terminal; sed strips ANSI before writing to file.
+    LOGFILE="$HOME/update-log-$(date +%Y%m%d-%H%M).txt"
+    exec > >(tee /dev/tty | sed 's/\x1b\[[0-9;]*m//g' >> "$LOGFILE") 2>&1
+
+    echo -e "${CYAN}=== Arch Fortress Maintenance: $(date) ===${NC}"
+
+    # --- 1. System + AUR Update (interactive — you are the pilot) ---
+    echo -e "\n${YELLOW}--- 1. Updating System & AUR (Paru) ---${NC}"
+    if paru -Syu; then
+      echo -e "${GREEN}✔ System and AUR updated.${NC}"
+    else
+      echo -e "${RED}⚠ Paru update interrupted or failed.${NC}"
+      # Use ${REPLY:-N} to handle Ctrl+C during prompt safely under set -u
+      read -p "Continue with remaining maintenance? (y/N) " -n 1 -r
+      echo
+      if [[ ! ${REPLY:-N} =~ ^[Yy]$ ]]; then
+          echo -e "${RED}Maintenance aborted.${NC}"
+          exit 1
+      fi
+    fi
+
+    # --- 2. Flatpak Update + Cleanup ---
+    echo -e "\n${YELLOW}--- 2. Updating Flatpaks ---${NC}"
+    if flatpak update -y; then
+      echo -e "${GREEN}✔ Flatpaks updated.${NC}"
+    else
+      echo -e "${RED}⚠ Flatpak update failed.${NC}"
+    fi
+
+    if flatpak uninstall --unused -y; then
+      echo -e "${GREEN}✔ Unused Flatpak runtimes removed.${NC}"
+    else
+      echo -e "${RED}⚠ Flatpak runtime cleanup failed.${NC}"
+    fi
+
+    # --- 3. Orphan Cleanup (AUR-aware via paru, interactive) ---
+    echo -e "\n${YELLOW}--- 3. Removing Orphaned Packages ---${NC}"
+    orphans=$(pacman -Qdtq)
+    if [[ -n "$orphans" ]]; then
+    # xargs passes package names as arguments; no stdin flag (-) needed
+    echo "$orphans" | xargs paru -Rns
+    echo -e "${GREEN}✔ Orphans removed.${NC}"
+    else
+    echo -e "${GREEN}✔ No orphans to clean.${NC}"
+    fi
+
+    # --- 4. Housekeeping & Diagnostics ---
+    echo -e "\n${YELLOW}--- 4. Housekeeping & Diagnostics ---${NC}"
+
+    # .pacnew check — parentheses required for correct -o precedence in find
+    pacnew_list=$(find /etc \( -name "*.pacnew" -o -name "*.pacsave" \) 2>/dev/null)
+    if [[ -n "$pacnew_list" ]]; then
+      echo -e "${RED}⚠ .pacnew / .pacsave files found. Review with: sudo pacdiff${NC}"
+      echo "$pacnew_list"
+    else
+      echo -e "${GREEN}✔ No .pacnew files.${NC}"
+    fi
+
+    # Kernel reboot check — generic, works with linux, linux-lts, linux-zen, etc.
+    current_kernel=$(uname -r)
+    latest_kernel=$(ls /usr/lib/modules/ 2>/dev/null | sort -V | tail -1)
+    if [[ "$current_kernel" != "$latest_kernel" ]]; then
+      echo -e "${RED}⚠ REBOOT REQUIRED: Running $current_kernel → Installed $latest_kernel${NC}"
+    else
+      echo -e "${GREEN}✔ Kernel is current.${NC}"
+    fi
+
+    # Font cache rebuild (for your 99-hide-variants.conf)
+    fc-cache -fv > /dev/null && echo -e "${GREEN}✔ Font cache rebuilt.${NC}"
+
+    echo -e "\n${CYAN}=== Maintenance Complete! Log: $LOGFILE ===${NC}"
+
+    # Save and Valiate
+    # Run the alias created in the Step 6 "update"
     ```
 - **b) Monitor Logs**:
   - Check for errors in system logs:
