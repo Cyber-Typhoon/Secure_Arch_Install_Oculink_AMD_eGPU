@@ -457,7 +457,6 @@
     ```bash
     # Eventually we might see the following excuting the pacstrap:
     # "Secureboot key directory doesn't exist, not signing! " --> It can be safely ignored, the Secure Boot is addressed later
-    # "warning:  /mnt/etc/fstab installed as /mnt/etc/fstab.pacnew" --> It can be safely ignored, this new file can be removed later since we already created the fstab. This is a generic fstab created by the pacstrap and we created it earlier.
     ```
 ## Milestone 2: After Step 4f (fstab Generation) - Can pause at this point
 
