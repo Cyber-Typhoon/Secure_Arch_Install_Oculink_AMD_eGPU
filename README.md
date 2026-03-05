@@ -2149,10 +2149,9 @@
   sudo ufw allow out 67,68/udp
   # Explicitly allow loopback (defensive clarity)
   sudo ufw allow in on lo
-  sudo ufw allow out on lo
-  # Allow VPN
+  # Allow VPN interfaces (wg0 for WireGuard, proton0 for ProtonVPN native)
   sudo ufw allow in on wg0
-  sudo ufw allow out on wg0
+  sudo ufw allow in on proton0
   # Replace '51413' with the actual port number from your torrent client.
   sudo ufw allow 51413/tcp
   sudo ufw allow 51413/udp
@@ -2161,6 +2160,20 @@
   sudo ufw allow 1714:1764/tcp
   # Enables the firewall and applies the rules
   sudo ufw enable
+
+  - **NOTE: VPN Kill Switch and Split Tunneling are handled natively by ProtonVPN.**
+  UFW manages incoming traffic only. All outgoing traffic is allowed by default.
+  Use ProtonVPN's built-in features for outgoing traffic control:
+  - **Kill Switch**: Enable in ProtonVPN GUI → Settings → Connection → Kill Switch.
+    This blocks all traffic if the VPN drops unexpectedly, preventing IP leaks.
+  - **Split Tunneling**: Configure in ProtonVPN GUI → Settings → Connection → 
+    Split Tunneling. Use this to exclude specific applications from the VPN tunnel:
+    - **VPN-hostile websites**: Exclude your browser temporarily to access sites
+      that block VPN traffic.
+    - **Gaming**: Exclude your game launcher (Steam, Lutris) to bypass VPN latency
+      and get full ISP speed. Re-enable after gaming sessions.
+  - The outgoing `allow out on wg0` and `allow out on proton0` rules are intentionally
+    absent — ProtonVPN manages its own routing internally.
   ```
 - Configure Wayland environment variables:
   ```bash
