@@ -1510,7 +1510,7 @@
   bluez bluez-utils cups fprintd \
   \
   # Networking & Privacy
-  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app dnsmasq nethogs iotop reflector \
+  dnscrypt-proxy opensnitch wireguard-tools proton-vpn-gtk-app nethogs iotop reflector \
   \
   # CLI Tools
   atuin bat bandwhich bottom broot cmake extra-cmake-modules git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
