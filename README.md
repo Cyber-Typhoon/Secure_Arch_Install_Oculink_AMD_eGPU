@@ -2345,106 +2345,105 @@
   ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
-  # Prevent systemd-resolved conflict (Critical for dnscrypt socket)
-  # systemd-resolved listens on 53stub, which can block dnscrypt.
-  sudo systemctl disable --now systemd-resolved
-  sudo systemctl mask systemd-resolved
+  # resolv.conf — point to localhost, no immutable lock
   sudo rm -f /etc/resolv.conf
-  # Create a new resolv.conf pointing to localhost (dnscrypt)
   echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
-  # Lock it so NetworkManager doesn't overwrite it
-  sudo chattr +i /etc/resolv.conf
 
-  # Instruct NetworkManager to stop managing DNS for all connections
+  # Tell NetworkManager not to touch DNS
   sudo mkdir -p /etc/NetworkManager/conf.d/
-  echo -e "[main]\ndns=none\nsystemd-resolved=false" | sudo tee /etc/NetworkManager/conf.d/90-custom-dns.conf
-
-  # Restart NetworkManager to apply the global configuration change immediately
+  echo -e "[main]\ndns=none\nsystemd-resolved=false" | sudo tee \
+    /etc/NetworkManager/conf.d/90-custom-dns.conf
   sudo systemctl restart NetworkManager
 
-  # Create Optimized Config
+  # Minimal trusted provider config (fewer = cleaner leak tests)
   cat << 'EOF' | sudo tee /etc/dnscrypt-proxy/dnscrypt-proxy.toml > /dev/null
-  # Server List: Privacy + Blocking focused
-  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'adguard-dns', 'mullvad-adblock', 'cloudflare']
-
-  # Listen Addresses
+  server_names = ['quad9-dnscrypt-ip4-filter-pri', 'mullvad-adblock']
   listen_addresses = ['127.0.0.1:53', '[::1]:53']
-
-  # Protocol Support
-  max_clients = 2500    # Increased for heavy multitasking
+  max_clients = 250
   ipv4_servers = true
   ipv6_servers = true
   dnscrypt_servers = true
   doh_servers = true
-
-  # Security
   require_dnssec = true
   require_nolog = true
   require_nofilter = false
-
-  # Performance & Load Balancing
   force_tcp = false
-  timeout = 2000        # Lower timeout for faster failover
-  lb_strategy = 'p2'    # 'p2' balances randomly between the top 2 fastest servers
-
-  # Laptop/Roaming Tweaks
-  netprobe_timeout = 5  # Detect network changes faster (default is 60s)
-  keepalive = 30        # Keep connections open slightly longer
-
-  # Caching (Critical for desktop responsiveness)
+  timeout = 2000
+  lb_strategy = 'p2'
+  netprobe_timeout = 5
+  keepalive = 30
   cache = true
-  cache_size = 4096     # Store more records in RAM
-  cache_min_ttl = 2400  # Force minimum TTL to reduce lookups
+  cache_size = 4096
+  cache_min_ttl = 2400
   cache_max_ttl = 86400
   cache_neg_min_ttl = 60
   EOF
 
-  # Enable Socket Activation (Resource Efficient)
-  # Do not enable the service directly; enable the socket.
-  sudo systemctl enable dnscrypt-proxy.socket
-  sudo systemctl start dnscrypt-proxy.socket
+  # Enable permanently — runs regardless of VPN state (intentional)
+  # When ProtonVPN is active: DNS travels encrypted inside the VPN tunnel
+  # When ProtonVPN is off: DNS is still encrypted directly to Quad9/Mullvad
+  sudo systemctl enable --now dnscrypt-proxy
 
-  # Test DNS resolution:
-  echo "Waiting for DNS to initialize..."
-  sleep 2
-  dog archlinux.org || echo "DNS Test Failed - Check journalctl -u dnscrypt-proxy"
-
-  # Create hook to automate dnscrypt on and off based on VPN on and off
-  sudo tee /etc/NetworkManager/dispatcher.d/90-dnscrypt-vpn > /dev/null << 'EOF'
+  # Create permanent system-wide DNS helper scripts
+  cat << 'EOF' | sudo tee /usr/local/bin/portal-login > /dev/null
   #!/bin/bash
-  set -euo pipefail
-
-  IFACE="$1"
-  STATUS="$2"
-
-  CONNECTION=$(nmcli -t -f GENERAL.CONNECTION device show "$IFACE" 2>/dev/null || true)
-
-  if [[ "$CONNECTION" == *VPN* || "$IFACE" == "tun0" || "$IFACE" == "wg0" ]]; then
-  case "$STATUS" in
-    up)
-      systemctl stop dnscrypt-proxy.socket
-      logger "VPN up ($IFACE): dnscrypt-proxy socket stopped"
-      ;;
-    down)
-      systemctl start dnscrypt-proxy.socket
-      logger "VPN down ($IFACE): dnscrypt-proxy socket started"
-      ;;
-  esac
-  fi
+  gateway=$(ip route | awk '/default/ {print $3; exit}')
+  echo "nameserver ${gateway:-192.168.1.1}" | sudo tee /etc/resolv.conf > /dev/null
+  echo "Captive portal mode: DNS → ${gateway:-192.168.1.1}. Run portal-restore when done."
   EOF
-  # NetworkManager dispatcher scripts run as root.
-  # No sudo is required inside this script.
 
-  # Set permissions
-  chmod +x /etc/NetworkManager/dispatcher.d/90-dnscrypt-vpn
-  systemctl enable dnscrypt-proxy.socket
+  cat << 'EOF' | sudo tee /usr/local/bin/portal-restore > /dev/null
+  #!/bin/bash
+  echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf > /dev/null
+  echo "DNS restored → dnscrypt-proxy (127.0.0.1)"
+  EOF
 
-  # Verify DNS
-  # Using resolvectl status will not retrieve anything because we masked systemd-resolved 
+  cat << 'EOF' | sudo tee /usr/local/bin/dns-status > /dev/null
+  #!/bin/bash
+  echo "=== DNS Status ==="
+  echo -n "Current DNS: "
+  grep nameserver /etc/resolv.conf
+  echo ""
+  systemctl is-active dnscrypt-proxy --quiet \
+    && echo "dnscrypt-proxy: RUNNING" \
+    || echo "dnscrypt-proxy: DOWN"
+  echo ""
+  echo "Listening on port 53:"
+  ss -lnptu | grep :53
+  EOF
+
+  cat << 'EOF' | sudo tee /usr/local/bin/dns-help > /dev/null
+  #!/bin/bash
+  echo "=== DNS System Help ==="
+  echo ""
+  echo "Active stack: dnscrypt-proxy → resolv.conf → 127.0.0.1"
+  echo ""
+  echo "Commands:"
+  echo "  portal-login    Captive portal mode (hotel/airport wifi)"
+  echo "  portal-restore  Restore dnscrypt-proxy after portal login"
+  echo "  dns-status      Show current DNS state"
+  echo "  dns-help        Show this help"
+  echo ""
+  echo "Restart dnscrypt:  sudo systemctl restart dnscrypt-proxy"
+  echo "Check logs:        journalctl -u dnscrypt-proxy -f"
+  EOF
+
+  sudo chmod +x \
+    /usr/local/bin/portal-login \
+    /usr/local/bin/portal-restore \
+    /usr/local/bin/dns-status \
+    /usr/local/bin/dns-help
+
+  # Verify everything
   ss -lnptu | grep :53
   dog archlinux.org
-  dog +trace archlinux.org
   grep nameserver /etc/resolv.conf
+  dns-status
+
+  # NOTE: The dispatcher script (90-dnscrypt-vpn) has been intentionally removed.
+  # dnscrypt-proxy runs permanently. ProtonVPN kill switch and split tunneling
+  # are handled natively via the ProtonVPN GUI — not via UFW or DNS scripts.
+  # See: ProtonVPN GUI → Settings → Connection → Kill Switch / Split Tunneling
   ```
 - Check if there is a VPN or DNS leak:
   ```bash
