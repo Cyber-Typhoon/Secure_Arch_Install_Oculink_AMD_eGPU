@@ -2134,7 +2134,8 @@
   # Intel iGPU Power Saving
   # NOTE: enable_psr (Panel Self Refresh) is omitted to prevent screen flickering on OLED/High-Refresh displays.
   # The Arch Wiki on Intel graphics suggests enabling power-saving features for Intel iGPUs to reduce battery consumption:
-  echo 'options xe force_probe=7d51' >> /etc/modprobe.d/xe.conf
+  echo 'options xe force_probe=7d51' | sudo tee -a /etc/modprobe.d/xe.conf
+  sudo mkinitcpio -P
   ```
 - Default deny incoming network via firewall (ufw):
   ```bash
