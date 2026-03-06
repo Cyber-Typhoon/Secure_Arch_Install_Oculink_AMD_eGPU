@@ -5660,6 +5660,109 @@
   ```
 ## Step 19: User Customizations ** To be refined post production! WIP - For now ignore this part.
 
+- Wallpaper Rotation — GNOME (Arch Linux)
+```bash
+  # Uses GNOME's native XML slideshow: no extensions, no daemons, smooth cross-fades.
+
+  ---
+  
+  # Create the slideshow XML
+  mkdir -p ~/.local/share/backgrounds
+  nano ~/.local/share/backgrounds/wallpaper-slideshow.xml
+  
+  <background>
+    <starttime>
+      <year>2024</year><month>01</month><day>01</day>
+      <hour>00</hour><minute>00</minute><second>00</second>
+    </starttime>
+
+    <static><duration>300.0</duration><file>/home/USER/Pictures/Wallpapers/wall1.jpg</file></static>
+    <transition><duration>5.0</duration>
+      <from>/home/USER/Pictures/Wallpapers/wall1.jpg</from>
+      <to>/home/USER/Pictures/Wallpapers/wall2.jpg</to>
+    </transition>
+
+    <static><duration>300.0</duration><file>/home/USER/Pictures/Wallpapers/wall2.jpg</file></static>
+    <transition><duration>5.0</duration>
+      <from>/home/USER/Pictures/Wallpapers/wall2.jpg</from>
+      <to>/home/USER/Pictures/Wallpapers/wall1.jpg</to>
+    </transition>
+  </background>
+  
+
+  > Use **absolute paths** — GNOME does not expand `~` or `$HOME` in XML.  
+  > The final `<transition>` back to the first image is required — without it the slideshow stops.  
+  > `<starttime>` is a timeline anchor, not a start trigger. Any past date works.
+
+  ---
+
+  # Apply it
+
+  gsettings set org.gnome.desktop.background picture-uri \
+    "file:///home/USER/.local/share/backgrounds/wallpaper-slideshow.xml"
+
+  # Dark mode
+  gsettings set org.gnome.desktop.background picture-uri-dark \
+    "file:///home/USER/.local/share/backgrounds/wallpaper-slideshow.xml"
+
+  Verify:
+
+  gsettings get org.gnome.desktop.background picture-uri
+
+  # Optional: Register in GNOME Settings UI
+
+  mkdir -p ~/.local/share/gnome-background-properties
+  nano ~/.local/share/gnome-background-properties/slideshow.xml
+  
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
+  <wallpapers>
+    <wallpaper>
+      <name>My Rotating Wallpapers</name>
+      <filename>/home/USER/.local/share/backgrounds/wallpaper-slideshow.xml</filename>
+      <options>zoom</options>
+    </wallpaper>
+  </wallpapers>
+
+  # Auto-generate XML from a folder (recommended for many wallpapers)
+
+  Save as `~/bin/generate-slideshow.sh`:
+
+  #!/bin/bash
+
+  WALLPAPER_DIR="/home/USER/Pictures/Wallpapers"
+  XML_PATH="$HOME/.local/share/backgrounds/wallpaper-slideshow.xml"
+  DURATION=300.0
+  TRANSITION=5.0
+
+  IMAGES=($(find "$WALLPAPER_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) | sort))
+  # For random order, replace `sort` with `shuf`
+
+  [ ${#IMAGES[@]} -lt 2 ] && echo "Need at least 2 images" && exit 1
+
+  cat <<EOF > "$XML_PATH"
+  <background>
+    <starttime>
+      <year>2024</year><month>01</month><day>01</day>
+      <hour>00</hour><minute>00</minute><second>00</second>
+    </starttime>
+  EOF
+
+  for i in "${!IMAGES[@]}"; do
+    NEXT=$(( (i + 1) % ${#IMAGES[@]} ))
+    echo "  <static><duration>$DURATION</duration><file>${IMAGES[i]}</file></static>" >> "$XML_PATH"
+    echo "  <transition><duration>$TRANSITION</duration><from>${IMAGES[i]}</from><to>${IMAGES[NEXT]}</to></transition>" >> "$XML_PATH"
+  done
+
+  echo "</background>" >> "$XML_PATH"
+
+  gsettings set org.gnome.desktop.background picture-uri "file://$XML_PATH"
+
+  ---
+  # Provide Access
+  chmod +x ~/bin/generate-slideshow.sh
+  ~/bin/generate-slideshow.sh   # re-run whenever wallpapers change
+```
 - Create script report for Astal/AGS
   ```bash
   # Create a system verification script
