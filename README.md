@@ -1848,14 +1848,16 @@
   # Wait for extension updates if GNOME Shell crashes after 'pacman -Syu' to GNOME 50.
   
   echo "Install GSConnect from https://extensions.gnome.org/extension/1319/gsconnect/ using Extension Manager"  
-  echo "Install Copyous from https://extensions.gnome.org/extension/8834/copyous/ using Extension Manager"
   echo "Install Just Perfection from https://extensions.gnome.org/extension/3843/just-perfection/ using Extension Manager
   echo "Install User Themes from https://extensions.gnome.org/extension/19/user-themes/ using Extension Manager"
   echo "Install Caffeine from https://extensions.gnome.org/extension/517/caffeine/ using Extension Manager"
   echo "Install AppIndicator and KStatusNotifier from https://extensions.gnome.org/extension/615/appindicator-support/ using Extension Manager"
   echo "Install ArcMenu from ¨https://extensions.gnome.org/extension/3628/arcmenu/¨ using Extension Manager"
   echo "Install Dash to Dock from ¨https://extensions.gnome.org/extension/307/dash-to-dock/¨ using Extension Manager"
-  echo "Install Open Bas from ¨https://extensions.gnome.org/extension/6580/open-bar/¨ using Extension Manager"
+  echo "Install Open Bar from ¨https://extensions.gnome.org/extension/6580/open-bar/¨ using Extension Manager"
+  echo "Install Privacy Quick Settings from ¨https://github.com/stuarthayhurst/privacy-menu-extension¨ using Extension Manager"
+  echo "Install Clipboard Indicator from ¨https://extensions.gnome.org/extension/779/clipboard-indicator/¨ using Extension Manager"
+  echo "Install Removable Drive Menu from ¨https://extensions.gnome.org/extension/7/removable-drive-menu/¨ using Extension Manager"
   echo "After installing via Extension Manager, enable it and Log Out and Log back in"
   ```
 - Enroll fingerprint if device has a reader
