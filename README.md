@@ -2181,50 +2181,54 @@
   ```
 - Configure Wayland environment variables:
   ```bash
+  # System-wide environment
   sudo tee /etc/environment > /dev/null <<'EOF'
-  # WAYLAND (FORCE HIGH-PERFORMANCE)
   MOZ_ENABLE_WAYLAND=1
-  # GDK_BACKEND=wayland <-- Commented out to prevent Electron app crashes; use per-app if needed.
-  CLUTTER_BACKEND=wayland
-  QT_QPA_PLATFORM=wayland
-  SDL_VIDEODRIVER=wayland
+  QT_QPA_PLATFORM="wayland;xcb"
   ELECTRON_OZONE_PLATFORM_HINT=auto
-  XDG_SESSION_TYPE=wayland
+  EOF
   # For Proton: PROTON_USE_WINED3D=1 env if DX12 issues.
 
   # PATH HARDENING (SYSTEM-WIDE ONLY)
   # # Avoid global PATH overrides to prevent breaking admin tools.
   # User paths ($HOME/.local/bin) added in ~/.zshrc
-  EOF
   #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
   # LIBVA_DRIVER_NAME=radeonsi
   # LIBVA_DRIVER_NAME=iHD
 
-  cat >> ~/.zshrc <<'EOF'
-  # XDG BASE DIRECTORIES (FHS COMPLIANT)
-  export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
-  export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-  export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
-
-  # USER PATH: ~/.local/bin (paru, scripts)
-  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
-
-  # WAYLAND GUARD (REINFORCE)
-  export XDG_SESSION_TYPE=wayland
-  EOF
-
-  # Add to ~/.profile (sourced by login shells & display managers)
+  # Login shell profile
   cat >> ~/.profile <<'EOF'
-  # XDG Base Dirs
+
+  # XDG Base Directories (FHS Compliant)
   export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
   export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
   export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
   export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 
-  # PATH
-  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && PATH="$HOME/.local/bin:$PATH"
+  # USER PATH: Appended for security (prevents PATH hijacking)
+  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$PATH:$HOME/.local/bin"
+
+  # Default editor (optional but recommended)
+  export EDITOR=fresh
+
   EOF
+
+  # Zsh login router
+  cat > ~/.zprofile <<'EOF'
+  # Source common profile for login shells
+  [[ -f ~/.profile ]] && source ~/.profile
+  EOF
+
+  # Interactive shell (minimal)
+  cat >> ~/.zshrc <<'EOF'
+
+  # Note: XDG variables and PATH are handled by ~/.profile on login.
+  # We append PATH here as a fallback for non-login interactive shells.
+  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$PATH:$HOME/.local/bin"
+
+  EOF
+
+  echo "Step 11 complete. Log out and log back in to apply changes."
   ```
 - Edit MAC randomization:
   ```bash
