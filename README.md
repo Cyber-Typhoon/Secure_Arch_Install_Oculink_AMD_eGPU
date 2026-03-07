@@ -190,10 +190,10 @@
 
   **VERIFY BEFORE PROCEEDING**:
    - If Windows is on `/dev/nvme0n1` and empty drive is `/dev/nvme1n1`:
-     ✅ **Follow Step 4 exactly as written**
+     **Follow Step 4 exactly as written**
    
    - If Windows is on `/dev/nvme1n1` and empty drive is `/dev/nvme0n1`:
-     ⚠️ **SWAP all device names in Step 4**:
+     **SWAP all device names in Step 4**:
      - Replace `/dev/nvme1n1` → `/dev/nvme0n1` (for Arch)
      - Avoid touching `/dev/nvme0n1` → `/dev/nvme1n1` (Windows)
 
@@ -475,7 +475,7 @@
   ```bash
   pacstrap /mnt \
   # Core
-  base base-devel linux linux-lts linux-firmware mkinitcpio archlinux-keyring \
+  base base-devel linux linux-lts linux-firmware mkinitcpio archlinux-keyring pacman-contrib \
   \
   # Boot / Encryption
   intel-ucode sbctl cryptsetup tpm2-tools tpm2-tss tpm2-abrmd btrfs-progs efibootmgr dosfstools \
