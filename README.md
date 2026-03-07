@@ -2255,7 +2255,7 @@
   ```
 - Configure GNOME privacy:
   ```bash
-  gsettings set org.gnome.desktop.privacy send-software-usage-info false
+  gsettings set org.gnome.desktop.privacy remember-recent-files false
   gsettings set org.gnome.desktop.privacy report-technical-problems false
   ```
 - Configure IP spoofing protection:
