@@ -5106,93 +5106,225 @@
     ```bash
     # Create File /usr/local/bin/update-system
     #!/bin/bash
-
     # =============================================
     # Arch Updates
     # =============================================
 
     set -u          # Treat unset variables as errors
-    set -o pipefail # Catch errors in pipelines
+    set -o pipefail # Catch pipeline errors
 
-    # --- Colors (terminal only) ---
+    # --- Colors ---
     GREEN='\033[0;32m'
     RED='\033[0;31m'
     YELLOW='\033[1;33m'
     CYAN='\033[0;36m'
     NC='\033[0m'
 
-    # --- Logging: colors on screen, plain text in log ---
-    # tee /dev/tty mirrors output to the terminal; sed strips ANSI before writing to file.
+    # --- Logging ---
     LOGFILE="$HOME/update-log-$(date +%Y%m%d-%H%M).txt"
     exec > >(tee /dev/tty | sed 's/\x1b\[[0-9;]*m//g' >> "$LOGFILE") 2>&1
 
-    echo -e "${CYAN}=== Arch Fortress Maintenance: $(date) ===${NC}"
+    echo -e "${CYAN}=== Arch Maintenance: $(date) ===${NC}"
+    echo -e "${CYAN}Log: $LOGFILE${NC}\n"
 
-    # --- 1. System + AUR Update (interactive — you are the pilot) ---
-    echo -e "\n${YELLOW}--- 1. Updating System & AUR (Paru) ---${NC}"
-    if paru -Syu; then
-      echo -e "${GREEN}✔ System and AUR updated.${NC}"
-    else
-      echo -e "${RED}⚠ Paru update interrupted or failed.${NC}"
-      # Use ${REPLY:-N} to handle Ctrl+C during prompt safely under set -u
-      read -p "Continue with remaining maintenance? (y/N) " -n 1 -r
+    # --- Dependency Check ---
+    if ! command -v paru &> /dev/null; then
+      echo -e "${RED}Error: paru not installed.${NC}"
+      exit 1
+    fi
+
+    # =============================================
+    # 1. SYSTEM UPDATE
+    # =============================================
+    echo -e "${YELLOW}--- 1. Updating System & AUR ---${NC}"
+
+    if ! paru -Syu; then
+      echo -e "${RED}⚠ System update failed or was interrupted.${NC}"
+      read -p "Continue with remaining maintenance? (y/N) " -n 1 -r || true
       echo
-      if [[ ! ${REPLY:-N} =~ ^[Yy]$ ]]; then
+      if [[ ! "${REPLY:-N}" =~ ^[Yy]$ ]]; then
           echo -e "${RED}Maintenance aborted.${NC}"
           exit 1
       fi
-    fi
+    else
+      echo -e "${GREEN}✔ System and AUR updated.${NC}"
+      fi
 
-    # --- 2. Flatpak Update + Cleanup ---
+    # =============================================
+    # 2. FLATPAK UPDATE
+    # =============================================
     echo -e "\n${YELLOW}--- 2. Updating Flatpaks ---${NC}"
-    if flatpak update -y; then
-      echo -e "${GREEN}✔ Flatpaks updated.${NC}"
+
+    if command -v flatpak &> /dev/null; then
+      if flatpak update -y; then
+          echo -e "${GREEN}✔ Flatpaks updated.${NC}"
+      else
+          echo -e "${RED}⚠ Flatpak update failed.${NC}"
+      fi
+    
+      if flatpak uninstall --unused -y; then
+          echo -e "${GREEN}✔ Unused runtimes removed.${NC}"
+      else
+          echo -e "${RED}⚠ Flatpak cleanup failed.${NC}"
+      fi
     else
-      echo -e "${RED}⚠ Flatpak update failed.${NC}"
+      echo -e "${YELLOW}⊘ Flatpak not installed. Skipping.${NC}"
     fi
 
-    if flatpak uninstall --unused -y; then
-      echo -e "${GREEN}✔ Unused Flatpak runtimes removed.${NC}"
-    else
-      echo -e "${RED}⚠ Flatpak runtime cleanup failed.${NC}"
-    fi
+    # =============================================
+    # 3. ORPHAN CLEANUP
+    # =============================================
+    echo -e "\n${YELLOW}--- 3. Orphan Package Removal ---${NC}"
 
-    # --- 3. Orphan Cleanup (AUR-aware via paru, interactive) ---
-    echo -e "\n${YELLOW}--- 3. Removing Orphaned Packages ---${NC}"
-    orphans=$(pacman -Qdtq)
+    orphans=$(pacman -Qdtq 2>/dev/null || true)
+
     if [[ -n "$orphans" ]]; then
-    # xargs passes package names as arguments; no stdin flag (-) needed
-    echo "$orphans" | xargs paru -Rns
-    echo -e "${GREEN}✔ Orphans removed.${NC}"
+      echo -e "${CYAN}Found orphaned packages:${NC}"
+      if command -v column &> /dev/null; then
+          echo "$orphans" | column
+      else
+          echo "$orphans"
+      fi
+    
+      echo -e "${YELLOW}⚠ Note: GPU drivers (mesa, xf86-video-*) may appear as orphans but are needed.${NC}"
+    
+      read -p "Remove these? (y/N) " -n 1 -r || true
+      echo
+      if [[ "${REPLY:-N}" =~ ^[Yy]$ ]]; then
+          echo "$orphans" | xargs -r paru -Rns
+          echo -e "${GREEN}✔ Orphans removed.${NC}"
+      else
+          echo -e "${YELLOW}⊘ Orphan removal skipped.${NC}"
+      fi
     else
-    echo -e "${GREEN}✔ No orphans to clean.${NC}"
+      echo -e "${GREEN}✔ No orphan packages.${NC}"
     fi
 
-    # --- 4. Housekeeping & Diagnostics ---
-    echo -e "\n${YELLOW}--- 4. Housekeeping & Diagnostics ---${NC}"
+    # =============================================
+    # 4. POST-UPDATE CLEANUP
+    # =============================================
+    echo -e "\n${YELLOW}--- 4. Post-Update Cleanup ---${NC}"
 
-    # .pacnew check — parentheses required for correct -o precedence in find
-    pacnew_list=$(find /etc \( -name "*.pacnew" -o -name "*.pacsave" \) 2>/dev/null)
+    # Clean old maintenance logs
+    find "$HOME" -maxdepth 1 -type f -name "update-log-*.txt" -mtime +30 -delete
+    echo -e "${GREEN}✔ Old logs cleaned (>30 days).${NC}"
+
+    # Clean systemd journal
+    if sudo journalctl --vacuum-time=30d > /dev/null 2>&1; then
+      echo -e "${GREEN}✔ Journal vacuumed to 30 days.${NC}"
+    else
+      echo -e "${RED}⚠ Journal cleanup failed.${NC}"
+    fi
+
+    # Clean package cache (verbose output)
+    if command -v paccache &> /dev/null; then
+    echo -e "${CYAN}Cleaning package cache (keeping last 3 versions)...${NC}"
+    
+    # Verbose mode shows what's being removed
+    sudo paccache -rv
+    sudo paccache -ruvk0
+    
+      echo -e "${GREEN}✔ Package cache cleaned.${NC}"
+    else
+      echo -e "${YELLOW}⊘ Install pacman-contrib: sudo pacman -S pacman-contrib${NC}"
+    fi
+
+    # =============================================
+    # 5. DIAGNOSTICS
+    # =============================================
+    echo -e "\n${YELLOW}--- 5. System Diagnostics ---${NC}"
+
+    # .pacnew check
+    pacnew_list=$(find /etc \( -name "*.pacnew" -o -name "*.pacsave" \) 2>/dev/null || true)
     if [[ -n "$pacnew_list" ]]; then
-      echo -e "${RED}⚠ .pacnew / .pacsave files found. Review with: sudo pacdiff${NC}"
+      echo -e "${RED}⚠ Config files require review:${NC}"
       echo "$pacnew_list"
+      echo -e "${CYAN}Run: sudo pacdiff${NC}"
     else
       echo -e "${GREEN}✔ No .pacnew files.${NC}"
     fi
 
-    # Kernel reboot check — generic, works with linux, linux-lts, linux-zen, etc.
+    # Kernel check
     current_kernel=$(uname -r)
-    latest_kernel=$(ls /usr/lib/modules/ 2>/dev/null | sort -V | tail -1)
-    if [[ "$current_kernel" != "$latest_kernel" ]]; then
+    latest_kernel=$(basename -a /usr/lib/modules/* 2>/dev/null | sort -V | tail -1)
+
+    if [[ -n "$latest_kernel" && "$current_kernel" != "$latest_kernel" ]]; then
       echo -e "${RED}⚠ REBOOT REQUIRED: Running $current_kernel → Installed $latest_kernel${NC}"
     else
       echo -e "${GREEN}✔ Kernel is current.${NC}"
     fi
 
-    # Font cache rebuild (for your 99-hide-variants.conf)
+    # Failed systemd services check
+    failed_services=$(systemctl --failed --no-legend --no-pager 2>/dev/null)
+    if [[ -n "$failed_services" ]]; then
+      echo -e "${RED}⚠ Failed systemd services detected:${NC}"
+      echo "$failed_services"
+      echo -e "${CYAN}Review with: systemctl --failed${NC}"
+    else
+      echo -e "${GREEN}✔ No failed services.${NC}"
+    fi
+
+    # Disk usage
+    echo -e "\n${CYAN}Disk Usage:${NC}"
+    df -h --output=size,used,pcent,target / 2>/dev/null | awk 'NR==2 {print "  Root: " $2 "/" $1 " (" $3 " used)"}'
+
+    # Disk usage warning
+    disk_use=$(df / --output=pcent | tail -1 | tr -dc '0-9')
+    if (( disk_use > 85 )); then
+      echo -e "${RED}  ⚠ Warning: Root filesystem is ${disk_use}% full!${NC}"
+    fi
+
+    # Cache size
+    cache_size=$(du -sh /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}' || echo "unknown")
+    echo -e "  Pacman Cache: ${cache_size}"
+
+    # Largest packages (FIXED - using tab delimiter)
+    if command -v expac &> /dev/null; then
+      echo -e "\n${CYAN}Top 5 Largest Packages:${NC}"
+      expac -H M '%m\t%n' | sort -hr | head -5 | awk -F'\t' '{printf "  %-15s  %s\n", $1, $2}'
+    fi
+
+    # Font cache rebuild
     fc-cache -fv > /dev/null && echo -e "${GREEN}✔ Font cache rebuilt.${NC}"
 
-    echo -e "\n${CYAN}=== Maintenance Complete! Log: $LOGFILE ===${NC}"
+    # =============================================
+    # 6. PACKAGE HYGIENE
+    # =============================================
+    echo -e "\n${YELLOW}--- 6. Package Hygiene Check ---${NC}"
+
+    # Foreign packages count
+    foreign_count=$(pacman -Qm 2>/dev/null | wc -l)
+    if [[ $foreign_count -gt 0 ]]; then
+      echo -e "${CYAN}Foreign/AUR packages installed: ${foreign_count}${NC}"
+    
+    # Check for missing AUR packages
+      echo -e "${CYAN}Checking AUR package availability...${NC}"
+      missing_count=0
+    
+      while read -r pkg _; do
+          if ! paru -Si "$pkg" &>/dev/null; then
+              echo -e "${RED}  ⚠ $pkg ${NC}(no longer in AUR)"
+              ((missing_count++))
+          fi
+      done < <(pacman -Qm 2>/dev/null)
+    
+      if [[ $missing_count -eq 0 ]]; then
+          echo -e "${GREEN}✔ All AUR packages still available.${NC}"
+      else
+          echo -e "${YELLOW}Found $missing_count missing AUR package(s).${NC}"
+          echo -e "${CYAN}Remove with: sudo pacman -Rns <package_name>${NC}"
+      fi
+    else
+      echo -e "${GREEN}✔ No foreign packages installed.${NC}"
+    fi
+
+    # =============================================
+    # SUMMARY
+    # =============================================
+    echo -e "\n${CYAN}════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}    ✅ Maintenance Complete                  ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}Log saved: $LOGFILE${NC}"
 
     # Save and Valiate
     # Run the alias created in the Step 6 "update"
