@@ -2277,17 +2277,14 @@
   ```
 - Configure auditd:
   ```bash
-  cat << 'EOF' > /etc/audit/rules.d/99-security.rules
-  ## Delete all existing rules first (good practice in the last file)
+  sudo tee /etc/audit/rules.d/99-security.rules > /dev/null <<'EOF'
+  ## Delete all existing rules
   -D
-  ## Buffer & failure mode
-  -b 8192
+
+  ## Buffer & failure handling (16k for high‑thread CPU)
+  -b 16384
   -f 1
   --failure silent
-
-  ## Make rules immutable (-e 2)
-  # Uncomment after tuning
-  # -e 2
 
   ## Identity & authentication files
   -w /etc/passwd      -p wa -k identity
@@ -2304,56 +2301,52 @@
   -w /etc/fstab          -p wa -k storage
   -w /etc/crypttab       -p wa -k crypto
 
-  ## Kernel & boot
+  ## Kernel, boot & modules
   -w /boot/              -p wa -k boot
-  -w /usr/lib/modules/   -p wa -k modules   # kernel module changes
+  -w /usr/lib/modules/   -p wa -k modules
 
   ## Security frameworks
   -w /etc/apparmor/      -p wa -k apparmor
   -w /etc/apparmor.d/    -p wa -k apparmor
   -w /etc/usbguard/rules.conf -p wa -k usbguard
 
-  ## Privilege escalation & interesting failures
-  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/sudo -k sudo_usage
-  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/run0 -k sudo_usage
-  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/pkexec -k pkexec_usage
+  ## Privilege‑escalation (64‑ and 32‑bit)
+  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/sudo        -k priv_esc
+  -a always,exit -F arch=b32 -S execve -F path=/usr/bin/sudo        -k priv_esc
+  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/systemd-run -k priv_esc
+  -a always,exit -F arch=b32 -S execve -F path=/usr/bin/systemd-run -k priv_esc
+  -a always,exit -F arch=b64 -S execve -F path=/usr/bin/pkexec      -k priv_esc
+  -a always,exit -F arch=b32 -S execve -F path=/usr/bin/pkexec      -k priv_esc
 
-  ## Time changes (very useful for forensics)
+  ## Filesystem mounts (eGPU / USB monitoring)
+  -a always,exit -F arch=b64 -S mount -S umount2 -k mounts
+  -a always,exit -F arch=b32 -S mount -S umount2 -k mounts
+
+  ## Time changes (for forensic timeline)
   -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time_change
+  -a always,exit -F arch=b32 -S adjtimex,settimeofday,clock_settime -k time_change
   -w /etc/localtime -p wa -k time_change
+
+  ## Immutable flag (enable only after you’ve verified the rule set)
+  # -e 2
   EOF
 
-  # Commands that should be executed once
-  # Load the new rules
-  sudo augenrules --load          # or: sudo auditctl -R /etc/audit/rules.d/*
+  # Load the rules
+  sudo augenrules --load
 
-  # Verify immutable flag shows "immutable"
-  sudo auditctl -s | grep enabled.*2
+  # Verify they are active and syntactically correct
+  sudo auditctl -l | grep -i error && echo "ERROR" || echo "Audit rules loaded"
 
-  # Check for syntax errors
-  sudo auditctl -l | grep -i error && echo "ERROR" || echo "Rules OK"
-
-  # Remove old logs
-  cat << 'EOF' | sudo tee /etc/logrotate.d/audit
-  /var/log/audit/audit.log {
-    weekly
-    rotate 4
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 0600 root root
-    postrotate
-        /usr/bin/systemctl kill -s HUP auditd.service >/dev/null 2>&1 || true
-    endscript
-  }
-  EOF
-
-  # Validate the logs remotions
-  sudo augenrules --check
-
-  # Make it survive reboot
+  # Ensure the daemon starts on boot (if not already)
   sudo systemctl enable --now auditd
+
+  # After the reload, test a couple of events:
+  # sudo usage
+  sudo true
+  sudo ausearch -k priv_esc | tail -n 5
+
+  # mount monitoring (plug a USB stick or disconnect the eGPU)
+  sudo ausearch -k mounts | tail -n 5
   ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
