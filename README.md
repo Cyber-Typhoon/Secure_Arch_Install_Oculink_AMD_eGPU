@@ -5899,23 +5899,44 @@
   ```bash
   gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
   ```
-- Explore use eww and/or ironbar and/or way-edges
-- Backup Monitor Widget
+- Use eww 
   ```bash
-  
-  ```
-- Namspace Audit Widget
-  ```bash
-  
-  ```
-- AIDE Widget
-  ```bash
-  
-  ```
-- Log Widget
-  ```bash
-  
-  ```
-- DNS Status Widget
+  - **TPM2 + Secure Boot** — `sbctl status`
+  - **AIDE integrity** — reads cached result from systemd timer
+  - **DNS / dnscrypt-proxy** — your existing `dns-status` script, not generic `systemd-resolved`
+  - **Journalctl errors** — priority 3 and above since boot
+  - **Backup monitor** — rustic last run + exit code
+  - **Snapper snapshot status** — age of last `@` and `@home` snapshots
+  - **AppArmor enforcement** — enforce vs complain count, flag any complain slippage
+  - **Namespace audit** — `lsns` anomaly detection
+  - **ProtonVPN / `proton0` interface status** — you have a named interface. A simple `ip link show proton0` tells you immediately if the tunnel is up or silently dropped. Critical given your UFW rules assume the VPN is active.
+  - **UFW firewall status** — `ufw status` should show "active" with rule count. A kernel update or misconfigured service can disable it silently.
+  - **Failed systemd units** — `systemctl --failed` is one of the most operationally useful checks. One line, instant signal that something broke since last boot.
+  - **Pending security updates** — `checkupdates` (from `pacman-contrib`) filtered for packages with known CVEs or security advisories. Pairs well with your `update-system` script.
+  - **Recent auth failures** — `journalctl _SYSTEMD_UNIT=sshd.service` or `faillock --user $USER` for local auth. Relevant on a machine that might have SSH exposed occasionally or for detecting local brute-force attempts.
+  - **auditd / AVC denial count** — separate from AppArmor, `ausearch -m AVC -ts today | wc -l` gives you a daily denial counter. A spike is meaningful.
+  - **eGPU presence** — `lspci | grep -i amd` confirms the OCuLink device is recognized. Worth knowing at a glance before launching anything GPU-dependent.
 
-- TPM2 and Secureboot Status Widget
+  # `notify-send` for **critical threshold alerts** from your systemd timer scripts. The dashboard is pull (you open it with `Super+S`), but some events — AIDE detecting a change, AppArmor dropping to complain, VPN going down — need to be push. Your timer scripts should call `notify-send -u critical` when a check crosses a bad threshold, so GNOME's native notification system surfaces it immediately without you having to open the dashboard.
+
+  | Widget | Source command | Refresh |
+  |---|---|---|
+  | TPM2 + Secure Boot | `sbctl status` | 10 min |
+  | LUKS / BTRFS health | `cryptsetup status`, `btrfs device stats` | 10 min |
+  | AIDE integrity | cached file from timer | 1 hr (timer) |
+  | AppArmor enforcement | `aa-status --summary` | 5 min |
+  | auditd AVC denials | `ausearch -m AVC -ts today` | 5 min |
+  | Snapper snapshots | `snapper list` → last entry age | 5 min |
+  | Backup monitor | rustic log / exit code | 5 min |
+  | ProtonVPN (`proton0`) | `ip link show proton0` | 30 sec |
+  | UFW firewall | `ufw status` | 2 min |
+  | DNS (dnscrypt-proxy) | your `dns-status` script | 30 sec |
+  | Failed systemd units | `systemctl --failed` | 1 min |
+  | Journalctl errors | `journalctl -p 3 -b -n 20` | 1 min |
+  | Auth failures | `faillock --user $USER` | 5 min |
+  | Pending updates | `checkupdates` | 1 hr |
+  | eGPU presence | `lspci \| grep -i amd` | 10 min |
+  | Namespace audit | `lsns -t user` | 5 min |
+
+  That's 16 checks, all local, all scriptable in a few lines each, all feeding into one dashboard panel with `notify-send` push alerts for the critical ones.
+  ```  
