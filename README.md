@@ -2352,25 +2352,34 @@
   ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
-  # resolv.conf — point to localhost, no immutable lock
-  sudo rm -f /etc/resolv.conf
-  echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
+  #!/usr/bin/env bash
+  set -euo pipefail
 
-  # Tell NetworkManager not to touch DNS
-  sudo mkdir -p /etc/NetworkManager/conf.d/
-  echo -e "[main]\ndns=none\nsystemd-resolved=false" | sudo tee \
-    /etc/NetworkManager/conf.d/90-custom-dns.conf
+  echo "=== Installing prerequisites ==="
+  sudo pacman -S --needed dnscrypt-proxy dnsutils
+
+  echo "=== Freeing Port 53 ==="
+  # Stop systemd-resolved so dnscrypt-proxy can bind to port 53 safely
+  sudo systemctl disable --now systemd-resolved || true
+
+  echo "=== Disabling NetworkManager DNS Control ==="
+  sudo mkdir -p /etc/NetworkManager/conf.d
+  printf "[main]\ndns=none\nsystemd-resolved=false\n" | sudo tee /etc/NetworkManager/conf.d/90-custom-dns.conf > /dev/null
   sudo systemctl restart NetworkManager
 
-  # Minimal trusted provider config (fewer = cleaner leak tests)
-  cat << 'EOF' | sudo tee /etc/dnscrypt-proxy/dnscrypt-proxy.toml > /dev/null
+  echo "=== Setting static resolv.conf ==="
+  sudo rm -f /etc/resolv.conf
+  printf "nameserver 127.0.0.1\n" | sudo tee /etc/resolv.conf > /dev/null
+
+  echo "=== Configuring dnscrypt-proxy ==="
+  sudo tee /etc/dnscrypt-proxy/dnscrypt-proxy.toml > /dev/null << 'EOF'
   server_names = ['quad9-dnscrypt-ip4-filter-pri', 'mullvad-adblock']
   listen_addresses = ['127.0.0.1:53', '[::1]:53']
   max_clients = 250
   ipv4_servers = true
-  ipv6_servers = true
+  ipv6_servers = false
   dnscrypt_servers = true
-  doh_servers = true
+  doh_servers = false
   require_dnssec = true
   require_nolog = true
   require_nofilter = false
@@ -2386,43 +2395,42 @@
   cache_neg_min_ttl = 60
   EOF
 
-  # Enable permanently — runs regardless of VPN state (intentional)
-  # When ProtonVPN is active: DNS travels encrypted inside the VPN tunnel
-  # When ProtonVPN is off: DNS is still encrypted directly to Quad9/Mullvad
+  echo "=== Enabling Service ==="
   sudo systemctl enable --now dnscrypt-proxy
 
-  # Create permanent system-wide DNS helper scripts
-  cat << 'EOF' | sudo tee /usr/local/bin/portal-login > /dev/null
-  #!/bin/bash
+  echo "=== Creating Helper Scripts ==="
+  sudo tee /usr/local/bin/portal-login > /dev/null << 'EOF'
+  #!/usr/bin/env bash
   gateway=$(ip route | awk '/default/ {print $3; exit}')
-  echo "nameserver ${gateway:-192.168.1.1}" | sudo tee /etc/resolv.conf > /dev/null
+  printf "nameserver %s\n" "${gateway:-192.168.1.1}" | sudo tee /etc/resolv.conf > /dev/null
   echo "Captive portal mode: DNS → ${gateway:-192.168.1.1}. Run portal-restore when done."
   EOF
 
-  cat << 'EOF' | sudo tee /usr/local/bin/portal-restore > /dev/null
-  #!/bin/bash
-  echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf > /dev/null
+  sudo tee /usr/local/bin/portal-restore > /dev/null << 'EOF'
+  #!/usr/bin/env bash
+  printf "nameserver 127.0.0.1\n" | sudo tee /etc/resolv.conf > /dev/null
   echo "DNS restored → dnscrypt-proxy (127.0.0.1)"
   EOF
 
-  cat << 'EOF' | sudo tee /usr/local/bin/dns-status > /dev/null
-  #!/bin/bash
+  sudo tee /usr/local/bin/dns-status > /dev/null << 'EOF'
+  #!/usr/bin/env bash
   echo "=== DNS Status ==="
   echo -n "Current DNS: "
-  grep nameserver /etc/resolv.conf
+  grep ^nameserver /etc/resolv.conf
   echo ""
-  systemctl is-active dnscrypt-proxy --quiet \
-    && echo "dnscrypt-proxy: RUNNING" \
-    || echo "dnscrypt-proxy: DOWN"
+  if systemctl is-active dnscrypt-proxy --quiet; then
+      echo "dnscrypt-proxy: RUNNING"
+  else
+      echo "dnscrypt-proxy: DOWN"
+  fi
   echo ""
-  echo "Listening on port 53:"
-  ss -lnptu | grep :53
+  echo "Listening sockets (port 53):"
+  ss -lnptu | grep ':53' || echo "Nothing listening on port 53"
   EOF
 
-  cat << 'EOF' | sudo tee /usr/local/bin/dns-help > /dev/null
-  #!/bin/bash
+  sudo tee /usr/local/bin/dns-help > /dev/null << 'EOF'
+  #!/usr/bin/env bash
   echo "=== DNS System Help ==="
-  echo ""
   echo "Active stack: dnscrypt-proxy → resolv.conf → 127.0.0.1"
   echo ""
   echo "Commands:"
@@ -2435,31 +2443,19 @@
   echo "Check logs:        journalctl -u dnscrypt-proxy -f"
   EOF
 
-  sudo chmod +x \
-    /usr/local/bin/portal-login \
-    /usr/local/bin/portal-restore \
-    /usr/local/bin/dns-status \
-    /usr/local/bin/dns-help
+  sudo chmod +x /usr/local/bin/portal-login /usr/local/bin/portal-restore /usr/local/bin/dns-status /usr/local/bin/dns-help
 
-  # Verify everything
-  ss -lnptu | grep :53
-  dog archlinux.org
-  grep nameserver /etc/resolv.conf
-  dns-status
-
-  # NOTE: The dispatcher script (90-dnscrypt-vpn) has been intentionally removed.
-  # dnscrypt-proxy runs permanently. ProtonVPN kill switch and split tunneling
+  echo "=== DNS Configuration Complete ==="
+  # Note: dnscrypt-proxy runs permanently. ProtonVPN kill switch and split tunneling
   # are handled natively via the ProtonVPN GUI — not via UFW or DNS scripts.
   # See: ProtonVPN GUI → Settings → Connection → Kill Switch / Split Tunneling
   ```
 - Check if there is a VPN or DNS leak:
   ```bash
   # Verify (check IP and no leaks)
-  # Proton VPN ON
-  curl ifconfig.me  # Should show Proton IP
-
-  # Proton VPN OFF
-  curl ifconfig.me  # Should show DNSCrypt IP
+  dns-status # Should show running
+  \dig archlinux.org #should see this in the last rows SERVER: 127.0.0.1#53(127.0.0.1)
+  # Run https://www.dnsleaktest.com/ should show Quad9 or Mullvad DNS
   ```
 - Configure USBGuard:
   ```bash
