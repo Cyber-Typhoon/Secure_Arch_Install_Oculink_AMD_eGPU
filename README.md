@@ -2331,6 +2331,9 @@
   # -e 2
   EOF
 
+  # Start the auditd service:
+  sudo systemctl enable --now auditd 
+
   # Load the rules
   sudo augenrules --load
 
