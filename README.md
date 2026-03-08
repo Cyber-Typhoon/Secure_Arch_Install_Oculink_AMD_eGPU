@@ -1075,12 +1075,12 @@
     exit 1
   fi
 
-  echo "Sealing LUKS to TPM PCRs 7+11..."
+  echo "Sealing LUKS to TPM PCRs 7..."
 
   systemd-cryptenroll "$LUKS_DEV" \
     --wipe-slot=tpm2 \
     --tpm2-device=auto \
-    --tpm2-pcrs=7+11 \
+    --tpm2-pcrs=7 \
     --tpm2-public-key="$TPM_PUBKEY"
 
   echo "TPM sealing complete."
@@ -1129,7 +1129,7 @@
   
   # TPM metadata (for documentation)
   sudo tee /etc/tpm-policy-info.txt << EOF
-  PCRs: 7,11
+  PCRs: 7
   Hash: sha256 (auto-selected by modern systemd)
   Sealed: $(date)
   SecureBoot: Enabled
@@ -1175,7 +1175,7 @@
   ExecStart=/usd/bin/systemd-cryptenroll /dev/disk/by-uuid/"TYPE_LUKS_UUID" \
     --wipe-slot=tpm2 \
     --tpm2-device=auto \
-    --tpm2-pcrs=7+11 \
+    --tpm2-pcrs=7 \
     --tpm2-public-key=/etc/tpm2-ukey.pem
 
   # Automatic cleanup of the trigger file
@@ -1244,7 +1244,7 @@
 - Backup PCR values post-Secure Boot:
   ```bash
   sudo mount /dev/sdX1 /mnt/usb  # Replace with your USB
-  sudo tpm2_pcrread sha256:7,11 | sudo tee /mnt/usb/tpm-pcr-post-secureboot.txt > /dev/null
+  sudo tpm2_pcrread sha256:7 | sudo tee /mnt/usb/tpm-pcr-post-secureboot.txt > /dev/null
   sudo \cat /mnt/usb/tpm-pcr-post-secureboot.txt
   echo "WARNING: Store /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden."
   echo "WARNING: Compare PCR values to ensure TPM policy consistency."
@@ -4271,8 +4271,8 @@
   echo "After reboot, checking TPM unlock logs"
   journalctl -b | grep -i "systemd-cryptsetup.*tpm2" || echo "Warning: TPM unlock not confirmed"
 
-  # Check the PCRs you actually enrolled (7,11)
-  tpm2_pcrread sha256:7,11 > /tmp/tpm-pcr-current.txt
+  # Check the PCRs you actually enrolled (7)
+  tpm2_pcrread sha256:7 > /tmp/tpm-pcr-current.txt
 
   # Mount USB to read the backup file
   echo "Please insert your backup USB drive..."
@@ -4708,7 +4708,7 @@
   --- SYSTEM IDENTIFIERS (For Recovery Mapping) ---
   echo "LUKS UUID:          $(cryptsetup luksUUID /dev/nvme1n1p2 2>/dev/null)"
   echo "Arch ESP PARTUUID:  $(blkid -s PARTUUID -o value /dev/nvme1n1p1)"
-  echo "TPM PCRs Enrolled:  7,11 (Integrity + Secure Boot)"
+  echo "TPM PCRs Enrolled:  7 (Secure Boot)"
   ```
 - TPM Seal breaks
   ```bash
@@ -4789,7 +4789,7 @@
    sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme1n1p2
    sudo systemd-cryptenroll /dev/nvme1n1p2 \
    --tpm2-device=auto \
-   --tpm2-pcrs=7+11 \
+   --tpm2-pcrs=7 \
    --tpm2-pcrs-bank=sha256 \
    --tpm2-public-key=/etc/tpm2-ukey.pem
   # This restores the original TPM policy (PCRs + SHA256 bank + authorized signing key).
@@ -5383,7 +5383,7 @@
   echo "If TPM fails (e.g., Secure Boot change):"
   echo "1. Enter LUKS Passphrase."
   echo "2. Run the automated fix script: sudo tpm-seal"
-  tpm2_pcrread sha256:7,11 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
+  tpm2_pcrread sha256:7 > /etc/tpm-pcr-post-firmware.txt  # Backup new PCRs
   reboot
   ```
 - **e) Test eGPU**:
@@ -5408,17 +5408,14 @@
     ```
 - **g) TPM seal breaks Maintenance**:
   ```bash
-  # If the TPM seal breaks (e.g., hook failure). Update the permanent policy file (captures new PCRs 7 and 11)
-  # Run **only** when you know PCR 7 or 11 changed:
+  # If the TPM seal breaks (e.g., hook failure). Update the permanent policy file (captures new PCRs 7)
+  # Run **only** when you know PCR 7 changed:
   #   • Firmware/BIOS update
   #   • Secure Boot DB change
   #   • UKI rebuilt with different cmdline
   
   sudo tpm-seal-fix
   
-  # The script re-measures the *current* UKI into PCR 11 automatically
-  # (systemd-stub does this on every boot) and re-enrolls the LUKS
-  # keyslot against the same public key + PCR 7+11.
   ```
 - **h) Security Audit**:
   ```bash
