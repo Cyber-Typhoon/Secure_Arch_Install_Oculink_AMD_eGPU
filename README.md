@@ -5936,7 +5936,7 @@
   ```bash
   
   ```
-- Logwatch Widget
+- Log Widget
   ```bash
   
   ```
