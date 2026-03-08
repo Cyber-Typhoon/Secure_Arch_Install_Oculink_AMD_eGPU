@@ -2695,30 +2695,6 @@
   When = PostTransaction
   Exec = /usr/bin/bash -c '/usr/bin/aide --update | tee /var/log/aide/aide-update-report-$(date +%F).txt; mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz'
   EOF
-
-  # Override: write clean JSON report + trigger desktop notification + update AGS widget
-  sudo mkdir -p /etc/systemd/system/aide-check.service.d
-
-  cat << 'EOF' | sudo tee /etc/systemd/system/aide-check.service.d/99-widget-notify.conf
-  [Service]
-  # Run the actual check and capture structured output
-  ExecStartPost=/usr/bin/bash -c '\
-  set -euo pipefail; \
-  REPORT_FILE="/var/log/aide/last-check-$(date +%%Y%m%d-%H%M%S).txt"; \
-  JSON_FILE="/run/aide-status.json"; \
-  \
-  if aide --check > "$REPORT_FILE" 2>&1; then \
-    STATUS="clean"; \
-    SUMMARY="AIDE: System integrity verified — no changes detected"; \
-    notify-desktop --urgency=low --icon=security-high "AIDE Check" "$SUMMARY"; \
-  else \
-    STATUS="alert"; \
-    SUMMARY="AIDE: Potential unauthorized changes detected! "; \
-    notify-desktop --urgency=critical --icon=security-high --expire-time=0 "AIDE Alert" "$SUMMARY"; \
-    # Also make a loud sound so you really notice it \
-    canberra-gtk-play -i dialog-warning & \
-  fi; \
-  \
   ```
 - Create systemd global hardening:
   ```bash
@@ -4432,7 +4408,7 @@
 - AppArmor Tuning Milestone (Run After Normal Use)
   ```bash
   echo "=== APARMOR TUNING ==="
-  echo "Use system normally (eGPU, browsers, AGS) for 1–2 hours."
+  echo "Use system normally (eGPU, browsers) for 1–2 hours."
   echo "Then run:"
 
   sudo ausearch -m avc -ts boot | audit2allow
@@ -5940,3 +5916,6 @@
   ```bash
   
   ```
+- DNS Status Widget
+
+- TPM2 and Secureboot Status Widget
