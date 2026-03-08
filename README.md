@@ -2284,7 +2284,6 @@
   ## Buffer & failure handling (16k for high‑thread CPU)
   -b 16384
   -f 1
-  --failure silent
 
   ## Identity & authentication files
   -w /etc/passwd      -p wa -k identity
