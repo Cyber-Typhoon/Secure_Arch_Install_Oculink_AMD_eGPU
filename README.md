@@ -5784,7 +5784,37 @@
   # Delete the second ESP
   # This improves firmware update reliability and simplifies Secure Boot signing.
   ```
-- **q) Final Reboot & Lock**:
+- **q) Enable Immutable Audit Rules**
+  ```bash
+  **Only do this after:**
+  - All installation steps completed
+  - eGPU tested and working  
+  - System stable for 1+ week
+  - No more audit rule changes needed
+  
+  # Verify current rules working:
+  sudo auditctl -l | wc -l
+
+  # Enable immutable mode:
+  sudo nano /etc/audit/rules.d/99-security.rules
+
+  # Uncomment this line:
+  -e 2
+
+  # Reload rules (final time):
+  sudo augenrules --load
+
+  # Verify immutable:
+  sudo auditctl -s
+  # Should show: enabled 2
+
+  # Test lock is active:
+  sudo auditctl -w /tmp/test -k test
+  # Should fail with "immutable" error
+  
+  **WARNING:** After `-e 2`, any audit changes require full reboot!
+  ```
+- **r) Final Reboot & Lock**:
   ```bash
   # Sign only unsigned EFI binaries
   sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
