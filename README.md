@@ -2258,17 +2258,21 @@
   gsettings set org.gnome.desktop.privacy remember-recent-files false
   gsettings set org.gnome.desktop.privacy report-technical-problems false
   ```
-- Configure IP spoofing protection:
+- Configure PAM security limits:
   ```bash
-  cat << 'EOF' > /etc/host.conf
-  order bind,hosts
-  nospoof on
-  EOF
-  ```
-- Configure security limits:
-  ```bash
-  cat << 'EOF' >> /etc/security/limits.conf
-  hard nproc 8192
+  sudo mkdir -p /etc/security/limits.d
+  sudo tee /etc/security/limits.d/99-desktop-limits.conf > /dev/null <<'EOF'
+  # Process/Thread limits Prevents build failures/crashes)
+  * soft nproc 65536
+  * hard nproc 65536
+
+  # Massive headroom for Proton/Gaming without tool breakage
+  * soft nofile 8192
+  * hard nofile 131072
+
+  # Ensure root can always recover the system
+  root soft nproc unlimited
+  root hard nproc unlimited
   EOF
   ```
 - Configure auditd:
@@ -2744,7 +2748,10 @@
   # Timing (bumped to 90s for slower services like NetworkManager on WiFi)
   DefaultTimeoutStartSec=90s
   DefaultTimeoutStopSec=90s
-  DefaultLimitNOFILE=65536
+  
+  # Match PAM Hard Limits
+  DefaultLimitNOFILE=131072
+  DefaultLimitNPROC=65536
   EOF
   
   # Service defaults
