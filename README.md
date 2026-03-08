@@ -1568,8 +1568,6 @@
     wezterm-git \
     fresh-editor-bin \
     folder-color-nautilus \
-    aylurs-gtk-shell-git \
-    libastal-meta  \
     libva-vdpau-driver \
     gst-thumbnailers \
     gst-plugins-rs-git \
@@ -2721,13 +2719,6 @@
     canberra-gtk-play -i dialog-warning & \
   fi; \
   \
-  # Write tiny JSON for AGS/Astal widget (readable by any user in the graphical session) \
-  echo "{\"status\":\"$STATUS\",\"timestamp\":\"$(date -Iseconds)\",\"report\":\"$REPORT_FILE\"}" | \
-    tee "$JSON_FILE"; \
-  chmod 644 "$JSON_FILE"'
-  EOF
-
-  sudo systemctl daemon-reload
   ```
 - Create systemd global hardening:
   ```bash
@@ -3167,7 +3158,7 @@
   echo "       ausearch -m avc -ts recent | tail -20"
   echo "  3. Tune interactively:"
   echo "       sudo aa-logprof"
-  echo "       sudo aa-genprof <binary>  # e.g., Astal, supergfxctl"
+  echo "       sudo aa-genprof <binary>  # e.g., supergfxctl"
   echo "  4. After tuning → ENFORCE:"
   echo "       sudo just fsp-enforce"
   echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just enforce
@@ -4446,15 +4437,6 @@
 
   sudo ausearch -m avc -ts boot | audit2allow
   sudo aa-logprof
-
-  # For Astal/AGS:
-  sudo aa-genprof ags
-  # → In another terminal: ags -c ~/.config/ags/config.js
-  # → Exercise UI, then Ctrl+C and finish aa-genprof
-
-  echo "Repeat for: AGS, supergfxctl, boltctl, qemu-system-x86_64"
-
-  echo "After tuning: reboot and verify no denials in journalctl -u apparmor"
   ```
 - Validate run0
   ```
@@ -5750,7 +5732,7 @@
   # Run this once a month. It checks every file on the system against the pacman DB.
   # Any 'mismatch' could indicate disk corruption or unauthorized modification.
   sudo pacman -Qkk | grep -v '0 alterations'
-  # Explote adding this as event refreshing daily an widget in the Astal/AGS step 19
+  # Explote adding this as event refreshing daily an widget in the step 19
   ```
 - **o) Disable storage of Coredumps after system stability (3-6 months)**:
   ```bash
@@ -5923,41 +5905,6 @@
   # Provide Access
   chmod +x ~/bin/generate-slideshow.sh
   ~/bin/generate-slideshow.sh   # re-run whenever wallpapers change
-```
-- Create script report for Astal/AGS
-  ```bash
-  # Create a system verification script
-  cat << 'EOF' | sudo tee /usr/local/bin/verify-arch-setup.sh
-  #!/usr/bin/env bash
-  set -e
-
-  echo "=== 1. Secure Boot & TPM ==="
-  sbctl status | grep "Enabled" && echo "✓ Secure Boot Enabled" || echo "✗ Secure Boot DISABLED"
-  systemd-cryptenroll --tpm2-device=auto --test /dev/nvme1n1p2 >/dev/null 2>&1 && echo "✓ TPM Unlock Valid" || echo "✗ TPM Unlock Failed"
-
-  echo "=== 2. Graphics & eGPU ==="
-  if lspci | grep -i "VGA.*AMD"; then
-    echo "✓ AMD eGPU Detected"
-    DRI_PRIME=1 glxinfo | grep "OpenGL renderer" | grep "AMD" && echo "✓ AMD Rendering Active" || echo "✗ AMD Rendering Failed"
-  else
-    echo "⚠ No AMD eGPU detected (Check OCuLink)"
-  fi
-
-  echo "=== 3. Security Hardening ==="
-  sysctl kernel.yama.ptrace_scope | grep "1" && echo "✓ Ptrace Scope Restricted" || echo "✗ Ptrace Scope Open"
-  if systemctl is-active --quiet apparmor; then
-    echo "✓ AppArmor Active"
-    aa-status | grep -q "profiles are in enforce mode" && echo "✓ AppArmor Enforced" || echo "⚠ AppArmor in Complain Mode"
-  else
-    echo "✗ AppArmor Inactive"
-  fi
-
-  echo "=== 4. Snapshots ==="
-  snapper --config root list | grep -q "timeline" && echo "✓ Snapper Timeline Active" || echo "✗ Snapper Timeline Missing"
-
-  echo "=== Verification Complete ==="
-  EOF
-  sudo chmod +x /usr/local/bin/verify-arch-setup.sh
   ```
 - Install a custom theme for GNOME:
   ```bash
@@ -5976,178 +5923,20 @@
   ```bash
   gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
   ```
-- Backup Monitor in Astal
+- Explore use eww and/or ironbar and/or way-edges
+- Backup Monitor Widget
   ```bash
-  // ~/.config/ags/widgets/backup-status.ts
-  import { Widget, Service, Utils } from 'astal/gtk3';
-  import Systemd from 'gi://AstalSystemd';
-
-  const systemd = Systemd.get_default();
-
-  export default () => Widget.Box({
-    className: "backup-status",
-    spacing: 8,
-    children: [
-        Widget.Icon({
-            icon: "backup-symbolic",
-        }),
-        Widget.Label({
-            label: systemd.unit("rustic-backup.service")
-                .bind("ActiveState")
-                .as(state => {
-                    if (state === "active") return "✓ Running";
-                    if (state === "inactive") return "✓ Idle";
-                    if (state === "failed") return "✗ Failed";
-                    return "? Unknown";
-                }),
-        }),
-        Widget.Button({
-            label: "Run",
-            onClicked: () => Utils.execAsync("systemctl start rustic-backup.service"),
-        }),
-    ],
-  });
+  
   ```
 - Namspace Audit Widget
   ```bash
-  // ~/.config/ags/widgets/namespace-monitor.ts
-  import { Widget, Utils } from 'astal/gtk3';
-
-  // Command to check for processes sharing the *global* Mount or PID namespace
-  // and exclude known safe system processes (PID 1, kernel threads, kthreadd etc.)
-  // -n: namespace ID; -t: type; -o: output fields
-  const NS_AUDIT_CMD = [
-    'lsns',
-    '--noheading',
-    '--output', 'PID,USER,COMMAND,NSFS',
-    '|', 
-    'awk', 
-    `{
-        // $4 (NSFS) is the inode of the namespace. 
-        // 4026531836 is the inode of the *global* mount namespace on most systems.
-        // 4026531835 is the inode of the *global* PID namespace on most systems.
-        // This script is simplified for demonstration. In a real environment, 
-        // you'd typically look for specific processes/users or compare NSFS.
-        
-        // A simple, effective check: count entries and alert on unusual spikes.
-        // For this visual indicator, we will count the number of custom PID namespaces (PID != 4026531835)
-        
-        if ($2 != "root" && $1 > 1) { // Exclude root/kernel PIDs for simplicity
-            print $0;
-        }
-    }`
-  ];
-
-  export default () => Widget.Box({
-    className: "namespace-monitor",
-    spacing: 6,
-    children: [
-        Widget.Icon({ 
-            icon: "preferences-system-security-symbolic" // Security icon 
-        }),
-        Widget.Label({
-            // This label will run a simplified audit and count isolated processes
-            // The actual check runs 'lsns' and pipes it to 'wc -l' to count lines.
-            // A higher count of namespaces is generally good (more isolation), but 
-            // the label should be about *status* rather than just count.
-            label: Utils.poll(10000, NS_AUDIT_CMD.join(' '), (out) => {
-                const lines = out.split('\n').filter(line => line.trim() !== '');
-                const ns_count = lines.length;
-                
-                if (ns_count > 100) {
-                    return `Isolation: ${ns_count} OK`;
-                } else if (ns_count > 50) {
-                    // A dynamic threshold based on your setup.
-                    return `Isolation: ${ns_count} (Normal)`;
-                }
-                return `Isolation: ${ns_count} (Low Count)`;
-            }),
-        }),
-        Widget.Button({
-            label: "Details",
-            onClicked: () => Utils.execAsync(['foot', '-e', 'bash', '-c', 'lsns -t pid,mnt | less']),
-        }),
-    ],
-  });
+  
   ```
-- AIDE Astal/AGS Widget
+- AIDE Widget
   ```bash
-  // ~/.config/ags/widgets/aide-monitor.ts
-  const aideStatusFile = "/run/aide-status.json";
-
-  const AideWidget = () =>
-  Widget.Box({
-    class_name: "aide-monitor",
-    tooltip_text: "AIDE integrity status",
-    children: [
-      Widget.Icon({
-        icon: "security-high-symbolic",
-        size: 18,
-      }),
-      Widget.Label({
-        label: Utils.watch(
-          { status: "unknown", timestamp: "" },
-          aideStatusFile,
-          () => {
-            try {
-              const data = JSON.parse(Utils.readFile(aideStatusFile) || "{}");
-              return data.status === "clean"
-                ? "Clean"
-                : data.status === "alert"
-                ? "ALERT"
-                : "Unknown";
-            } catch {
-              return "No data";
-            }
-          }
-        ),
-        class_name: Utils.watch("clean", aideStatusFile, () => {
-          try {
-            const data = JSON.parse(Utils.readFile(aideStatusFile) || "{}");
-            return data.status === "clean"
-              ? "aide-clean"
-              : data.status === "alert"
-              ? "aide-alert"
-              : "";
-          } catch {
-            return "";
-          }
-        }),
-      }),
-    ],
-  });
-
-  // Then just import and add AideWidget() to your bar/panel
-  # CSS Style
-  .aide-clean {
-  color: @success_color;
-  }
-  .aide-alert {
-    color: @error_color;
-    font-weight: bold;
-    animation: blink 1s infinite alternate; 
-  }
-  # Click the widget to open the latest report
-  AideWidget().on("button-press-event", () => {
-  Utils.execAsync(`xdg-open ${Utils.readFile("/run/aide-status.json")?.match(/"report":"([^"]+)"/)?.[1] || "/var/log/aide"}`)
-    .catch(() => App.toggleWindow("whatever-your-sidebar-is"));
-  });
+  
   ```
-- Logwatch
+- Logwatch Widget
   ```bash
-  // ~/.config/astal/widgets/logwatch.ts
-  import { Widget, Utils } from 'astal/gtk3';
-
-  export default () => Widget.Box({
-    className: "logwatch",
-    spacing: 6,
-    children: [
-      Widget.Icon({ icon: "security-high-symbolic" }),
-      Widget.Label({
-        label: Utils.execAsync(["journalctl", "-p", "err", "-n", "1", "--no-pager"])
-          .then(out => out.trim() || "No errors")
-          .catch(() => "Error"),
-      }),
-    ],
-  });
+  
   ```
