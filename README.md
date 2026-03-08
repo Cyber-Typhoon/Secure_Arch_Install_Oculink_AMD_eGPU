@@ -1504,7 +1504,7 @@
   audit arch-audit lynis sshguard ufw usbguard \
   \
   # System Monitoring
-  gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator libappindicator \
+  gnome-system-monitor gnome-disk-utility logwatch tlp upower zram-generator libappindicator smartmontools \
   \
   # Hardware
   bluez bluez-utils cups fprintd \
