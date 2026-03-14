@@ -2455,73 +2455,6 @@
   \dig archlinux.org #should see this in the last rows SERVER: 127.0.0.1#53(127.0.0.1)
   # Run https://www.dnsleaktest.com/ should show Quad9 or Mullvad DNS
   ```
-- Configure USBGuard:
-  ```bash
-  # Generate initial policy for currently connected devices (keyboard, mouse, etc.)
-  sudo sh -c usbguard generate-policy > /etc/usbguard/rules.conf
-
-  # Recommended daemon settings (make resume and Bluetooth happier)
-  sudo mkdir -p /etc/usbguard
-  cat <<EOF | sudo tee /etc/usbguard/usbguard-daemon.conf
-  # Allow currently present devices after resume (prevents most Bluetooth/GSConnect breakage)
-  PresentDevicePolicy=keep
-
-  # New devices get the full policy check (not just auto-blocked without notification)
-  InsertedDevicePolicy=apply-policy
-
-  # Slightly more forgiving default for new devices (still blocks, but you get a notification)
-  ImplicitPolicyTarget=allow
-  # Start with ImplicitPolicyTarget=allow for first month. Switch to block only after device list is stable.
-  # Use system for 2-4 weeks
-  usbguard generate-policy > /etc/usbguard/rules.conf  # Export stable device list
-  # Change to ImplicitPolicyTarget=block
-  systemctl restart usbguard
-  
-  # Allow users in wheel group to talk to the daemon directly (complements Polkit)
-  IPCAllowedGroups=wheel
-  EOF
-
-  # Correct & complete Polkit rule (fixed typo + all current actions as of usbguard 1.1+)
-  cat <<'EOF' | sudo tee /etc/polkit-1/rules.d/70-usbguard.rules
-  polkit.addRule(function(action, subject) {
-    if (/^org\.usbguard\./.test(action.id) &&
-        subject.active === true &&
-        subject.local === true &&
-        subject.isInGroup("wheel")) {
-        return polkit.Result.YES;
-    }
-  });
-  EOF
-
-  # Enable both the main daemon and the DBus service (required for GNOME/GSConnect dialogs)
-  sudo systemctl enable --now usbguard.service usbguard-dbus.service
-
-  # GNOME privacy settings – block only on lock screen
-  gsettings set org.gnome.desktop.privacy usb-protection true || true
-  gsettings set org.gnome.desktop.privacy usb-protection-level 'lockscreen'
-
-  # Helpful instructions
-  cat <<EOS
-  # USBGuard is now active with a safe daily-driver configuration.
-
-  # Next steps for GSConnect:
-  # Unlock your session
-  # Pair your phone in GSConnect → it will pop up a USBGuard notification
-  # Click "Allow" (or run: usbguard allow-device <id> if it doesn't appear)
-  # The rule is automatically made permanent
-
-  # After first suspend/resume:
-  #  - If Bluetooth/GSConnect stops working, run:
-  #       usbguard list-devices | grep -i bluetooth
-  #       usbguard allow-device <id>
-  #  - Then make it permanent with:
-  #       usbguard allow-device <id> --permanent
-
-  # To see current blocked devices at any time:
-  # usbguard list-devices --blocked
-
-  EOS
-  ```
 - Harden Bluetooth Connections:
   ```bash
   cat >> /etc/bluetooth/main.conf <<EOF
@@ -5768,7 +5701,214 @@
   
   **WARNING:** After `-e 2`, any audit changes require full reboot!
   ```
-- **r) Final Reboot & Lock**:
+- **r) Configure USBGuard**:
+  ```bash
+  # Prerequisites:
+  # - Steps 1-19 completed
+  # - System used daily for 2+ months
+  # - ALL USB devices connected at least once:
+  #  - Keyboards, mice (all variants you use)
+  #  - eGPU dock (via OCuLink)
+  #  - USB drives (all of them)
+  #  - Phone (USB charging/data/tethering)
+  #  - USB-C hubs/docks
+  #  - Bluetooth adapters
+  #  - Webcam, audio interfaces
+  #  - Any other peripherals
+  # - No USB connection issues
+  # - Sleep/resume cycles stable
+
+  # usbguard is already installed in Step 10
+
+  ### Connect ALL Your Devices
+
+  **CRITICAL: Before generating policy, connect EVERYTHING:**
+  ### Before Running USBGuard Setup:
+  # Connect EVERY device:
+  □ Primary keyboard (test it!)
+  □ Primary mouse (test it!)
+  □ Backup keyboard
+  □ Backup mouse
+  □ Phone (USB charging + data mode)
+  □ All USB drives you own
+  □ USB-C hub/dock
+  □ eGPU dock (if it has USB ports)
+  □ USB devices through eGPU dock
+  □ Bluetooth adapter (if external)
+  □ Webcam (if external)
+  □ Audio interface
+  □ Gaming controllers
+  □ Any other USB peripherals
+
+  # Verify internal devices visible:
+  lsusb | grep -i "fingerprint\|camera\|bluetooth"
+  # Should show built-in fingerprint reader, webcam, etc.
+
+  # If you have eGPU dock with USB:
+  # - Power on eGPU
+  # - Run GPU benchmark/game
+  # - Verify dock USB hub appears: lsusb | grep -i hub
+
+  # # Count devices that USBGuard will manage:
+  usbguard list-devices | wc -l
+  # Should be 10-25+ rules
+
+  # Verify sleep/resume works:
+  # - Suspend laptop
+  # - Resume
+  # - Check all USB devices still work
+
+  # Only THEN generate policy
+
+  ### Generate Policy
+  # Generate policy with ALL devices connected:
+  sudo usbguard generate-policy | sudo tee /etc/usbguard/rules.conf > /dev/null
+
+  # Verify policy was created:
+  cat /etc/usbguard/rules.conf | wc -l
+  # Should show 10-20+ rules (one per device)
+
+  # Backup the policy:
+  sudo cp -r /etc/usbguard /etc/usbguard.backup
+  
+  ### Configure Daemon (with [Daemon] header)
+  sudo mkdir -p /etc/usbguard
+  sudo tee /etc/usbguard/usbguard-daemon.conf > /dev/null <<'EOF'
+  [Daemon]
+  # Keep devices that were present at boot (prevents Bluetooth issues)
+  PresentDevicePolicy=keep
+
+  # Apply policy to newly inserted devices
+  InsertedDevicePolicy=apply-policy
+
+  # START SAFE: Allow unknown devices for first 2-4 weeks
+  # Change to "block" only after monitoring period
+  ImplicitPolicyTarget=allow
+
+  # Allow wheel group users to manage USBGuard via GUI
+  IPCAllowedGroups=wheel
+
+  # Device manager backend
+  DeviceManagerBackend=uevent
+  EOF
+
+  ### Create Polkit Rule
+  sudo tee /etc/polkit-1/rules.d/70-usbguard.rules > /dev/null <<'EOF'
+  polkit.addRule(function(action, subject) {
+    if (/^org\.usbguard\./.test(action.id) &&
+        subject.active === true &&
+        subject.local === true &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+  });
+  EOF
+
+  ### Enable Services
+  # Enable and start USBGuard:
+  sudo systemctl enable --now usbguard.service usbguard-dbus.service
+
+  # Verify services running:
+  systemctl status usbguard.service
+  systemctl status usbguard-dbus.service
+
+  ### Enable GNOME USB Protection
+  # Enable lockscreen USB protection:
+  gsettings set org.gnome.desktop.privacy usb-protection true
+  gsettings set org.gnome.desktop.privacy usb-protection-level 'lockscreen'
+
+  ### Monitoring Period (2-4 Weeks)
+  # Monitor USBGuard logs:
+  sudo journalctl -u usbguard -f
+
+  # List all devices:
+  usbguard list-devices
+
+  # Check for blocked devices:
+  usbguard list-devices --blocked
+
+  # Test: Plug in a new USB device
+  # Should see notification allowing you to authorize it
+
+  ### Final Hardening (After Monitoring)
+  **Only after 2-4 weeks of ImplicitPolicyTarget=allow:**
+  # Verify no unexpected devices:
+  usbguard list-devices --blocked
+  # Should be empty
+
+  # Switch to block mode:
+  sudo nano /etc/usbguard/usbguard-daemon.conf
+
+  # Change:
+  ImplicitPolicyTarget=block
+
+  # Restart service:
+  sudo systemctl restart usbguard
+
+  # Test with unknown device:
+  # Plug in a USB drive you've never used
+  # Should be blocked with notification
+
+  ### Emergency Recovery
+
+  **If you get locked out (keyboard/mouse blocked):**
+  # Method 1: Boot to console (Ctrl+Alt+F2)
+  # Login, then:
+  sudo systemctl stop usbguard
+  sudo systemctl disable usbguard
+
+  # Method 2: Kernel parameter at boot
+  # Add to kernel cmdline:
+  usbguard.daemon.disable=1
+
+  # Method 3: Live USB
+  # Boot Arch live USB
+  # Mount and chroot into system
+  # Edit /etc/usbguard/rules.conf
+  # Add your keyboard/mouse device IDs
+
+  ### Verification
+  # Check USBGuard status:
+  sudo usbguard list-devices | head -20
+
+  # View generated policy:
+  sudo cat /etc/usbguard/rules.conf | head -10
+
+  # Verify services running:
+  systemctl status usbguard.service --no-pager
+  systemctl status usbguard-dbus.service --no-pager
+
+  # (OPTIONAL) If you want audit monitoring of USBGuard config:
+  # First add to /etc/audit/rules.d/99-security.rules:
+  # -w /etc/usbguard/rules.conf -p wa -k usbguard
+  # -w /etc/usbguard/usbguard-daemon.conf -p wa -k usbguard
+  # Then: sudo augenrules --load
+  # Then verify: sudo auditctl -l | grep usbguard
+
+  # Helpful instructions
+  cat <<EOS
+  # USBGuard is now active with a safe daily-driver configuration.
+
+  # Next steps for GSConnect:
+  # Unlock your session
+  # Pair your phone in GSConnect → it will pop up a USBGuard notification
+  # Click "Allow" (or run: usbguard allow-device <id> if it doesn't appear)
+  # The rule is automatically made permanent
+
+  # After first suspend/resume:
+  #  - If Bluetooth/GSConnect stops working, run:
+  #       usbguard list-devices | grep -i bluetooth
+  #       usbguard allow-device <id>
+  #  - Then make it permanent with:
+  #       usbguard allow-device <id> --permanent
+
+  # To see current blocked devices at any time:
+  # usbguard list-devices --blocked
+  # Reload rules without restarting: sudo usbguard reload-rules
+
+  EOS
+  ```
+- **s) Final Reboot & Lock**:
   ```bash
   # Sign only unsigned EFI binaries
   sbctl sign -s $(sbctl verify | grep "not signed" | awk '{print $1}')
