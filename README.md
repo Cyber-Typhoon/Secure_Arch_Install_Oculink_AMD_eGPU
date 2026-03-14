@@ -2461,22 +2461,19 @@
   # Backup first:
   sudo cp /etc/bluetooth/main.conf /etc/bluetooth/main.conf.backup 2>/dev/null || true
 
-  # Apply balanced hardening:
-  sudo tee /etc/bluetooth/main.conf > /dev/null <<'EOF'
-
-  # Security Hardening
-  [Policy]
-  AutoEnable=true              # Works on boot (change to false if no BT peripherals at login)
-  ReconnectAttempts=5          # GSConnect compatible
-  ReconnectIntervals=1,2,4,8
+  # Apply balanced hardening (uncomment and update the following):
+  sudo fresh /etc/bluetooth/main.conf
 
   [General]
-  Discoverable=false           # Privacy: not discoverable
-  DiscoverableTimeout=0        # Never auto-enable discovery
-  Privacy=device               # MAC randomization
-  ControllerMode=dual          # Support BR/EDR and LE
-  JustWorksRepairing=always    # Better pairing (LLM3's addition)
-  EOF
+  DiscoverableTimeout=0
+  ControllerMode=dual
+  Privacy=network/on
+  JustWorksRepairing=always
+
+  [Policy]
+  ReconnectAttempts=5
+  ReconnectIntervals=1,2,4,8
+  AutoEnable=true
 
   # Restart Bluetooth:
   sudo systemctl restart bluetooth
