@@ -2488,11 +2488,56 @@
   ```
 - Harden CUPS (Printer Attack Surface):
   ```bash
-  # Add to /etc/cups/cupsd.conf
-  <Location />
-  Order allow,deny
-  Allow localhost
-  </Location>
+  # Create backup directory
+  BACKUP_DIR="/root/cups-backups"
+  sudo mkdir -p "$BACKUP_DIR"
+
+  # Backup existing configs
+  sudo cp /etc/cups/cupsd.conf "$BACKUP_DIR/cupsd.conf.$(date +%F-%H%M%S)"
+  sudo cp /etc/cups/printers.conf "$BACKUP_DIR/printers.conf.$(date +%F-%H%M%S)" 2>/dev/null || true
+
+  # Ensure CUPS service exists and is running
+  sudo systemctl enable --now cups.service
+
+  # Disable printer discovery daemon (major historical attack vector)
+  sudo systemctl disable --now cups-browsed.service 2>/dev/null || true
+
+  # Lock down remote access using official CUPS API
+  sudo cupsctl \
+    --no-share-printers \
+    --no-remote-admin \
+    --no-remote-any
+
+  # Enforce discovery disabled in configuration
+  CONF="/etc/cups/cupsd.conf"
+
+  if sudo grep -Eq '^[[:space:]]*Browsing' "$CONF"; then
+    sudo sed -i 's/^[[:space:]]*Browsing.*/Browsing Off/' "$CONF"
+  else
+    echo "Browsing Off" | sudo tee -a "$CONF" >/dev/null
+  fi
+
+  if sudo grep -Eq '^[[:space:]]*BrowseLocalProtocols' "$CONF"; then
+    sudo sed -i 's/^[[:space:]]*BrowseLocalProtocols.*/BrowseLocalProtocols none/' "$CONF"
+  else
+    echo "BrowseLocalProtocols none" | sudo tee -a "$CONF" >/dev/null
+  fi
+
+  # Restart CUPS
+  sudo systemctl restart cups.service
+
+  # Check listening ports
+  ss -tulpn | grep 631
+  # Correct result:
+  # 127.0.0.1:631
+  # [::1]:631
+
+  # Check discovery daemon
+  systemctl status cups-browsed --no-pager
+  # Expected:
+  # inactive (dead)
+  # disabled
+  # Unit cups-browsed.service could not be found.
   ```
 - Configure Lynis audit and log management:
   ```bash
