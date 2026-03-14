@@ -2457,16 +2457,37 @@
   ```
 - Harden Bluetooth Connections:
   ```bash
-  cat >> /etc/bluetooth/main.conf <<EOF
+  # Bluetooth Hardening (Balanced for Daily Use)
+  # Backup first:
+  sudo cp /etc/bluetooth/main.conf /etc/bluetooth/main.conf.backup 2>/dev/null || true
+
+  # Apply balanced hardening:
+  sudo tee /etc/bluetooth/main.conf > /dev/null <<'EOF'
+
+  # Security Hardening
   [Policy]
-  AutoEnable=false  # Don't auto-enable on boot
-  ReconnectAttempts=0
-  ReconnectIntervals=1,2,4,8,16
+  AutoEnable=true              # Works on boot (change to false if no BT peripherals at login)
+  ReconnectAttempts=5          # GSConnect compatible
+  ReconnectIntervals=1,2,4,8
 
   [General]
-  Discoverable=false
-  DiscoverableTimeout=0
+  Discoverable=false           # Privacy: not discoverable
+  DiscoverableTimeout=0        # Never auto-enable discovery
+  Privacy=device               # MAC randomization
+  ControllerMode=dual          # Support BR/EDR and LE
+  JustWorksRepairing=always    # Better pairing (LLM3's addition)
   EOF
+
+  # Restart Bluetooth:
+  sudo systemctl restart bluetooth
+
+  # Verify:
+  bluetoothctl show
+
+  # Test your devices:
+  # - Bluetooth mouse/keyboard should work
+  # - Headphones should reconnect
+  # - GSConnect should reconnect after suspend
   ```
 - Harden CUPS (Printer Attack Surface):
   ```bash
