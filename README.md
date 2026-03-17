@@ -2613,10 +2613,10 @@
 
   # Valdiate
   # Files exist
-  ls -l /var/log/lynis/
+  sudo ls -l /var/log/lynis/
 
   # Check your Hardening Index (The "Score")
-  grep "Hardening index" /var/log/lynis/lynis.log
+  sudo grep "Hardening index" /var/log/lynis/lynis.log
 
   # Timer is active
   systemctl list-timers lynis-audit.timer
