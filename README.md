@@ -2637,23 +2637,19 @@
   # Backup original config
   sudo cp /etc/aide.conf /etc/aide.conf.bak 2>/dev/null || true
 
-  # Clean, hardened config (overwrite — no duplicates)
+  # Clean, hardened config
   sudo tee /etc/aide.conf > /dev/null <<'EOF'
-  # Database locations
   database_in=file:/var/lib/aide/aide.db.gz
   database_out=file:/var/lib/aide/aide.db.new.gz
 
-  # Global settings
   gzip_dbout=yes
   verbose=20
   report_ignore_changed_attrs=b
   report_force_attrs=u+g
   warn_dead_symlinks=yes
 
-  # Strong security rule
   SecGroup = p+i+n+u+g+s+m+c+acl+xattrs+sha512
 
-  # Critical paths
   /boot        SecGroup
   /etc         SecGroup
   /usr/bin     SecGroup
@@ -2661,13 +2657,11 @@
   /usr/lib     SecGroup
   /var/lib     SecGroup
 
-  # Security-sensitive configs
   /etc/apparmor.d SecGroup
   /etc/systemd    SecGroup
   /etc/ssh        SecGroup
   /etc/sudoers.d  SecGroup
 
-  # Exclusions (BTRFS + volatile areas)
   !/var/lib/aide
   !/var/lib/pacman/sync
   !/var/lib/systemd/coredump
@@ -2689,18 +2683,22 @@
   echo "Validating AIDE configuration..."
   sudo aide --config-check
   if [ $? -ne 0 ]; then
-    echo "Config error — fix /etc/aide.conf before continuing"
+    echo "Config error"
     exit 1
   fi
-  echo "AIDE configuration valid"
+  echo "Config valid"
 
-  # Initialize database (5–15 min — normal to see no output)
-  echo "Initializing AIDE database (first run)..."
+  # Initialize database
+  echo "Initializing AIDE database (5-15 min)..."
   sudo aide --init
+  if [ ! -f /var/lib/aide/aide.db.new.gz ]; then
+    echo "ERROR: AIDE initialization failed"
+    exit 1
+  fi
   sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
   echo "Database initialized"
 
-  # Smart service (flag-based update logic)
+  # Smart service 
   sudo tee /etc/systemd/system/aidecheck.service > /dev/null <<'EOF'
   [Unit]
   Description=AIDE File Integrity Check
@@ -2709,16 +2707,25 @@
   [Service]
   Type=oneshot
   ExecStart=/bin/sh -c '
-    if [ -f /var/lib/aide/.update-needed ]; then
-      echo "Updating AIDE database after package changes..."
-      /usr/bin/aide --update && mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz && rm -f /var/lib/aide/.update-needed
-    else
-      /usr/bin/aide --check
-    fi'
+  set -e
+  if [ -f /var/lib/aide/.update-needed ]; then
+    echo "Updating AIDE database after package changes..."
+    /usr/bin/aide --update
+  
+    if [ ! -f /var/lib/aide/aide.db.new.gz ]; then
+      echo "ERROR: AIDE update failed to create database"
+      exit 1
+    fi
+  
+    mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+    rm -f /var/lib/aide/.update-needed
+    echo "Database updated successfully"
+  else
+    /usr/bin/aide --check
+  fi'
 
   StandardOutput=journal
   StandardError=journal
-
   ProtectSystem=full
   ProtectHome=true
   PrivateTmp=true
@@ -2739,7 +2746,7 @@
   WantedBy=timers.target
   EOF
 
-  # Non-blocking pacman hook (best design)
+  # Non-blocking pacman hook
   sudo mkdir -p /etc/pacman.d/hooks
   sudo tee /etc/pacman.d/hooks/99-aide-update.hook > /dev/null <<'EOF'
   [Trigger]
@@ -2755,84 +2762,18 @@
   Exec = /usr/bin/touch /var/lib/aide/.update-needed
   EOF
 
-  # Enable and start
+  # Enable
   sudo systemctl daemon-reload
   sudo systemctl enable --now aidecheck.timer
 
   echo ""
-  echo "AIDE configured successfully!"
+  echo "✅ AIDE configured!"
   echo ""
   echo "Verification:"
-  echo "  Database: ls -lh /var/lib/aide/aide.db.gz"
-  echo "  Timer:    systemctl status aidecheck.timer"
-  echo "  Test run: sudo systemctl start aidecheck.service"
-  echo "  Logs:     journalctl -u aidecheck.service -n 30"
-
-  # Validate
-  # Database exists:
-  sudo ls -lh /var/lib/aide/aide.db.gz
-
-  # Timer active:
-  sudo systemctl status aidecheck.timer --no-pager
-
-  # Run first check:
-  sudo systemctl start aidecheck.service
-
-  # Check logs:
-  journalctl -u aidecheck.service -n 30
-
-  # Verify pacman hook:
-  sudo ls -l /etc/pacman.d/hooks/99-aide-update.hook
-  ```
-- Create systemd global hardening:
-  ```bash
-  sudo mkdir -p /etc/systemd/{system.conf.d,user.conf.d}
-
-  # system.conf.d
-  sudo tee /etc/systemd/system.conf.d/10-hardening.conf > /dev/null <<'EOF'
-  [Manager]
-  # Timing (bumped to 90s for slower services like NetworkManager on WiFi)
-  DefaultTimeoutStartSec=90s
-  DefaultTimeoutStopSec=90s
-  
-  # Match PAM Hard Limits
-  DefaultLimitNOFILE=131072
-  DefaultLimitNPROC=65536
-  EOF
-  
-  # Service defaults
-  sudo tee /etc/systemd/system.conf.d/99-security-defaults.conf > /dev/null <<'EOF'
-  [Service]
-  ProtectSystem=full
-  NoNewPrivileges=yes
-  RestrictSUIDSGID=yes
-  ProtectKernelTunables=yes
-  ProtectKernelModules=yes
-  ProtectKernelLogs=yes
-  ProtectClock=yes
-  ProtectControlGroups=yes
-  ProtectHostname=yes
-  LockPersonality=yes
-  RestrictRealtime=yes
-  PrivateDevices=yes
-  PrivateUsers=yes
-  RemoveIPC=yes
-  MemoryDenyWriteExecute=yes
-  RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-  SystemCallArchitectures=native
-  UMask=0077
-  # REMOVED: PrivateTmp=yes ["Ghost" issues. Applications might fail to launch, audio might glitch, or inter-app features (like drag-and-drop or clipboard sharing between sandboxed apps) might fail silently.]
-  # REMOVED: ProtectHome=read-only (Breaks Backups)
-  # REMOVED: This was previously removed MemoryDenyWriteExecute=yes (Breaks JIT/Browsers) but it seems that we should be fine now so we are keeping it.
-
-  # Filesystem protections (strict but compatible)
-  # REMOVED: ProtectSystem=strict           # Read-only /usr, /boot, /efi — standard now [This makes /usr and /boot read-only for all services. While good for security, this often conflicts with updaters (like fwupd), driver managers (like dkms for your specific eGPU setup), or log rotation tools that aren't perfectly configured.]
-  EOF
-
-  echo "Systemd global hardening applied — verify scores post-boot with 'systemd-analyze security'."
-
-  sudo systemctl daemon-reload
-  systemd-analyze security --threshold=7.0
+  echo "  ls -lh /var/lib/aide/aide.db.gz"
+  echo "  systemctl status aidecheck.timer"
+  echo "  sudo systemctl start aidecheck.service"
+  echo "  journalctl -u aidecheck.service -n 30"
   ```
 - Configure sysctl hardening:
   ```bash
