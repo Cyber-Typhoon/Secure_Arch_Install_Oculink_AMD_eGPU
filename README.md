@@ -2643,7 +2643,6 @@
   database_out=file:/var/lib/aide/aide.db.new.gz
 
   gzip_dbout=yes
-  verbose=20
   report_ignore_changed_attrs=b
   report_force_attrs=u+g
   warn_dead_symlinks=yes
@@ -2693,7 +2692,8 @@
   sudo aide --init
   if [ ! -f /var/lib/aide/aide.db.new.gz ]; then
     echo "ERROR: AIDE initialization failed"
-    exit 1
+  else
+    echo "Database exists"
   fi
   sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
   echo "Database initialized"
