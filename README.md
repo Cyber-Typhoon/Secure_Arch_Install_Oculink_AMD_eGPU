@@ -2541,79 +2541,98 @@
   ```
 - Configure Lynis audit and log management:
   ```bash
-  # Create a dedicated, secure log directory
+  # Directory setup
   sudo mkdir -p /var/log/lynis
   sudo chown root:root /var/log/lynis
   sudo chmod 700 /var/log/lynis
 
-  # Timer Unit (Unchanged, correct as-is)
-  cat << 'EOF' | sudo tee /etc/systemd/system/lynis-audit.timer
+  # Timer
+  sudo tee /etc/systemd/system/lynis-audit.timer > /dev/null <<'EOF'
   [Unit]
   Description=Run Lynis audit weekly
 
   [Timer]
   OnCalendar=weekly
   Persistent=true
+  RandomizedDelaySec=30min
 
   [Install]
   WantedBy=timers.target
   EOF
 
-   # Service Unit (Final Corrected Version)
-  cat << 'EOF' | sudo tee /etc/systemd/system/lynis-audit.service
+  # Service
+  sudo tee /etc/systemd/system/lynis-audit.service > /dev/null <<'EOF'
   [Unit]
-  Description=Run Lynis audit
+  Description=Run Lynis security audit
   After=network-online.target
   ConditionVirtualization=!container
 
   [Service]
   Type=oneshot
   User=root
-  # Run the audit with the official --cronjob flag and skip for consistency
-  # REMOVED: ExecStart=/usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139
-  ExecStart=/usr/bin/lynis audit system --quick --warnings --deeppen --auditor "Automated Audit" --logfile /var/log/lynis/lynis.log --report-file /var/log/lynis/lynis-report.dat --skip-test SSH-7408,BOOT-5122,BOOT-5139
+
+  ExecStart=/usr/bin/lynis audit system --cronjob \
+    --auditor "Automated Audit" \
+    --logfile /var/log/lynis/lynis.log \
+    --report-file /var/log/lynis/lynis-report.dat \
+    --skip-test SSH-7408,BOOT-5122,BOOT-5139
+
   StandardOutput=journal
   StandardError=journal
+
   ProtectSystem=full
   ProtectHome=true
   PrivateTmp=true
-  # Save the human-readable report summary (MUST run first)
-  ExecStartPost=/usr/bin/lynis show warnings >> /var/log/lynis/lynis-report-$(date +%F).txt
-  ExecStartPost=/usr/bin/lynis show suggestions >> /var/log/lynis/lynis-report-$(date +%F).txt
-  # Archive the raw data and log files (MUST run last)
-  ExecStartPost=/usr/bin/mv /var/log/lynis-report.dat /var/log/lynis/lynis-data-$(date +%F).dat
-  ExecStartPost=/usr/bin/mv /var/log/lynis.log /var/log/lynis/lynis-log-$(date +%F).log
+  ReadWritePaths=/var/log/lynis
+
   TimeoutStartSec=15min
   EOF
 
-  # Configure Log Rotation
-  # This keeps 12 months (52 weeks) worth of reports and compresses them.
-  cat << 'EOF' | sudo tee /etc/logrotate.d/lynis
-  /var/log/lynis/* {
-    weekly
-    rotate 52
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 0600 root root
+  # Logrotate
+  sudo tee /etc/logrotate.d/lynis > /dev/null <<'EOF'
+  /var/log/lynis/lynis.log /var/log/lynis/lynis-report.dat {
+      weekly
+      rotate 52
+      compress
+      delaycompress
+      missingok
+      notifempty
+      create 0600 root root
   }
   EOF
 
-  # Reload, Enable, and Start the Timer
+  # Enable
   sudo systemctl daemon-reload
   sudo systemctl enable --now lynis-audit.timer
-  sudo systemctl enable lynis-audit.service
 
-  # Run Initial Audit Manually (Aligned with service for consistency)
-  echo "Running initial Lynis audit now..."
-  sudo /usr/bin/lynis audit system --cronjob --skip-test SSH-7408,BOOT-5122,BOOT-5139
-  # Capture report summary and archive files immediately after
-  sudo /usr/bin/lynis show warnings >> /var/log/lynis/lynis-report-$(date +%F).txt
-  sudo /usr/bin/lynis show suggestions >> /var/log/lynis/lynis-report-$(date +%F).txt
-  sudo /usr/bin/mv /var/log/lynis-report.dat /var/log/lynis/lynis-data-$(date +%F).dat
-  sudo /usr/bin/mv /var/log/lynis.log /var/log/lynis/lynis-log-$(date +%F).log
-  echo "Report summary saved to /var/log/lynis/lynis-report-$(date +%F).txt"
+  # Initial run
+  echo "Running initial Lynis audit..."
+  sudo lynis audit system --cronjob \
+    --auditor "Initial Manual Audit" \
+    --logfile /var/log/lynis/lynis.log \
+    --report-file /var/log/lynis/lynis-report.dat \
+    --skip-test SSH-7408,BOOT-5122,BOOT-5139
+
+  # Valdiate
+  # Files exist
+  ls -l /var/log/lynis/
+
+  # Check your Hardening Index (The "Score")
+  grep "Hardening index" /var/log/lynis/lynis.log
+
+  # Timer is active
+  systemctl list-timers lynis-audit.timer
+  
+  echo ""
+  echo "Lynis configured and running!"
+  echo ""
+  echo "View reports:"
+  echo "  Full log:    less /var/log/lynis/lynis.log"
+  echo "  Warnings:    grep -i warning /var/log/lynis/lynis.log"
+  echo "  Score:       grep -i 'hardening index' /var/log/lynis/lynis.log"
+  echo ""
+  echo "Timer status:"
+  systemctl list-timers lynis-audit.timer --no-pager
   ```
 - Configure AIDE:
   ```bash
