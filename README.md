@@ -2574,8 +2574,7 @@
   ExecStart=/usr/bin/lynis audit system --cronjob \
     --auditor "Automated Audit" \
     --logfile /var/log/lynis/lynis.log \
-    --report-file /var/log/lynis/lynis-report.dat \
-    --skip-test SSH-7408,BOOT-5122,BOOT-5139
+    --report-file /var/log/lynis/lynis-report.dat
 
   StandardOutput=journal
   StandardError=journal
@@ -2610,8 +2609,7 @@
   sudo lynis audit system --cronjob \
     --auditor "Initial Manual Audit" \
     --logfile /var/log/lynis/lynis.log \
-    --report-file /var/log/lynis/lynis-report.dat \
-    --skip-test SSH-7408,BOOT-5122,BOOT-5139
+    --report-file /var/log/lynis/lynis-report.dat
 
   # Valdiate
   # Files exist
