@@ -2632,82 +2632,157 @@
   echo "Timer status:"
   systemctl list-timers lynis-audit.timer --no-pager
   ```
-- Configure AIDE:
+- Configure AIDE (File Integrity Monitoring):
   ```bash
-  # Backup default config
-  cp /etc/aide.conf /etc/aide.conf.bak
+  # Backup original config
+  sudo cp /etc/aide.conf /etc/aide.conf.bak 2>/dev/null || true
 
-  # Customize aide.conf for hardened setup (focus on critical paths, strong hashes)
-  cat << 'EOF' >> /etc/aide.conf
+  # Clean, hardened config (overwrite — no duplicates)
+  sudo tee /etc/aide.conf > /dev/null <<'EOF'
+  # Database locations
+  database_in=file:/var/lib/aide/aide.db.gz
+  database_out=file:/var/lib/aide/aide.db.new.gz
 
-  # Global settings for better reports and compression
-  verbose=20
+  # Global settings
   gzip_dbout=yes
-  report_ignore_changed_attrs=b  # Ignore block changes (BTRFS-friendly)
-  report_force_attrs=u+g         # Always show user/group in reports
-
-  # Custom group: Strong security checks (attributes + strong hashes)
-  SecGroup = p+i+n+u+g+s+m+c+acl+xattrs+sha512+sha256
-
-  # Monitor critical paths
-  /boot SecGroup
-  /etc SecGroup
-  /usr/bin SecGroup
-  /usr/sbin SecGroup
-  /usr/lib SecGroup
-  /var/lib SecGroup  # For pacman db, but exclude /var/lib/aide (self-db)
-
-  # Excludes for volatile subdirs
-  !/var/lib/flatpak
-  !/var/lib/systemd/coredump  # If using systemd-coredump
-  !/var/lib/docker  # If Docker installed later
-  !/var/lib/pacman/sync  # Pacman DB sync files change often
-
-  /etc/apparmor.d SecGroup  # AppArmor profiles
-  /etc/systemd SecGroup     # Systemd configs (e.g., hardening)
-  !/var/log                 # Exclude logs (volatile)
-  !/tmp                    # Exclude temp files
-  !/proc                    # Exclude procfs
-  !/dev                     # Exclude devices (but warn on dead symlinks)
-  !/home                    # Exclude user home (add if needed)
-  !/var/spool              # Exclude spools
-
-  # Warn on dead symlinks for security
+  verbose=20
+  report_ignore_changed_attrs=b
+  report_force_attrs=u+g
   warn_dead_symlinks=yes
+
+  # Strong security rule
+  SecGroup = p+i+n+u+g+s+m+c+acl+xattrs+sha512
+
+  # Critical paths
+  /boot        SecGroup
+  /etc         SecGroup
+  /usr/bin     SecGroup
+  /usr/sbin    SecGroup
+  /usr/lib     SecGroup
+  /var/lib     SecGroup
+
+  # Security-sensitive configs
+  /etc/apparmor.d SecGroup
+  /etc/systemd    SecGroup
+  /etc/ssh        SecGroup
+  /etc/sudoers.d  SecGroup
+
+  # Exclusions (BTRFS + volatile areas)
+  !/var/lib/aide
+  !/var/lib/pacman/sync
+  !/var/lib/systemd/coredump
+  !/var/lib/flatpak
+  !/var/lib/docker
+  !/var/log
+  !/var/tmp
+  !/var/cache
+  !/var/spool
+  !/tmp
+  !/proc
+  !/sys
+  !/dev
+  !/run
+  !/home
   EOF
-  
+
   # Validate config
-  sudo aide -D || { echo "Config error - check /etc/aide.conf"; exit 1; }
-  echo "AIDE config customized and validated."
+  echo "Validating AIDE configuration..."
+  sudo aide --config-check
+  if [ $? -ne 0 ]; then
+    echo "Config error — fix /etc/aide.conf before continuing"
+    exit 1
+  fi
+  echo "AIDE configuration valid"
 
-  # Initialize with verbose output
-  sudo aide --init --verbose=20
-  # Note that this process will take long (12 min for 600k files), will not output anything, and /var/lib/aide/aide.db.new.gz will appear empty until the process completes.
-  sudo aide --update 
+  # Initialize database (5–15 min — normal to see no output)
+  echo "Initializing AIDE database (first run)..."
+  sudo aide --init
+  sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+  echo "Database initialized"
 
-  # Move new DB to production
-  mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz  # Note: .gz if gzip_dbout=yes
+  # Smart service (flag-based update logic)
+  sudo tee /etc/systemd/system/aidecheck.service > /dev/null <<'EOF'
+  [Unit]
+  Description=AIDE File Integrity Check
+  After=multi-user.target
 
-  # Run initial check to verify
-  sudo aide --check || { echo "Initial check failed - investigate changes"; }
-  
-  # Enable timer for daily checks
-  systemctl enable --now aidecheck.timer
+  [Service]
+  Type=oneshot
+  ExecStart=/bin/sh -c '
+    if [ -f /var/lib/aide/.update-needed ]; then
+      echo "Updating AIDE database after package changes..."
+      /usr/bin/aide --update && mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz && rm -f /var/lib/aide/.update-needed
+    else
+      /usr/bin/aide --check
+    fi'
 
-  # To check the results we can look the /var/log/aide.log or by running:
-  sudo journalctl -abu aidecheck
+  StandardOutput=journal
+  StandardError=journal
 
-  # Pacman hook to auto-update DB after upgrades (convenience: no manual mv/review unless daily check alerts)
-  cat << 'EOF' > /etc/pacman.d/hooks/99-aide-update.hook
+  ProtectSystem=full
+  ProtectHome=true
+  PrivateTmp=true
+  ReadWritePaths=/var/lib/aide
+  EOF
+
+  # Daily timer
+  sudo tee /etc/systemd/system/aidecheck.timer > /dev/null <<'EOF'
+  [Unit]
+  Description=Run AIDE daily
+
+  [Timer]
+  OnCalendar=daily
+  Persistent=true
+  RandomizedDelaySec=1h
+
+  [Install]
+  WantedBy=timers.target
+  EOF
+
+  # Non-blocking pacman hook (best design)
+  sudo mkdir -p /etc/pacman.d/hooks
+  sudo tee /etc/pacman.d/hooks/99-aide-update.hook > /dev/null <<'EOF'
   [Trigger]
+  Operation = Install
   Operation = Upgrade
+  Operation = Remove
   Type = Package
   Target = *
+
   [Action]
-  Description = Auto-update AIDE database after upgrades
+  Description = Flag AIDE database update needed
   When = PostTransaction
-  Exec = /usr/bin/bash -c '/usr/bin/aide --update | tee /var/log/aide/aide-update-report-$(date +%F).txt; mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz'
+  Exec = /usr/bin/touch /var/lib/aide/.update-needed
   EOF
+
+  # Enable and start
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now aidecheck.timer
+
+  echo ""
+  echo "AIDE configured successfully!"
+  echo ""
+  echo "Verification:"
+  echo "  Database: ls -lh /var/lib/aide/aide.db.gz"
+  echo "  Timer:    systemctl status aidecheck.timer"
+  echo "  Test run: sudo systemctl start aidecheck.service"
+  echo "  Logs:     journalctl -u aidecheck.service -n 30"
+
+  # Validate
+  # Database exists:
+  sudo ls -lh /var/lib/aide/aide.db.gz
+
+  # Timer active:
+  sudo systemctl status aidecheck.timer --no-pager
+
+  # Run first check:
+  sudo systemctl start aidecheck.service
+
+  # Check logs:
+  journalctl -u aidecheck.service -n 30
+
+  # Verify pacman hook:
+  sudo ls -l /etc/pacman.d/hooks/99-aide-update.hook
   ```
 - Create systemd global hardening:
   ```bash
