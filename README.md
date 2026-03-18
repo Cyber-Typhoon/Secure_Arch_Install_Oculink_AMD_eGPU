@@ -2664,6 +2664,7 @@
   !/var/lib/aide
   !/var/lib/pacman/sync
   !/var/lib/systemd/coredump
+  !/var/lib/systemd/timesync
   !/var/lib/flatpak
   !/var/lib/docker
   !/var/log
@@ -2714,6 +2715,8 @@
   ProtectHome=true
   PrivateTmp=true
   ReadWritePaths=/var/lib/aide
+
+  SuccessExitStatus=0 4
   EOF
 
   # Daily timer
