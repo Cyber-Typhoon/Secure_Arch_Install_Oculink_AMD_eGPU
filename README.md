@@ -2706,23 +2706,7 @@
 
   [Service]
   Type=oneshot
-  ExecStart=/bin/sh -c '
-  set -e
-  if [ -f /var/lib/aide/.update-needed ]; then
-    echo "Updating AIDE database after package changes..."
-    /usr/bin/aide --update
-  
-    if [ ! -f /var/lib/aide/aide.db.new.gz ]; then
-      echo "ERROR: AIDE update failed to create database"
-      exit 1
-    fi
-  
-    mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
-    rm -f /var/lib/aide/.update-needed
-    echo "Database updated successfully"
-  else
-    /usr/bin/aide --check
-  fi'
+  ExecStart=/bin/sh -c 'set -e; if [ -f /var/lib/aide/.update-needed ]; then echo "Updating AIDE database after package changes..."; /usr/bin/aide --update; if [ ! -f /var/lib/aide/aide.db.new.gz ]; then echo "ERROR: AIDE update failed to create database"; exit 1; fi; mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz; rm -f /var/lib/aide/.update-needed; echo "Database updated successfully"; else /usr/bin/aide --check; fi'
 
   StandardOutput=journal
   StandardError=journal
