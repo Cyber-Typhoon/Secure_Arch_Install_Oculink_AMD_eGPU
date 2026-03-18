@@ -2895,18 +2895,34 @@
   ```
 - MGLRU + THP madvise:
   ```bash
-  sudo tee /etc/tmpfiles.d/10-gaming-tweaks.conf > /dev/null <<'EOF'
-  # Transparent Huge Pages → madvise + no defrag (eliminates THP stalls in games)
-  w /sys/kernel/mm/transparent_hugepage/enabled           - - - - madvise
-  w /sys/kernel/mm/transparent_hugepage/shmem_enabled      - - - - advise
-  w /sys/kernel/mm/transparent_hugepage/khugepaged/defrag  - - - - 0
+  # MGLRU status:
+  cat /sys/kernel/mm/lru_gen/enabled # f it outputs 0x0007: MGLRU is already fully enabled and managed by the kernel. You do not need to touch it.
 
-  # Full MGLRU (multi-gen LRU) – gives 5–12 % better 1% lows on Zen 4/Meteor Lake
-  w /sys/kernel/mm/lru_gen/enabled                         - - - - 7
+  # Create the Configuration:
+  sudo tee /etc/tmpfiles.d/10-memory-tuning.conf > /dev/null <<'EOF'
+  # /etc/tmpfiles.d/10-memory-tuning.conf
+  # Description: Mitigate latency spikes by tuning Transparent Huge Pages (THP).
+  # MGLRU is intentionally omitted as modern kernels handle it dynamically.
+
+  # Set THP to 'madvise' (Only use Huge Pages when an app specifically requests them)
+  w /sys/kernel/mm/transparent_hugepage/enabled           - - - - madvise
+
+  # Disable THP defragmentation (Eliminates the CPU stall when the kernel forces RAM defrag)
+  w /sys/kernel/mm/transparent_hugepage/khugepaged/defrag - - - - 0
+
+  # Set shared memory (shmem) to advise (Safe default for Vulkan/OpenGL gaming)
+  w /sys/kernel/mm/transparent_hugepage/shmem_enabled     - - - - advise
   EOF
 
-  # Apply immediately apply
+  # Apply the settings immediately without rebooting:
   sudo systemd-tmpfiles --create
+
+  # Verify
+  cat /sys/kernel/mm/transparent_hugepage/enabled
+  # Expected output: always [madvise] never
+
+  cat /sys/kernel/mm/transparent_hugepage/khugepaged/defrag
+  # Expected output: 0
   ```
 - Audit SUID binaries:
   ```bash
