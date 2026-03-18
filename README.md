@@ -3181,6 +3181,11 @@
   ```bash
   dmesg | grep -i "Memory Encryption"
   # If you see "TME: enabled", your RAM is encrypted against physical extraction.
+
+- Harden systemd services?
+  ```bash
+  # Consider adding some hardening to systemd services
+  systemd-analyze security
   ```
 ## Step 12: Configure eGPU (AMD)
 
