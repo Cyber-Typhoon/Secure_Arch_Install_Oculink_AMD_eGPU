@@ -2765,7 +2765,7 @@
 - Configure sysctl hardening:
   ```bash
   # Backup current settings
-  sudo sysctl -a > /root/sysctl-backup-$(date +%F).txt 2>/dev/null
+  systeroid -a | sudo tee /root/sysctl-backup-$(date +%F).txt > /dev/null
 
   # Apply the config
   sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<'EOF'
