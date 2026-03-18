@@ -2787,8 +2787,6 @@
   net.ipv6.conf.default.accept_source_route=0
   net.ipv4.conf.all.log_martians=1
   net.ipv4.conf.default.log_martians=1
-  net.ipv6.conf.all.log_martians=1
-  net.ipv6.conf.default.log_martians=1
   net.ipv4.icmp_ignore_bogus_error_responses=1
   net.ipv4.icmp_echo_ignore_broadcasts=1
   net.ipv4.tcp_rfc1337=1
@@ -2821,8 +2819,8 @@
   # kernel.oops_limit = 10             # Reboot on excessive oopses. DO NOT enable warn/oops limits on desktop (can cause random reboots)
 
   # === COMPATIBILITY HARDENING ===
-  kernel.unprivileged_bpf_disabled=1   # MUST BE 0 for Games/Tracing. Block unprivileged BPF exploits (Use sudo for tracing)
-  kernel.modules_disabled=0            # MUST BE 0 for eGPU/WiFi (Default is fine, but ensures we don't accidentally disable it)
+  # kernel.unprivileged_bpf_disabled=1 # Block unprivileged BPF exploits (use sudo for tracing tools if needed). Set to 0 only if specific games/anti-cheat require it.
+  # kernel.modules_disabled=0          # MUST BE 0 for eGPU/WiFi (Default is fine, but ensures we don't accidentally disable it). Default is 0, no need to set explicitly.
 
   # === SANDBOXING (Flatpak/Steam) ===
   user.max_user_namespaces=32768       # REQUIRED for sandboxing (Flatpak, Steam, Chrome)
@@ -2842,10 +2840,10 @@
   vm.compaction_proactiveness=0
   vm.watermark_scale_factor=500
   vm.watermark_boost_factor=0
-  vm.min_free_kbytes=327680
+  # vm.min_free_kbytes=131072
   vm.page_lock_unfairness=1
   vm.zone_reclaim_mode=0
-  kernel.sched_nr_migrate=128
+  # kernel.sched_nr_migrate=128        # Not available on modern kernel
   kernel.split_lock_mitigate=0         # May improve frametimes in some Proton / DXVK titles. Disable if you experience instability
 
   # === I/O SMOOTHNESS (Smoothness/Latency) ===
@@ -2863,7 +2861,7 @@
   echo "=== Auditing hardening config with systeroid ==="
 
   # Parse & validate sysctl config file (NO enforcement)
-  sudo systeroid --load=/etc/sysctl.d/99-hardening.conf -e --quiet
+  sudo systeroid -p /etc/sysctl.d/99-hardening.conf
 
   # Search for key hardening categories (check for misses/overrides)
   # - Network: Ensure RP filters, redirects, etc., applied
