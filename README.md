@@ -2754,7 +2754,7 @@
   sudo systemctl enable --now aidecheck.timer
 
   echo ""
-  echo "✅ AIDE configured!"
+  echo "AIDE configured!"
   echo ""
   echo "Verification:"
   echo "  ls -lh /var/lib/aide/aide.db.gz"
@@ -2764,10 +2764,15 @@
   ```
 - Configure sysctl hardening:
   ```bash
+  # Backup current settings
+  sudo sysctl -a > /root/sysctl-backup-$(date +%F).txt 2>/dev/null
+
+  # Apply the config
   sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<'EOF'
   # === NETWORK HARDENING ===
-  net.ipv4.conf.default.rp_filter=1
-  net.ipv4.conf.all.rp_filter=1
+  # Use "loose" mode to avoid breaking VPNs, Docker, multi-homed setups
+  net.ipv4.conf.default.rp_filter=2
+  net.ipv4.conf.all.rp_filter=2
   net.ipv4.tcp_syncookies=1
   net.ipv4.ip_forward=1                # updated to 1 from 0 for USB tethering/hotspot/VMs
   net.ipv4.conf.all.accept_redirects=0
@@ -2781,6 +2786,7 @@
   net.ipv4.conf.default.accept_source_route=0
   net.ipv6.conf.default.accept_source_route=0
   net.ipv4.conf.all.log_martians=1
+  net.ipv4.conf.default.log_martians=1
   net.ipv6.conf.all.log_martians=1
   net.ipv6.conf.default.log_martians=1
   net.ipv4.icmp_ignore_bogus_error_responses=1
@@ -2810,11 +2816,12 @@
   vm.unprivileged_userfaultfd = 0      # Disable dangerous userfaultfd
   dev.tty.ldisc_autoload = 0           # Disable tty line discipline autoloading
   dev.tty.legacy_tiocsti = 0           # Disable TIOCSTI (key injection)
-  kernel.warn_limit = 10                # Reboot on excessive warnings
-  kernel.oops_limit = 10                # Reboot on excessive oopses
+  kernel.sysrq=244                     # Enable REISUB emergency recovery (desktop-appropriate)
+  # kernel.warn_limit = 10             # Reboot on excessive warnings. DO NOT enable warn/oops limits on desktop (can cause random reboots)
+  # kernel.oops_limit = 10             # Reboot on excessive oopses. DO NOT enable warn/oops limits on desktop (can cause random reboots)
 
   # === COMPATIBILITY HARDENING ===
-  kernel.unprivileged_bpf_disabled=0   # MUST BE 0 for Games/Tracing
+  kernel.unprivileged_bpf_disabled=1   # MUST BE 0 for Games/Tracing. Block unprivileged BPF exploits (Use sudo for tracing)
   kernel.modules_disabled=0            # MUST BE 0 for eGPU/WiFi (Default is fine, but ensures we don't accidentally disable it)
 
   # === SANDBOXING (Flatpak/Steam) ===
@@ -2835,7 +2842,7 @@
   vm.compaction_proactiveness=0
   vm.watermark_scale_factor=500
   vm.watermark_boost_factor=0
-  vm.min_free_kbytes=1048576
+  vm.min_free_kbytes=327680
   vm.page_lock_unfairness=1
   vm.zone_reclaim_mode=0
   kernel.sched_nr_migrate=128
