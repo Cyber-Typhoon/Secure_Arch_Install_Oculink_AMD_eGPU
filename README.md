@@ -2690,7 +2690,7 @@
   # Initialize database
   echo "Initializing AIDE database (5-15 min)..."
   sudo aide --init
-  if [ ! -f /var/lib/aide/aide.db.new.gz ]; then
+  if sudo [ ! -f /var/lib/aide/aide.db.new.gz ]; then
     echo "ERROR: AIDE initialization failed"
   else
     echo "Database exists"
