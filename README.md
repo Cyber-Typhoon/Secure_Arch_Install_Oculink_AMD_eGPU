@@ -3287,7 +3287,7 @@
   echo "⚠️  First 1-2 hours will have connection prompts"
   echo "   This is normal - you're building your baseline"
   echo ""
-  read -p "Install OpenSnitch? (yes/NO): " confirm
+  read "confirm?Install OpenSnitch? (yes/NO): "
   echo ""
 
   if [[ "$confirm" != "yes" ]]; then
@@ -3345,7 +3345,7 @@
       exit 1
   fi
 
-  if pgrep -f "opensnitch" > /dev/null; then
+  if pgrep -x opensnitch-ui > /dev/null; then
       echo "  ✓ opensnitch-ui: running"
   else
       echo "  ⚠️  opensnitch-ui: not running (will start on login)"
@@ -3390,7 +3390,7 @@
   echo ""
   echo "Remove completely:" 
   echo "  sudo systemctl disable --now opensnitchd"
-  echo "  sudo pacman -Rns opensnitch opensnitch-ui"
+  echo "  sudo pacman -Rns opensnitch"
   echo "  rm -rf ~/.config/opensnitch"
   echo ""
   echo "=== YOUR NETWORK STACK ==="
