@@ -3297,10 +3297,6 @@
       exit 0
   fi
 
-  # Install
-  echo "Installing OpenSnitch..."
-  sudo pacman -S --needed opensnitch opensnitch-ui
-
   # Configure eBPF backend (SIMPLE - safe mutation only)
   echo "Optimizing backend for eBPF..."
 
