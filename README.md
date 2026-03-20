@@ -3282,17 +3282,137 @@
   ```
 - Configure opensnitch:
   ```bash
-  # Enable and start the daemon
+  echo "=== Installing OpenSnitch (Application Firewall) ==="
+  echo ""
+  echo "⚠️  First 1-2 hours will have connection prompts"
+  echo "   This is normal - you're building your baseline"
+  echo ""
+  read -p "Install OpenSnitch? (yes/NO): " confirm
+  echo ""
+
+  if [[ "$confirm" != "yes" ]]; then
+      echo "Skipping OpenSnitch installation"
+      echo ""
+      echo "ℹ️  You can add this later if needed"
+      exit 0
+  fi
+
+  # Install
+  echo "Installing OpenSnitch..."
+  sudo pacman -S --needed opensnitch opensnitch-ui
+
+  # Configure eBPF backend (SIMPLE - safe mutation only)
+  echo "Optimizing backend for eBPF..."
+
+  CONFIG_FILE="/etc/opensnitchd/default-config.json"
+
+  if [[ -f "$CONFIG_FILE" ]] && grep -q '"ProcMonitorMethod"' "$CONFIG_FILE"; then
+      # Safe: file exists AND key exists - just update value
+      sudo sed -i 's/"ProcMonitorMethod": *"[^"]*"/"ProcMonitorMethod": "ebpf"/' "$CONFIG_FILE"
+      echo "✓ Set eBPF backend in config"
+  else
+      # Skip if file/key missing - let user verify in GUI
+      echo "ℹ️  eBPF config skipped - verify in GUI settings"
+  fi
+
+  # Enable daemon
+  echo "Enabling OpenSnitch daemon..."
   sudo systemctl enable --now opensnitchd.service
 
-  # Launch the GUI to configure/unpause (unpause to enable blocking!)
-  opensnitch-ui
+  # Configure GUI autostart
+  echo "Configuring GUI autostart..."
+  mkdir -p ~/.config/autostart
+  cp /usr/share/applications/opensnitch_ui.desktop ~/.config/autostart/ 2>/dev/null || {
+      tee ~/.config/autostart/opensnitch-ui.desktop > /dev/null <<'EOF'
+  [Desktop Entry]
+  Type=Application
+  Name=OpenSnitch UI
+  Exec=opensnitch-ui
+  Hidden=false
+  NoDisplay=false
+  X-GNOME-Autostart-enabled=true
+  EOF 
+  }
 
-  # Verify
-  systemctl status opensnitchd.service
-  journalctl -u opensnitchd.service -f # Tail logs for connection attempts
+  # Launch GUI now
+  echo "Launching OpenSnitch GUI..."
+  opensnitch-ui &
+  sleep 2
 
-  # Will annoy you the first 30–60 min until you allow Firefox, Steam, Signal, etc. But that is the point. Just keep the GUI open the first day.
+  # Verification
+  echo ""
+  echo "=== Verification ==="
+  if systemctl is-active --quiet opensnitchd.service; then
+      echo "  ✓ opensnitchd daemon: active"
+  else
+      echo "  ✗ opensnitchd daemon: failed"
+      exit 1
+  fi
+
+  if pgrep -f "opensnitch" > /dev/null; then
+      echo "  ✓ opensnitch-ui: running"
+  else
+      echo "  ⚠️  opensnitch-ui: not running (will start on login)"
+  fi
+
+  echo ""
+  echo "✅ OpenSnitch installed successfully! "
+  echo ""
+  echo "📝 CRITICAL NEXT STEPS:"
+  echo ""
+  echo "1. GUI is now open (system tray icon)"
+  echo ""
+  echo "2. In GUI Preferences, VERIFY:"
+  echo "   - Default action: ALLOW (learning mode)"
+  echo "   - Backend: eBPF (for best performance)"
+  echo "     If not eBPF, change it manually in settings"
+  echo ""
+  echo "3. Use your system normally:"
+  echo "   - Open Firefox, Steam, ProtonVPN, etc."
+  echo "   - Allow trusted apps: 'Allow → Process → Always'"
+  echo "   - Deny suspicious connections"
+  echo ""
+  echo "4. Common first prompts (usually safe to allow):"
+  echo "   - /usr/bin/firefox"
+  echo "   - /usr/bin/steam"
+  echo "   - /usr/bin/steamwebhelper"
+  echo "   - /usr/bin/NetworkManager"
+  echo "   - Your VPN client"
+  echo "   - Proton/Wine processes"
+  echo ""
+  echo "5. Golden rules:"
+  echo "   ❌ Don't click 'Allow All'"
+  echo "   ❌ Don't switch to 'Deny by default'"
+  echo "   ❌ Don't overthink every prompt"
+  echo "   ✅ Trust known binaries (/usr/bin/...)"
+  echo "   ⚠️  Be careful with /tmp or unknown paths"
+  echo ""
+  echo "=== ROLLBACK ==="
+  echo ""
+  echo "Temporary disable:"
+  echo "  sudo systemctl stop opensnitchd"
+  echo ""
+  echo "Remove completely:" 
+  echo "  sudo systemctl disable --now opensnitchd"
+  echo "  sudo pacman -Rns opensnitch opensnitch-ui"
+  echo "  rm -rf ~/.config/opensnitch"
+  echo ""
+  echo "=== YOUR NETWORK STACK ==="
+  echo ""
+  echo "Layer 1: UFW (packet filtering)"
+  echo "Layer 2: ProtonVPN (routing/privacy)"
+  echo "Layer 3: dnscrypt-proxy (DNS privacy)"
+  echo "Layer 4: OpenSnitch (app control) ← NEW"
+  echo ""
+  echo "✅ Clean architecture - complementary layers"
+  echo ""
+
+  # Commit to etckeeper
+  sudo etckeeper commit "OpenSnitch: Application firewall (simple learning mode)"
+
+  echo "🎯 Start using your system normally to build your baseline!"
+  echo ""
+  echo "Evaluate after 3 days - keep if adds value, remove if too annoying."
   ```
 - Binary Hardening: Replace Setuid with Capabilities
   ```bash
