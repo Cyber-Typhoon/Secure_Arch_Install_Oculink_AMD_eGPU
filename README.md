@@ -3043,30 +3043,74 @@
   ```
 - Configure zram:
   ```bash
-  cat << 'EOF' | sudo tee /etc/systemd/zram-generator.conf
+  echo "Step: Removing conflicting ZRAM services..."
+
+  for svc in zramswap.service zram-config.service tlp-zram.service systemd-swap.service; do
+      sudo systemctl disable --now "$svc" 2>/dev/null || true
+      sudo systemctl mask "$svc" 2>/dev/null || true
+  done
+
+  echo "Step: Creating ZRAM configuration..."
+
+  sudo tee /etc/systemd/zram-generator.conf > /dev/null <<'EOF'
   [zram0]
   zram-size = min(ram / 2, 8192)
   compression-algorithm = zstd
   swap-priority = 100
   EOF
+
+  echo "Step: Configuring kernel memory parameters..."
+
+  sudo tee /etc/sysctl.d/99-zram-optimize.conf > /dev/null <<'EOF'
+  # === ZRAM Memory Optimization ===
+  # Overrides gaming-only values from 99-hardening.conf
+
+  # Swappiness: Aggressive ZRAM use
+  # Tunable: adjust to 60 (conservative) or 100 (maximum) if needed
+  vm.swappiness=80
+
+  # Page clustering: Disable for ZRAM (essential!)
+  vm.page-cluster=0
+  EOF
+
+  echo "Step: Applying configurations..."
+
   sudo systemctl daemon-reload
+  sudo sysctl --system
+  sudo systemctl enable --now systemd-zram-setup@zram0.service
 
-  # Remove old conflicting services first (very common source of silent failure)
-  sudo systemctl disable --now zramswap.service 2>/dev/null || true
-  sudo systemctl disable --now zram-config.service 2>/dev/null || true
-  sudo systemctl mask zramswap.service 2>/dev/null || true
+  echo ""
+  echo "=== CONFIGURATION COMPLETE ==="
+  echo ""
 
-  # TLP sometimes ships its own zram module on older distros
-  sudo systemctl disable --now tlp-zram.service 2>/dev/null || true
+  echo "ZRAM Status:"
+  zramctl
+  echo ""
 
-  # Broader cleanup
-  for unit in $(systemctl list-unit-files --plain | grep -i zram | awk '{print $1}'); do
-    sudo systemctl disable --now "$unit" 2>/dev/null || true
-    sudo systemctl mask "$unit" 2>/dev/null || true
-  done
+  echo "Swap Status:"
+  swapon --show
+  echo ""
 
-  # Now enable the modern generator-based one
-  systemctl enable --now systemd-zram-setup@zram0.service 
+  echo "Kernel Settings:"
+  echo "  vm.swappiness = $(sysctl -n vm.swappiness)"
+  echo "  vm.page-cluster = $(sysctl -n vm.page-cluster)"
+  echo ""
+
+  echo "Memory:"
+  free -h
+  echo ""
+
+  echo "Setup Complete! "
+  echo ""
+  echo "Configuration Summary:"
+  echo "  ZRAM: min(50% RAM, 8GB) with zstd compression"
+  echo "  ZRAM Priority: 100 (used before disk swap)"
+  echo "  Swappiness: 80 (tunable in /etc/sysctl.d/99-zram-optimize.conf)"
+  echo "  Page Cluster: 0 (optimized for ZRAM)"
+  echo "  THP: Left at system default (stable baseline)"
+  echo ""
+  echo "Reboot recommended for full effect"
+  echo ""
   ```
 - Configure systemd-oomd for desktop responsiveness
   ```bash
