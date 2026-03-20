@@ -3200,26 +3200,6 @@
   echo "  - Games protected (user.slice priorities)"
   echo "  - No full system freezes or swap thrashing"
   ```
-- Memory/scheduler tweaks:
-  ```bash
-  sudo tee /etc/tmpfiles.d/consistent-response-time-for-gaming.conf > /dev/null <<'EOF'
-  # Memory/Jitter Reduction (Arch Wiki Gaming)
-  w /proc/sys/vm/compaction_proactiveness - - - - 0
-  w /proc/sys/vm/min_free_kbytes - - - - 204800
-  w /proc/sys/vm/swappiness - - - - 10
-  w /sys/kernel/mm/lru_gen/enabled - - - - 7
-  w /proc/sys/vm/zone_reclaim_mode - - - - 0
-  w /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
-  w /sys/kernel/mm/transparent_hugepage/shmem_enabled - - - - advise
-  w /sys/kernel/mm/transparent_hugepage/khugepaged/defrag - - - - 0
-  w /proc/sys/vm/page_lock_unfairness - - - - 1
-  w /proc/sys/kernel/sched_child_runs_first - - - - 0
-  w /proc/sys/kernel/sched_autogroup_enabled - - - - 1
-  w /proc/sys/kernel/sched_migration_cost_ns - - - - 500000
-  w /proc/sys/kernel/sched_nr_migrate - - - - 32
-  EOF
-  sudo systemd-tmpfiles --create
-  ```
 - Configure udisk for Firmware Updates:
   ```bash
   # Install and enable
