@@ -3202,19 +3202,83 @@
   ```
 - Configure udisk for Firmware Updates:
   ```bash
-  # Install and enable
-  pacman -S udisks2
-  systemctl enable --now udisks2.service
+  # Enable services
+  echo "Enabling services..."
+  sudo systemctl enable --now udisks2.service
 
-  # Secure Boot: Allow capsule updates
-  echo '[uefi_capsule]\nDisableShimForSecureBoot=true' >> /etc/fwupd/fwupd.conf
+  # Backup existing config (if it exists)
+  if [[ -f /etc/fwupd/fwupd.conf ]]; then
+      sudo cp /etc/fwupd/fwupd.conf /etc/fwupd/fwupd.conf.backup
+      echo "✓ Backed up existing fwupd.conf"
+  fi
 
-  # Sign fwupd EFI binary
-  sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi
+  # Create drop-in configuration (BEST PRACTICE - survives package updates)
+  echo "Creating Secure Boot configuration..."
+  sudo mkdir -p /etc/fwupd/fwupd.conf.d
 
-  # Verify setup (NO update checks)
-  fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" && echo "fwupd: UEFI device detected"
-  echo "fwupd configured. Updates will be checked in Step 18 (after first boot)."
+  sudo tee /etc/fwupd/fwupd.conf.d/99-secureboot.conf > /dev/null <<'EOF'
+  # Secure Boot configuration for self-signed keys (sbctl)
+  # Disables shim verification (not needed with sbctl)
+  [uefi_capsule]
+  DisableShimForSecureBoot=true
+  EOF
+
+  echo "✓ Created /etc/fwupd/fwupd.conf.d/99-secureboot.conf"
+
+  # Sign fwupd EFI binary with sbctl
+  echo "Signing fwupd EFI binary..."
+  if [[ -f /usr/lib/fwupd/efi/fwupdx64.efi ]]; then
+      sudo sbctl sign -s /usr/lib/fwupd/efi/fwupdx64.efi
+      echo "✓ Signed fwupdx64.efi"
+  else
+      echo "⚠ Warning: fwupdx64.efi not found (may appear after first fwupd run)"
+  fi
+
+  # Verification (NO UPDATES)
+  echo ""
+  echo "=== Verification ==="
+  echo ""
+
+  # Check services
+  echo "Services:"
+  systemctl is-active udisks2.service && echo "  ✓ udisks2: active" || echo "  ✗ udisks2: inactive"
+  systemctl is-active fwupd.service && echo "  ✓ fwupd: active" || echo "  ℹ fwupd: inactive (normal, starts on-demand)"
+  echo ""
+
+  # Check for UEFI devices (don't fail if none found)
+  echo "UEFI Devices:"
+  if fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" > /dev/null; then
+      fwupdmgr get-devices 2>/dev/null | grep -i "UEFI" | head -3
+      echo "  ✓ UEFI device detected"
+  else
+      echo "  ℹ No UEFI devices detected yet (normal before first boot)"
+      echo "  ℹ Ensure 'UEFI Capsule Updates' enabled in BIOS"
+  fi
+  echo ""
+
+  # Verify sbctl signing
+  echo "Secure Boot Signing:"
+  if sbctl verify 2>/dev/null | grep -q "fwupdx64.efi"; then
+      sbctl verify 2>/dev/null | grep "fwupdx64.efi"
+  else
+      echo "  ℹ fwupdx64.efi signing will be verified after first fwupd run"
+  fi
+  echo ""
+
+  echo "✅ fwupd configuration complete! "
+  echo ""
+  echo "📝 Configuration Summary:"
+  echo "  - Packages: fwupd, udisks2"
+  echo "  - Services: enabled and running"
+  echo "  - Secure Boot: configured for sbctl (no shim)"
+  echo "  - Config: /etc/fwupd/fwupd.conf.d/99-secureboot.conf"
+  echo ""
+  echo "⚠ IMPORTANT: Firmware updates will be checked in Step 18"
+  echo "  (after first successful boot and system validation)"
+  echo ""
+
+  # Commit to etckeeper
+  sudo etckeeper commit "fwupd: Configured for Secure Boot UEFI updates"
   ```
 - Configure opensnitch:
   ```bash
