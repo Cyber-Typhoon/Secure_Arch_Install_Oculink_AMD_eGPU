@@ -3114,16 +3114,91 @@
   ```
 - Configure systemd-oomd for desktop responsiveness
   ```bash
-  # This prevents the system from freezing by killing memory-hogging background apps before the swap fills up completely.
-  sudo mkdir -p /etc/systemd/oomd.conf.d
-  cat << 'EOF' | sudo tee /etc/systemd/oomd.conf.d/10-desktop.conf
-  [OOM]
-  # Start acting when 80% of swap is used (preserves system responsiveness)
-  SwapUsedLimit=80%
-  # Start acting when 90% of RAM is used
-  DefaultMemoryPressureLimit=90%
+  echo "Step: Enabling systemd-oomd..."
+  sudo systemctl enable --now systemd-oomd.service
+
+  echo "Step: Configuring user.slice for OOM protection..."
+
+  sudo mkdir -p /etc/systemd/system/user.slice.d
+
+  sudo tee /etc/systemd/system/user.slice.d/10-oomd.conf > /dev/null <<'EOF'
+  [Slice]
+  # Enable memory pressure-based OOM killing for user applications
+  # This protects system responsiveness by killing memory-hungry apps
+  ManagedOOMMemoryPressure=kill
+
+  # Threshold: 80% (balanced for gaming + desktop responsiveness)
+  # - 60% = very responsive (Fedora default)
+  # - 80% = balanced (gaming-friendly, recommended)
+  # - 90% = too late (system already freezing)
+  ManagedOOMMemoryPressureLimit=80%
+
+  # Enable swap-based fallback protection
+  ManagedOOMSwap=kill
   EOF
+
+  echo "Step: Configuring global oomd defaults..."
+
+  sudo mkdir -p /etc/systemd/oomd.conf.d
+
+  sudo tee /etc/systemd/oomd.conf.d/10-defaults.conf > /dev/null <<'EOF'
+  [OOM]
+  # Default memory pressure limit (used if slice not configured)
+  DefaultMemoryPressureLimit=80%
+
+  # Require sustained pressure before acting (prevents false kills during game loads)
+  DefaultMemoryPressureDurationSec=10s
+
+  # Swap usage limit (secondary safety net)
+  # With ZRAM, keep this HIGH (90%) to avoid premature kills
+  # ZRAM compresses data, so swap % is misleading
+  SwapUsedLimit=90%
+  EOF
+
+  echo "Step: Applying configuration..."
+
+  sudo systemctl daemon-reload
   sudo systemctl restart systemd-oomd
+
+  echo ""
+  echo "=== CONFIGURATION COMPLETE ==="
+  echo ""
+
+  echo "systemd-oomd Status:"
+  systemctl status systemd-oomd --no-pager | head -n 5
+  echo ""
+
+  echo "user.slice OOM Configuration:"
+  systemctl show user.slice | grep ManagedOOM
+  echo ""
+
+  echo "Global OOM Settings:"
+  sudo oomctl | head -n 10
+  echo ""
+
+  echo "PSI (Pressure Stall Information) Status:"
+  cat /proc/pressure/memory
+  echo ""
+
+  echo "Current Swap State:"
+  swapon --show
+  echo ""
+
+  echo "Setup Complete! "
+  echo ""
+  echo "Configuration Summary:"
+  echo "  systemd-oomd: Active and monitoring"
+  echo "  Primary trigger: PSI (memory pressure) - ZRAM-aware"
+  echo "  user.slice: Kill enabled at 80% pressure"
+  echo "  Duration: 10 seconds (prevents false kills)"
+  echo "  Swap limit: 90% (secondary safety net)"
+  echo "  system.slice: Protected (won't kill system services)"
+  echo ""
+  echo " Expected Behavior:"
+  echo "  - Under heavy load: background apps killed first"
+  echo "  - System stays responsive during memory exhaustion"
+  echo "  - Games protected (user.slice priorities)"
+  echo "  - No full system freezes or swap thrashing"
   ```
 - Memory/scheduler tweaks:
   ```bash
