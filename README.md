@@ -3628,6 +3628,53 @@
   echo "🏆 Step 11 Complete (Base Configuration)!"
   echo "📝 Apply gaming fixes only as needed"
   ```
+- Increase Audit Backlog for AppArmor Complain Mode
+  ```bash
+  echo "Increasing audit backlog for AppArmor learning phase..."
+
+  # AppArmor with 2000+ profiles in complain mode generates
+  # massive log volume. Default backlog (8192-16384) is too small.
+
+  # Create main audit rules file if it doesn't exist
+  if [[ ! -f /etc/audit/rules.d/audit.rules ]]; then
+    sudo tee /etc/audit/rules.d/audit.rules > /dev/null <<'EOF'
+  # Audit Rules Configuration
+  # Generated during Arch Fortress installation
+
+  # AppArmor Complain Mode - Increase Backlog
+  # 2040+ profiles in complain mode = massive log volume
+  # Default: 8192-16384 → New: 32768
+  -b 32768
+  EOF
+  else
+      # Append to existing file
+      sudo tee -a /etc/audit/rules.d/audit.rules > /dev/null <<'EOF'
+  # AppArmor Complain Mode - Increase Backlog
+  # 2040+ profiles generate massive log volume
+  -b 32768
+  EOF
+  fi
+
+  # Apply immediately
+  sudo auditctl -b 32768
+
+  # Reload all rules
+  sudo augenrules --load > /dev/null 2>&1
+
+  # Verify
+  CURRENT_BACKLOG=$(sudo auditctl -s | grep backlog_limit | awk '{print $2}')
+
+  if [[ "$CURRENT_BACKLOG" == "32768" ]]; then
+      echo "✓ Audit backlog increased to 32768"
+  else
+      echo "  Audit backlog: $CURRENT_BACKLOG (expected 32768)"
+      echo "   This is non-critical, system will work fine"
+  fi
+
+  echo ""
+  echo "NOTE: 'Old style watch rules are slower' warnings are normal"
+  echo "      and can be ignored (legacy audit rule format)"
+  ```
 - Check for TME support (If your CPU support it and is active in the BIOS this is a check)
   ```bash
   dmesg | grep -i "Memory Encryption"
@@ -5574,7 +5621,9 @@
     NC='\033[0m'
 
     # --- Logging ---
-    LOGFILE="$HOME/update-log-$(date +%Y%m%d-%H%M).txt"
+    LOG_DIR="$HOME/Documents/System/Updates"
+    mkdir -p "$LOG_DIR"
+    LOGFILE="$LOG_DIR/update-log-$(date +%Y%m%d-%H%M).txt"
     exec > >(tee /dev/tty | sed 's/\x1b\[[0-9;]*m//g' >> "$LOGFILE") 2>&1
 
     echo -e "${CYAN}=== Arch Maintenance: $(date) ===${NC}"
@@ -5582,8 +5631,8 @@
 
     # --- Dependency Check ---
     if ! command -v paru &> /dev/null; then
-      echo -e "${RED}Error: paru not installed.${NC}"
-      exit 1
+        echo -e "${RED}Error: paru not installed.${NC}"
+        exit 1
     fi
 
     # =============================================
@@ -5591,17 +5640,17 @@
     # =============================================
     echo -e "${YELLOW}--- 1. Updating System & AUR ---${NC}"
 
-    if ! paru -Syu; then
-      echo -e "${RED}⚠ System update failed or was interrupted.${NC}"
-      read -p "Continue with remaining maintenance? (y/N) " -n 1 -r || true
-      echo
-      if [[ ! "${REPLY:-N}" =~ ^[Yy]$ ]]; then
-          echo -e "${RED}Maintenance aborted.${NC}"
-          exit 1
-      fi
-    else
-      echo -e "${GREEN}✔ System and AUR updated.${NC}"
-      fi
+     if ! paru -Syu; then
+        echo -e "${RED}âš  System update failed or was interrupted.${NC}"
+         read -p "Continue with remaining maintenance? (y/N) " -n 1 -r || true
+         echo
+         if [[ ! "${REPLY:-N}" =~ ^[Yy]$ ]]; then
+             echo -e "${RED}Maintenance aborted.${NC}"
+             exit 1
+         fi
+     else
+        echo -e "${GREEN}âś” System and AUR updated.${NC}"
+     fi
 
     # =============================================
     # 2. FLATPAK UPDATE
@@ -5609,92 +5658,121 @@
     echo -e "\n${YELLOW}--- 2. Updating Flatpaks ---${NC}"
 
     if command -v flatpak &> /dev/null; then
-      if flatpak update -y; then
-          echo -e "${GREEN}✔ Flatpaks updated.${NC}"
-      else
-          echo -e "${RED}⚠ Flatpak update failed.${NC}"
-      fi
+        if flatpak update -y; then
+            echo -e "${GREEN}âś” Flatpaks updated.${NC}"
+        else
+            echo -e "${RED}âš  Flatpak update failed.${NC}"
+        fi
     
-      if flatpak uninstall --unused -y; then
-          echo -e "${GREEN}✔ Unused runtimes removed.${NC}"
-      else
-          echo -e "${RED}⚠ Flatpak cleanup failed.${NC}"
-      fi
+        if flatpak uninstall --unused -y; then
+            echo -e "${GREEN}âś” Unused runtimes removed.${NC}"
+        else
+            echo -e "${RED}âš  Flatpak cleanup failed.${NC}"
+        fi
     else
-      echo -e "${YELLOW}⊘ Flatpak not installed. Skipping.${NC}"
+         echo -e "${YELLOW}âŠ Flatpak not installed. Skipping.${NC}"
+    fi
+
+    # ============================================================
+    # 3. AppArmor Gaming Compatibility Post-Update Check
+    # ============================================================
+    echo ""
+    echo "--- AppArmor Post-Update Check ---"
+
+    GAMING_BLOCKERS=("steam" "fbwrap" "unprivileged_userns")
+    PROFILES_FIXED=0
+
+    for profile in "${GAMING_BLOCKERS[@]}"; do
+        if [[ -f "/etc/apparmor.d/$profile" ]]; then
+            # Check if profile got re-enabled by update
+            if sudo aa-status | grep -q "^   $profile"; then
+                echo "âš ď¸Ź  $profile was re-enabled by update, disabling..."
+                sudo ln -sf "/etc/apparmor.d/$profile" "/etc/apparmor.d/disable/$profile"
+                sudo apparmor_parser -R "/etc/apparmor.d/$profile" 2>/dev/null || true
+                ((PROFILES_FIXED++))
+            fi
+        fi
+    done
+
+    if [[ $PROFILES_FIXED -gt 0 ]]; then
+        echo "Restarting AppArmor after fixing $PROFILES_FIXED profiles..."
+        sudo systemctl restart apparmor.service
+        echo "âś… AppArmor gaming profiles automatically re-disabled"
+    else
+        echo "âś“ AppArmor gaming profiles still disabled (no action needed)"
     fi
 
     # =============================================
-    # 3. ORPHAN CLEANUP
+    # 4. ORPHAN CLEANUP
     # =============================================
     echo -e "\n${YELLOW}--- 3. Orphan Package Removal ---${NC}"
 
     orphans=$(pacman -Qdtq 2>/dev/null || true)
 
     if [[ -n "$orphans" ]]; then
-      echo -e "${CYAN}Found orphaned packages:${NC}"
-      if command -v column &> /dev/null; then
-          echo "$orphans" | column
-      else
-          echo "$orphans"
-      fi
+        echo -e "${CYAN}Found orphaned packages:${NC}"
+        if command -v column &> /dev/null; then
+            echo "$orphans" | column
+        else
+            echo "$orphans"
+        fi
     
-      echo -e "${YELLOW}⚠ Note: GPU drivers (mesa, xf86-video-*) may appear as orphans but are needed.${NC}"
+        echo -e "${YELLOW}âš  Note: GPU drivers (mesa, xf86-video-*) may appear as orphans but are needed.${NC}"
     
-      read -p "Remove these? (y/N) " -n 1 -r || true
-      echo
-      if [[ "${REPLY:-N}" =~ ^[Yy]$ ]]; then
-          echo "$orphans" | xargs -r paru -Rns
-          echo -e "${GREEN}✔ Orphans removed.${NC}"
-      else
-          echo -e "${YELLOW}⊘ Orphan removal skipped.${NC}"
-      fi
+        read -p "Remove these? (y/N) " -n 1 -r || true
+        echo
+        if [[ "${REPLY:-N}" =~ ^[Yy]$ ]]; then
+            echo "$orphans" | xargs -r paru -Rns
+            echo -e "${GREEN}âś” Orphans removed.${NC}"
+        else
+            echo -e "${YELLOW}âŠ Orphan removal skipped.${NC}"
+        fi
     else
-      echo -e "${GREEN}✔ No orphan packages.${NC}"
+        echo -e "${GREEN}âś” No orphan packages.${NC}"
     fi
 
     # =============================================
-    # 4. POST-UPDATE CLEANUP
+    # 5. POST-UPDATE CLEANUP
     # =============================================
     echo -e "\n${YELLOW}--- 4. Post-Update Cleanup ---${NC}"
 
     # Clean old maintenance logs
     find "$HOME" -maxdepth 1 -type f -name "update-log-*.txt" -mtime +30 -delete
-    echo -e "${GREEN}✔ Old logs cleaned (>30 days).${NC}"
+    echo -e "${GREEN}âś” Old logs cleaned (>30 days).${NC}"
 
     # Clean systemd journal
     if sudo journalctl --vacuum-time=30d > /dev/null 2>&1; then
-      echo -e "${GREEN}✔ Journal vacuumed to 30 days.${NC}"
+        echo -e "${GREEN}âś” Journal vacuumed to 30 days.${NC}"
     else
-      echo -e "${RED}⚠ Journal cleanup failed.${NC}"
+        echo -e "${RED}âš  Journal cleanup failed.${NC}"
     fi
 
     # Clean package cache (verbose output)
     if command -v paccache &> /dev/null; then
-    echo -e "${CYAN}Cleaning package cache (keeping last 3 versions)...${NC}"
+        echo -e "${CYAN}Cleaning package cache (keeping last 3 versions)...${NC}"
     
-    # Verbose mode shows what's being removed
-    sudo paccache -rv
-    sudo paccache -ruvk0
+        # Verbose mode shows what's being removed
+        sudo paccache -rv
+        sudo paccache -ruvk0
     
-      echo -e "${GREEN}✔ Package cache cleaned.${NC}"
+        echo -e "${GREEN}âś” Package cache cleaned.${NC}"
     else
-      echo -e "${YELLOW}⊘ Install pacman-contrib: sudo pacman -S pacman-contrib${NC}"
+        echo -e "${YELLOW}âŠ Install pacman-contrib: sudo pacman -S pacman-contrib${NC}"
     fi
 
     # =============================================
-    # 5. DIAGNOSTICS
+    # 6. DIAGNOSTICS
     # =============================================
     echo -e "\n${YELLOW}--- 5. System Diagnostics ---${NC}"
 
     # .pacnew check
     pacnew_list=$(find /etc \( -name "*.pacnew" -o -name "*.pacsave" \) 2>/dev/null || true)
     if [[ -n "$pacnew_list" ]]; then
-      echo -e "${RED}⚠ Config files require review:${NC}"
-      echo "$pacnew_list"
-      echo -e "${CYAN}Run: sudo pacdiff${NC}"
+        echo -e "${RED}âš  Config files require review:${NC}"
+        echo "$pacnew_list"
+        echo -e "${CYAN}Run: sudo pacdiff${NC}"
     else
-      echo -e "${GREEN}✔ No .pacnew files.${NC}"
+        echo -e "${GREEN}âś” No .pacnew files.${NC}"
     fi
 
     # Kernel check
@@ -5702,19 +5780,19 @@
     latest_kernel=$(basename -a /usr/lib/modules/* 2>/dev/null | sort -V | tail -1)
 
     if [[ -n "$latest_kernel" && "$current_kernel" != "$latest_kernel" ]]; then
-      echo -e "${RED}⚠ REBOOT REQUIRED: Running $current_kernel → Installed $latest_kernel${NC}"
+        echo -e "${RED}âš  REBOOT REQUIRED: Running $current_kernel â†’ Installed $latest_kernel${NC}"
     else
-      echo -e "${GREEN}✔ Kernel is current.${NC}"
+        echo -e "${GREEN}âś” Kernel is current.${NC}"
     fi
 
     # Failed systemd services check
     failed_services=$(systemctl --failed --no-legend --no-pager 2>/dev/null)
     if [[ -n "$failed_services" ]]; then
-      echo -e "${RED}⚠ Failed systemd services detected:${NC}"
-      echo "$failed_services"
-      echo -e "${CYAN}Review with: systemctl --failed${NC}"
+        echo -e "${RED}âš  Failed systemd services detected:${NC}"
+        echo "$failed_services"
+        echo -e "${CYAN}Review with: systemctl --failed${NC}"
     else
-      echo -e "${GREEN}✔ No failed services.${NC}"
+        echo -e "${GREEN}âś” No failed services.${NC}"
     fi
 
     # Disk usage
@@ -5724,7 +5802,7 @@
     # Disk usage warning
     disk_use=$(df / --output=pcent | tail -1 | tr -dc '0-9')
     if (( disk_use > 85 )); then
-      echo -e "${RED}  ⚠ Warning: Root filesystem is ${disk_use}% full!${NC}"
+        echo -e "${RED}  âš  Warning: Root filesystem is ${disk_use}% full!${NC}"
     fi
 
     # Cache size
@@ -5733,50 +5811,50 @@
 
     # Largest packages (FIXED - using tab delimiter)
     if command -v expac &> /dev/null; then
-      echo -e "\n${CYAN}Top 5 Largest Packages:${NC}"
-      expac -H M '%m\t%n' | sort -hr | head -5 | awk -F'\t' '{printf "  %-15s  %s\n", $1, $2}'
+        echo -e "\n${CYAN}Top 5 Largest Packages:${NC}"
+        expac -H M '%m\t%n' | sort -hr | head -5 | awk -F'\t' '{printf "  %-15s  %s\n", $1, $2}'
     fi
 
     # Font cache rebuild
-    fc-cache -fv > /dev/null && echo -e "${GREEN}✔ Font cache rebuilt.${NC}"
+    fc-cache -fv > /dev/null && echo -e "${GREEN}âś” Font cache rebuilt.${NC}"
 
     # =============================================
-    # 6. PACKAGE HYGIENE
+    # 7. PACKAGE HYGIENE
     # =============================================
     echo -e "\n${YELLOW}--- 6. Package Hygiene Check ---${NC}"
 
     # Foreign packages count
     foreign_count=$(pacman -Qm 2>/dev/null | wc -l)
     if [[ $foreign_count -gt 0 ]]; then
-      echo -e "${CYAN}Foreign/AUR packages installed: ${foreign_count}${NC}"
+        echo -e "${CYAN}Foreign/AUR packages installed: ${foreign_count}${NC}"
     
-    # Check for missing AUR packages
-      echo -e "${CYAN}Checking AUR package availability...${NC}"
-      missing_count=0
+        # Check for missing AUR packages
+        echo -e "${CYAN}Checking AUR package availability...${NC}"
+        missing_count=0
     
-      while read -r pkg _; do
-          if ! paru -Si "$pkg" &>/dev/null; then
-              echo -e "${RED}  ⚠ $pkg ${NC}(no longer in AUR)"
-              ((missing_count++))
-          fi
-      done < <(pacman -Qm 2>/dev/null)
+        while read -r pkg _; do
+            if ! paru -Si "$pkg" &>/dev/null; then
+                echo -e "${RED}  âš  $pkg ${NC}(no longer in AUR)"
+                ((missing_count++))
+            fi
+        done < <(pacman -Qm 2>/dev/null)
     
-      if [[ $missing_count -eq 0 ]]; then
-          echo -e "${GREEN}✔ All AUR packages still available.${NC}"
-      else
-          echo -e "${YELLOW}Found $missing_count missing AUR package(s).${NC}"
-          echo -e "${CYAN}Remove with: sudo pacman -Rns <package_name>${NC}"
-      fi
+        if [[ $missing_count -eq 0 ]]; then
+            echo -e "${GREEN}âś” All AUR packages still available.${NC}"
+        else
+            echo -e "${YELLOW}Found $missing_count missing AUR package(s).${NC}"
+            echo -e "${CYAN}Remove with: sudo pacman -Rns <package_name>${NC}"
+        fi
     else
-      echo -e "${GREEN}✔ No foreign packages installed.${NC}"
+        echo -e "${GREEN}âś” No foreign packages installed.${NC}"
     fi
 
     # =============================================
     # SUMMARY
     # =============================================
-    echo -e "\n${CYAN}════════════════════════════════════════════${NC}"
-    echo -e "${CYAN}    ✅ Maintenance Complete                  ${NC}"
-    echo -e "${CYAN}════════════════════════════════════════════${NC}"
+    echo -e "\n${CYAN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${NC}"
+    echo -e "${CYAN}    âś… Maintenance Complete                  ${NC}"
+    echo -e "${CYAN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${NC}"
     echo -e "${CYAN}Log saved: $LOGFILE${NC}"
 
     # Save and Valiate
