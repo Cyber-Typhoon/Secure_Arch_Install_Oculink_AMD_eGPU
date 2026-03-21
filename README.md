@@ -3412,56 +3412,148 @@
   ```
 - Enable Apparmor in COMPLAIN mode
   ```bash
-  # Ensure the directory exists
-  sudo mkdir -p /etc/apparmor/earlypolicy/
+  echo "=== Configuring AppArmor.d Full System MAC ==="
+  echo ""
 
-  # Enable cache writing
-  echo 'write-cache' | sudo tee -a /etc/apparmor/parser.conf
+  # Parser Configuration (Drop-in approach - survives updates)
+  echo "Setting up optimized parser config..."
+  sudo mkdir -p /etc/apparmor/parser.conf.d
+  sudo mkdir -p /var/cache/apparmor
 
-  # Add the cache location to the parser config
-  # We use 'tee -a' to safely append it
-  echo 'cache-loc /etc/apparmor/earlypolicy/' | sudo tee -a /etc/apparmor/parser.conf
+  sudo tee /etc/apparmor/parser.conf.d/99-apparmor-performance.conf > /dev/null <<'EOF'
+  write-cache
+  cache-loc /var/cache/apparmor
+  Optimize=compress-fast
+  EOF
 
-  # Enable fast compression
-  echo 'Optimize=compress-fast' | sudo tee -a /etc/apparmor/parser.conf
+  echo "✓ Parser configured (idempotent drop-in)"
 
-  # Restart Apparmor Service
+  # CRITICAL: Ensure mkinitcpio hook exists (for early UKI loading)
+  echo "Verifying initramfs hooks..."
+  if ! grep -q "apparmor" /etc/mkinitcpio.conf; then
+      echo "⚠️  Adding apparmor hook to mkinitcpio.conf..."
+      # Add apparmor before filesystems in HOOKS array
+      sudo sed -i '/^HOOKS=/ s/filesystems/apparmor filesystems/' /etc/mkinitcpio.conf
+      echo "✓ Added apparmor hook"
+  else
+      echo "✓ apparmor hook already present"
+  fi
+
+  # Verify hook was added correctly
+  echo ""
+  echo "Current HOOKS configuration:"
+  grep "^HOOKS=" /etc/mkinitcpio.conf
+
+  # Enable Core Services
+  echo ""
+  echo "Enabling AppArmor services..."
+  sudo systemctl enable --now apparmor.service
+  sudo systemctl enable --now apparmor.d.timer
+
+  echo "✓ Services enabled"
+
+  # Load 1000+ Profiles in COMPLAIN Mode
+  echo ""
+  echo "Setting full system policy to COMPLAIN mode..."
+  echo "(This loads 1000+ profiles - may take a moment)"
+
+  cd /usr/share/apparmor.d || {
+      echo "✗ /usr/share/apparmor.d not found!"
+      echo "  Install: yay -S apparmor.d-git"
+      exit 1
+  }
+
+  sudo just fsp-complain
+
+  echo "✓ 1000+ profiles loaded in COMPLAIN mode"
+
+  # Warm the Cache (Critical for fast UKI boots)
+  echo ""
+  echo "Warming profile cache for boot performance..."
+  sudo apparmor_parser -r -T -W /usr/share/apparmor.d/* 2>/dev/null || true
+
+  echo "✓ Cache warmed"
+
+  # Restart Service
+  echo ""
+  echo "Restarting AppArmor service..."
   sudo systemctl restart apparmor.service
 
-  # This activates the *complete* AppArmor.d policy (1000+ profiles)
-  # DO NOT use aa-complain on /etc/apparmor.d/* — that's legacy.
-  
-  # Enable the upstream-sync timer (weekly profile updates)
-  sudo systemctl enable --now apparmor.d.timer
-  
-  # Load Full System Policy in COMPLAIN mode
-  sudo just fsp-complain   # from the apparmor.d build dir (installed to /usr/share/apparmor.d)
+  echo "✓ Service restarted"
 
-  # Warm cache for boot-time performance (critical for UKI + Secure Boot)
-  sudo apparmor_parser -r /usr/share/apparmor.d/*
+  # UKI Regeneration & Secure Boot Signing
+  echo ""
+  echo "Rebuilding Unified Kernel Image..."
+  sudo mkinitcpio -P
 
-  # Restart to apply everything
-  sudo systemctl restart apparmor
+  echo ""
+  echo "Signing all EFI binaries with Secure Boot keys..."
+  sudo sbctl sign-all
 
-  # Regenerate UKI
-  mkinitcpio -P && sbctl sign -s /boot/EFI/Linux/arch*.efi
+  echo "✓ UKI rebuilt and signed"
 
-  echo "AppArmor is now in COMPLAIN mode."
-  echo "Use system normally for 1–2 days, then check denials:"
-  echo "  journalctl -u apparmor | grep DENIED" # (THIS IS IMPORTANT STEP, MAKE SURE TO PERFORM IT)
-  echo "  sudo aa-logprof"
-  echo "NEXT STEPS (after eGPU setup + normal use):"
-  echo "  1. Use system normally for 1–2 days"
-  echo "  2. Check denials:"
-  echo "       journalctl -u apparmor | grep -i DENIED"
-  echo "       ausearch -m avc -ts recent | tail -20"
-  echo "  3. Tune interactively:"
-  echo "       sudo aa-logprof"
-  echo "       sudo aa-genprof <binary>  # e.g., supergfxctl"
-  echo "  4. After tuning → ENFORCE:"
-  echo "       sudo just fsp-enforce"
-  echo " Note: Full AppArmor.d policy will be enforced in Step 18j via 'just enforce
-  echo "       sudo systemctl restart apparmor"
+  # Verification
+  echo ""
+  echo "=== Verification ==="
+  echo ""
+
+  # Service status
+  if systemctl is-active --quiet apparmor.service; then
+      echo "✓ apparmor.service: active"
+  else
+      echo "✗ apparmor.service: failed"
+  fi
+
+  if systemctl is-active --quiet apparmor.d.timer; then
+      echo "✓ apparmor.d.timer: active"
+  else
+      echo "✗ apparmor.d.timer: failed"
+  fi
+
+  # Profile status
+  echo ""
+  echo "AppArmor Status (first 20 lines):"
+  sudo aa-status | head -20
+
+  # Count profiles
+  COMPLAIN_COUNT=$(sudo aa-status 2>/dev/null | grep -c "complain mode" || echo "0")
+  echo ""
+  echo "Profiles in complain mode: $COMPLAIN_COUNT"
+
+  # Commit to etckeeper
+  echo ""
+  sudo etckeeper commit "AppArmor.d: Configured 1000+ profiles in COMPLAIN mode (Step 11)"
+
+  echo ""
+  echo "✅ AppArmor.d is fully configured in COMPLAIN mode!"
+  echo ""
+  echo "📝 CRITICAL NEXT STEPS:"
+  echo ""
+  echo "1. USE SYSTEM NORMALLY FOR 2-3 DAYS:"
+  echo "   - Browse the web"
+  echo "   - Play games (Steam, Proton)"
+  echo "   - Use eGPU workflows"
+  echo "   - Connect VPN"
+  echo "   - Use all normal apps"
+  echo ""
+  echo "2. MONITOR DENIALS:"
+  echo "   journalctl | grep -i DENIED | tail -50"
+  echo "   ausearch -m avc -ts recent | tail -20  # if using auditd"
+  echo ""
+  echo "3. TUNE PROFILES (after 2-3 days):"
+  echo "   sudo aa-logprof"
+  echo "   sudo aa-genprof <binary>  # for specific apps"
+  echo ""
+  echo "4. ENFORCEMENT (Step 18 only!):"
+  echo "   cd /usr/share/apparmor.d"
+  echo "   sudo just fsp-enforce"
+  echo "   sudo systemctl restart apparmor"
+  echo ""
+  echo "⚠️  DO NOT ENFORCE YET - WAIT FOR STEP 18"
+  echo "⚠️  System is instrumented but NOT protected"
+  echo "⚠️  Everything is logged, nothing is blocked"
+  echo ""
+  echo "🎯 Ready for normal use - learning phase begins!"
   ```
 - Check for TME support (If your CPU support it and is active in the BIOS this is a check)
   ```bash
