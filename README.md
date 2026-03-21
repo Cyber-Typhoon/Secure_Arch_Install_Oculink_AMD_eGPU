@@ -3410,26 +3410,6 @@
   echo ""
   echo "Evaluate after 3 days - keep if adds value, remove if too annoying."
   ```
-- Binary Hardening: Replace Setuid with Capabilities
-  ```bash
-  # Find all setuid binaries on your system to create a baseline for review:
-  find / -type f -perm /4000 2>/dev/null > /root/setuid-binaries.list
-  cat /root/setuid-binaries.list
-
-  # Review the list, focusing on common targets like /usr/bin/ping and /usr/bin/mount.
-  # For most modern systems, the most common candidate for this hardening is ping, which requires elevated privileges only to create a raw socket.
-  # Remove the setuid bit from the ping binary:
-  sudo chmod u-s /usr/bin/ping
-  # Verify the 's' is gone:
-  ls -l /usr/bin/ping
-
-  # Apply the minimal required capability (CAP_NET_RAW):
-  # Set the capability: 'p' means Permitted set
-  sudo setcap cap_net_raw+p /usr/bin/ping
-  # Verify the capability is set:
-  getcap /usr/bin/ping
-  # Test: The ping command should still function for unprivileged users. Repeat this process for any other minimal-privilege setuid binaries you identify.
-  ```
 - Enable Apparmor in COMPLAIN mode
   ```bash
   # Ensure the directory exists
