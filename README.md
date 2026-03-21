@@ -3412,9 +3412,6 @@
   ```
 - Enable Apparmor in COMPLAIN mode
   ```bash
-  echo "=== Configuring AppArmor.d Full System MAC ==="
-  echo ""
-
   # Parser Configuration (Drop-in approach - survives updates)
   echo "Setting up optimized parser config..."
   sudo mkdir -p /etc/apparmor/parser.conf.d
@@ -3426,68 +3423,71 @@
   Optimize=compress-fast
   EOF
 
-  echo "✓ Parser configured (idempotent drop-in)"
+  echo "✓ Parser configured"
 
-  # CRITICAL: Ensure mkinitcpio hook exists (for early UKI loading)
-  echo "Verifying initramfs hooks..."
-  if ! grep -q "apparmor" /etc/mkinitcpio.conf; then
-      echo "⚠️  Adding apparmor hook to mkinitcpio.conf..."
-      # Add apparmor before filesystems in HOOKS array
-      sudo sed -i '/^HOOKS=/ s/filesystems/apparmor filesystems/' /etc/mkinitcpio.conf
-      echo "✓ Added apparmor hook"
+  # Enable AppArmor Service (NO timer - AUR package doesn't include it)
+  echo ""
+  echo "Enabling AppArmor service..."
+  sudo systemctl enable --now apparmor.service
+  echo "✓ Service enabled"
+
+  # Clean up duplicate profiles (AUR package creates these)
+  echo ""
+  echo "Checking for duplicate profiles..."
+
+  DUPLICATES=(
+      "brave" "chrome" "chromium" "element-desktop" "epiphany" 
+      "firefox" "flatpak" "foliate" "loupe" "msedge" "nautilus" 
+      "opera" "plasmashell" "signal-desktop" "slirp4netns" 
+      "systemd-coredump" "thunderbird" "transmission" 
+      "unix-chkpwd" "virtiofsd"
+  )
+
+  FOUND_DUPLICATES=false
+  for app in "${DUPLICATES[@]}"; do
+      if [[ -f "/etc/apparmor.d/$app" ]] && [[ -f "/etc/apparmor.d/${app}.apparmor.d" ]]; then
+          FOUND_DUPLICATES=true
+          break
+      fi
+  done
+
+  if $FOUND_DUPLICATES; then
+      echo "⚠️  Found duplicate profiles - cleaning up..."
+      sudo mkdir -p /etc/apparmor.d/duplicates_backup
+    
+      for app in "${DUPLICATES[@]}"; do
+          if [[ -f "/etc/apparmor.d/$app" ]] && [[ -f "/etc/apparmor.d/${app}.apparmor.d" ]]; then
+              sudo mv "/etc/apparmor.d/$app" "/etc/apparmor.d/duplicates_backup/" 2>/dev/null
+              echo "  Moved duplicate: $app"
+          fi
+      done
+      echo "✓ Duplicates backed up to /etc/apparmor.d/duplicates_backup/"
   else
-      echo "✓ apparmor hook already present"
+      echo "✓ No duplicate profiles found"
   fi
 
-  # Verify hook was added correctly
+  # Set all profiles to COMPLAIN mode
   echo ""
-  echo "Current HOOKS configuration:"
-  grep "^HOOKS=" /etc/mkinitcpio.conf
+  echo "Setting all profiles to COMPLAIN mode..."
+  echo "(This may take a moment for 2000+ profiles)"
 
-  # Enable Core Services
-  echo ""
-  echo "Enabling AppArmor services..."
-  sudo systemctl enable --now apparmor.service
-  sudo systemctl enable --now apparmor.d.timer
+  sudo aa-complain /etc/apparmor.d/* 2>&1 | grep -E "^(Setting|ERROR)" | tail -20
 
-  echo "✓ Services enabled"
+  echo "✓ Profiles set to complain mode"
 
-  # Load 1000+ Profiles in COMPLAIN Mode
-  echo ""
-  echo "Setting full system policy to COMPLAIN mode..."
-  echo "(This loads 1000+ profiles - may take a moment)"
-
-  cd /usr/share/apparmor.d || {
-      echo "✗ /usr/share/apparmor.d not found!"
-      echo "  Install: yay -S apparmor.d-git"
-      exit 1
-  }
-
-  sudo just fsp-complain
-
-  echo "✓ 1000+ profiles loaded in COMPLAIN mode"
-
-  # Warm the Cache (Critical for fast UKI boots)
-  echo ""
-  echo "Warming profile cache for boot performance..."
-  sudo apparmor_parser -r -T -W /usr/share/apparmor.d/* 2>/dev/null || true
-
-  echo "✓ Cache warmed"
-
-  # Restart Service
+  # Restart AppArmor to load all profiles
   echo ""
   echo "Restarting AppArmor service..."
   sudo systemctl restart apparmor.service
-
   echo "✓ Service restarted"
 
-  # UKI Regeneration & Secure Boot Signing
+  # Regenerate UKI and sign (mkinitcpio hook not needed)
   echo ""
-  echo "Rebuilding Unified Kernel Image..."
+  echo "Regenerating Unified Kernel Image..."
   sudo mkinitcpio -P
 
   echo ""
-  echo "Signing all EFI binaries with Secure Boot keys..."
+  echo "Signing all EFI binaries..."
   sudo sbctl sign-all
 
   echo "✓ UKI rebuilt and signed"
@@ -3499,61 +3499,74 @@
 
   # Service status
   if systemctl is-active --quiet apparmor.service; then
-      echo "✓ apparmor.service: active"
+       echo "✓ apparmor.service: active"
   else
-      echo "✗ apparmor.service: failed"
-  fi
-
-  if systemctl is-active --quiet apparmor.d.timer; then
-      echo "✓ apparmor.d.timer: active"
-  else
-      echo "✗ apparmor.d.timer: failed"
+      echo "✗ apparmor.service: FAILED"
+      exit 1
   fi
 
   # Profile status
   echo ""
-  echo "AppArmor Status (first 20 lines):"
-  sudo aa-status | head -20
+  echo "AppArmor Profile Status:"
+  TOTAL=$(sudo aa-status 2>/dev/null | grep "profiles are loaded" | awk '{print $1}')
+  COMPLAIN=$(sudo aa-status 2>/dev/null | grep "profiles are in complain mode" | awk '{print $1}')
+  ENFORCE=$(sudo aa-status 2>/dev/null | grep "profiles are in enforce mode" | awk '{print $1}')
 
-  # Count profiles
-  COMPLAIN_COUNT=$(sudo aa-status 2>/dev/null | grep -c "complain mode" || echo "0")
+  echo "  Total profiles loaded: $TOTAL"
+  echo "  Profiles in complain mode: $COMPLAIN"
+  echo "  Profiles in enforce mode: $ENFORCE"
+
+  # Show sample of loaded profiles
   echo ""
-  echo "Profiles in complain mode: $COMPLAIN_COUNT"
+  echo "Sample of active profiles:"
+  sudo aa-status 2>/dev/null | grep -A 10 "profiles are in complain mode" | tail -10
 
   # Commit to etckeeper
   echo ""
-  sudo etckeeper commit "AppArmor.d: Configured 1000+ profiles in COMPLAIN mode (Step 11)"
+  sudo etckeeper commit "AppArmor.d: Configured $TOTAL profiles in COMPLAIN mode (Step 11 complete)"
 
+  # Final summary
   echo ""
-  echo "✅ AppArmor.d is fully configured in COMPLAIN mode!"
+  echo "✅ AppArmor.d Configuration Complete!"
   echo ""
-  echo "📝 CRITICAL NEXT STEPS:"
+  echo "📊 Current Status:"
+  echo "  - $TOTAL profiles loaded and active"
+  echo "  - $COMPLAIN in COMPLAIN mode (learning)"
+  echo "  - $ENFORCE in ENFORCE mode (defaults)"
+  echo "  - Parser optimized for performance"
+  echo "  - UKI rebuilt and signed"
+  echo ""
+  echo "🎯 CRITICAL NEXT STEPS:"
   echo ""
   echo "1. USE SYSTEM NORMALLY FOR 2-3 DAYS:"
-  echo "   - Browse the web"
-  echo "   - Play games (Steam, Proton)"
-  echo "   - Use eGPU workflows"
-  echo "   - Connect VPN"
-  echo "   - Use all normal apps"
+  echo "   - Games (Steam, Proton)"
+  echo "   - Web browsing"
+  echo "   - eGPU workflows"
+  echo "   - VPN connections"
+  echo "   - All regular activities"
   echo ""
-  echo "2. MONITOR DENIALS:"
+  echo "2. MONITOR (Optional - for curiosity):"
   echo "   journalctl | grep -i DENIED | tail -50"
-  echo "   ausearch -m avc -ts recent | tail -20  # if using auditd"
   echo ""
-  echo "3. TUNE PROFILES (after 2-3 days):"
-  echo "   sudo aa-logprof"
-  echo "   sudo aa-genprof <binary>  # for specific apps"
+  echo "3. STEP 18 (After 2-3 days):"
+  echo "   Review denials:"
+  echo "     sudo aa-logprof"
+  echo "   "
+  echo "   Then enforce:"
+  echo "     sudo aa-enforce /etc/apparmor.d/*"
+  echo "     sudo systemctl restart apparmor"
   echo ""
-  echo "4. ENFORCEMENT (Step 18 only!):"
-  echo "   cd /usr/share/apparmor.d"
-  echo "   sudo just fsp-enforce"
-  echo "   sudo systemctl restart apparmor"
+  echo "⚠️  DO NOT ENFORCE YET!"
+  echo "⚠️  AppArmor is logging, NOT blocking"
+  echo "⚠️  System is learning your behavior"
+  echo "⚠️  This is intentional and correct"
   echo ""
-  echo "⚠️  DO NOT ENFORCE YET - WAIT FOR STEP 18"
-  echo "⚠️  System is instrumented but NOT protected"
-  echo "⚠️  Everything is logged, nothing is blocked"
+  echo "📝 Notes:"
+  echo "  - No mkinitcpio hook needed (userspace enforcement is sufficient)"
+  echo "  - No timer needed (AUR package is pre-built)"
+  echo "  - Profiles location: /etc/apparmor.d/"
+  echo "  - Duplicates backed up: /etc/apparmor.d/duplicates_backup/"
   echo ""
-  echo "🎯 Ready for normal use - learning phase begins!"
   ```
 - Check for TME support (If your CPU support it and is active in the BIOS this is a check)
   ```bash
