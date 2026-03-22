@@ -3675,6 +3675,178 @@
   echo "NOTE: 'Old style watch rules are slower' warnings are normal"
   echo "      and can be ignored (legacy audit rule format)"
   ```
+- Systemd Service Hardening
+  ```bash
+  #!/bin/bash
+  # Phase 1: Disable Unused Services
+  DISABLED_COUNT=0
+
+  # Bluetooth - KEEP for GSConnect
+  echo "ℹ️  Keeping bluetooth.service (GSConnect requires Bluetooth)"
+  echo "   (You can disable manually later if you remove GSConnect)"
+
+  # CUPS - Check if already removed
+  if systemctl list-unit-files cups.service &>/dev/null; then
+      if ! lpstat -p 2>/dev/null | grep -q "printer"; then
+          echo "✓ Disabling cups.service (no printer configured)"
+          sudo systemctl disable --now cups.service cups.socket cups.path 2>/dev/null || true
+          ((DISABLED_COUNT++))
+      else
+          echo "ℹ️  Printer detected, keeping CUPS enabled"
+      fi
+  else
+      echo "ℹ️  CUPS not installed (already removed)"
+  fi
+
+  # IIO Sensor Proxy - KEEP for auto-brightness
+  echo "ℹ️  Keeping iio-sensor-proxy.service (auto-brightness functionality)"
+
+  # Libvirt - KEEP if VMs might be used
+  echo "ℹ️  Keeping libvirt services (VM infrastructure)"
+
+  # Bolt - KEEP for Thunderbolt ports
+  echo "ℹ️  Keeping bolt.service (ThinkBook has Thunderbolt 4 ports)"
+
+  echo ""
+  echo "Phase 1 complete: $DISABLED_COUNT service groups disabled"
+
+  # Verification
+  echo ""
+  echo "Verification:"
+  systemctl --failed | grep -E "cups|iio|libvirt" && echo "⚠️  Some services failed!" || echo "✓ No failed services"
+
+  # Commit
+  sudo etckeeper commit "Systemd: Phase 1 - Disabled $DISABLED_COUNT unused services"
+
+  # Phase 2: Low-Risk Service Hardening
+
+  # Create drop-in directories
+  sudo mkdir -p /etc/systemd/system/{thermald,acpid,rtkit-daemon}.service.d
+
+  # thermald (CRITICAL: NO ProtectKernelTunables - thermal management must work!)
+  echo "Hardening thermald.service (thermal-safe)..."
+  sudo tee /etc/systemd/system/thermald.service.d/harden.conf > /dev/null <<'EOF'
+  [Service]
+  # Thermal management - MUST be able to write to /sys for cooling control
+  # CRITICAL: NO ProtectKernelTunables (would break thermal management)
+  ProtectSystem=strict
+  ProtectHome=yes
+  PrivateTmp=yes
+  NoNewPrivileges=yes
+  ProtectKernelModules=yes
+  ProtectControlGroups=yes
+  RestrictRealtime=yes
+  MemoryDenyWriteExecute=yes
+  RestrictAddressFamilies=AF_UNIX AF_NETLINK
+  # AF_NETLINK required for thermal zone monitoring
+  EOF
+
+  # acpid (ACPI events - relaxed hardening for event scripts)
+  echo "Hardening acpid.service (relaxed for event scripts)..."
+  sudo tee /etc/systemd/system/acpid.service.d/harden.conf > /dev/null <<'EOF'
+  [Service]
+  # ACPI event handling - needs flexibility for event scripts
+  # Use 'full' instead of 'strict' to allow /etc/acpi script execution
+  ProtectSystem=full
+  ProtectHome=yes
+  PrivateTmp=yes
+  NoNewPrivileges=yes
+  RestrictAddressFamilies=AF_UNIX AF_NETLINK
+  # AF_NETLINK required for hardware events
+  # ProtectKernelModules removed - acpi scripts may need it
+  EOF
+
+  # rtkit-daemon (audio realtime priority)
+  echo "Hardening rtkit-daemon.service..."
+  sudo tee /etc/systemd/system/rtkit-daemon.service.d/harden.conf > /dev/null <<'EOF'
+  [Service]
+  # Realtime audio priority daemon
+  ProtectSystem=strict
+  ProtectHome=yes
+  PrivateTmp=yes
+  NoNewPrivileges=yes
+  ProtectKernelTunables=yes
+  MemoryDenyWriteExecute=yes
+  RestrictAddressFamilies=AF_UNIX
+  # RestrictRealtime NOT set - needs realtime for audio
+  EOF
+
+  # Apply changes
+  sudo systemctl daemon-reload
+
+  # Restart services with verification
+  echo ""
+  echo "Restarting services to apply hardening..."
+  for svc in thermald acpid rtkit-daemon; do
+      if systemctl is-active --quiet $svc; then
+          echo "  Restarting $svc..."
+          sudo systemctl restart $svc
+          sleep 1
+          if systemctl is-active --quiet $svc; then
+              echo "    ✓ $svc active and hardened"
+          else
+              echo "    ✗ $svc FAILED - rolling back!"
+              sudo rm /etc/systemd/system/$svc.service.d/harden.conf
+              sudo systemctl daemon-reload
+              sudo systemctl start $svc
+          fi
+      else
+          echo "  ℹ️  $svc not running (OK)"
+      fi
+  done
+
+  # Comprehensive verification
+  echo ""
+  echo "=== Verification ==="
+
+  # Security scores
+  echo "Security scores (lower is better):"
+  systemd-analyze security thermald acpid rtkit-daemon 2>/dev/null | \
+      grep -E "^(thermald|acpid|rtkit)" || echo "Services hardened"
+
+  # Thermal functionality
+  echo ""
+  echo "Thermal system check:"
+  if ls /sys/class/thermal/thermal_zone*/temp > /dev/null 2>&1; then
+      echo "  ✓ Thermal zones accessible"
+      # Check if thermald can read temps
+      temp_file=$(ls /sys/class/thermal/thermal_zone0/temp 2>/dev/null)
+      if [[ -r "$temp_file" ]]; then
+          temp=$(($(cat $temp_file) / 1000))
+          echo "  ✓ Current CPU temp: ${temp}°C"
+      fi
+  else
+      echo "  ✗ Thermal zones NOT accessible (ERROR!)"
+  fi
+
+  # ACPI functionality
+  echo ""
+  echo "ACPI system check:"
+  if systemctl status acpid --no-pager -l | grep -q "active"; then
+      echo "  ✓ ACPI daemon active"
+  else
+      echo "  ✗ ACPI daemon failed"
+  fi
+
+  # Audio functionality
+  echo ""
+  echo "Audio system check:"
+  if pactl info > /dev/null 2>&1; then
+      echo "  ✓ Audio system working (rtkit functional)"
+  else
+      echo "  ⚠️  Audio check failed (might not be critical)"
+  fi
+
+  # Commit
+  sudo etckeeper commit "Systemd: Phase 2 - Hardened thermald, acpid, rtkit-daemon (thermal-safe)"
+
+  echo ""
+  echo "✅ Phase 2 Complete!"
+  echo ""
+  echo "IMPORTANT: Monitor temps during first gaming session"
+  echo "  Install lm_sensors if needed: sudo pacman -S lm_sensors"
+  echo "  Then run: sensors"
+  ```
 - Check for TME support (If your CPU support it and is active in the BIOS this is a check)
   ```bash
   dmesg | grep -i "Memory Encryption"
