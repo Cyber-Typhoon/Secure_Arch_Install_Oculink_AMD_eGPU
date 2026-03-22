@@ -3634,7 +3634,7 @@
   echo "NOTE: 'Old style watch rules are slower' warnings are normal"
   echo "      and can be ignored (legacy audit rule format)"
   ```
-- Systemd Service Hardening
+- Systemd Service Hardening Phase 1 and 2 (3 will be after eGPU)
   ```bash
   #!/bin/bash
   # Phase 1: Disable Unused Services
@@ -4512,6 +4512,42 @@
   else
     echo "Signing hook already exists."
   fi
+  ```
+- Systemd Service Hardening Phase 3 (post eGPU)
+  ```bash
+  echo "=== Phase 3: udisks2 Hardening ==="
+  echo "⚠️  TEST THOROUGHLY after this one!"
+  echo ""
+
+  sudo mkdir -p /etc/systemd/system/udisks2.service.d
+
+  sudo tee /etc/systemd/system/udisks2.service.d/harden.conf > /dev/null <<'EOF'
+  [Service]
+  # Disk management needs device access but can be restricted
+  ProtectSystem=strict
+  ProtectHome=read-only
+  PrivateTmp=yes
+  NoNewPrivileges=yes
+  ProtectKernelTunables=yes
+  ProtectControlGroups=yes
+  RestrictSUIDSGID=yes
+  # Note: Needs device access for eGPU/USB mounting
+  # ProtectKernelModules=no (may load filesystem modules)
+  EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl restart udisks2.service
+
+  echo ""
+  echo "⚠️  CRITICAL: Test eGPU hotplug NOW!"
+  echo "   1. Unplug OCuLink"
+  echo "   2. Plug back in"
+  echo "   3. Verify eGPU detected"
+  echo ""
+  echo "If broken, rollback:"
+  echo "   sudo rm /etc/systemd/system/udisks2.service.d/harden.conf"
+  echo "   sudo systemctl daemon-reload"
+  echo "   sudo systemctl restart udisks2.service"
   ```
 - Verify eGPU setup
   ```bash
