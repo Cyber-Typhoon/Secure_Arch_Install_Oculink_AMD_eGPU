@@ -3811,6 +3811,10 @@
   dmesg | grep -i "Memory Encryption"
   # If you see "TME: enabled", your RAM is encrypted against physical extraction.
   ```
+- Remove GRUB is not in use
+  ```bash
+  sudo pacman -Rns grub
+  ```
 ## Step 12: Configure eGPU (AMD)
 
 - Install AMD drivers and microcode:
