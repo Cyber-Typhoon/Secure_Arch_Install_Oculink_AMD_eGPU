@@ -3851,11 +3851,6 @@
   ```bash
   dmesg | grep -i "Memory Encryption"
   # If you see "TME: enabled", your RAM is encrypted against physical extraction.
-
-- Harden systemd services?
-  ```bash
-  # Consider adding some hardening to systemd services
-  systemd-analyze security
   ```
 ## Step 12: Configure eGPU (AMD)
 
@@ -5824,6 +5819,11 @@
         echo -e "${GREEN}âś” System and AUR updated.${NC}"
      fi
 
+    echo ""
+    echo "AppArmor Post-Update Check"
+    sudo /usr/local/bin/apparmor-gaming-fix
+    echo -e "${GREEN}✔  AppArmor gaming profile check complete.${NC}"
+
     # =============================================
     # 2. FLATPAK UPDATE
     # =============================================
@@ -5845,37 +5845,8 @@
          echo -e "${YELLOW}âŠ Flatpak not installed. Skipping.${NC}"
     fi
 
-    # ============================================================
-    # 3. AppArmor Gaming Compatibility Post-Update Check
-    # ============================================================
-    echo ""
-    echo "--- AppArmor Post-Update Check ---"
-
-    GAMING_BLOCKERS=("steam" "fbwrap" "unprivileged_userns")
-    PROFILES_FIXED=0
-
-    for profile in "${GAMING_BLOCKERS[@]}"; do
-        if [[ -f "/etc/apparmor.d/$profile" ]]; then
-            # Check if profile got re-enabled by update
-            if sudo aa-status | grep -q "^   $profile"; then
-                echo "âš ď¸Ź  $profile was re-enabled by update, disabling..."
-                sudo ln -sf "/etc/apparmor.d/$profile" "/etc/apparmor.d/disable/$profile"
-                sudo apparmor_parser -R "/etc/apparmor.d/$profile" 2>/dev/null || true
-                ((PROFILES_FIXED++))
-            fi
-        fi
-    done
-
-    if [[ $PROFILES_FIXED -gt 0 ]]; then
-        echo "Restarting AppArmor after fixing $PROFILES_FIXED profiles..."
-        sudo systemctl restart apparmor.service
-        echo "âś… AppArmor gaming profiles automatically re-disabled"
-    else
-        echo "âś“ AppArmor gaming profiles still disabled (no action needed)"
-    fi
-
     # =============================================
-    # 4. ORPHAN CLEANUP
+    # 3. ORPHAN CLEANUP
     # =============================================
     echo -e "\n${YELLOW}--- 3. Orphan Package Removal ---${NC}"
 
@@ -5904,7 +5875,7 @@
     fi
 
     # =============================================
-    # 5. POST-UPDATE CLEANUP
+    # 4. POST-UPDATE CLEANUP
     # =============================================
     echo -e "\n${YELLOW}--- 4. Post-Update Cleanup ---${NC}"
 
@@ -5933,7 +5904,7 @@
     fi
 
     # =============================================
-    # 6. DIAGNOSTICS
+    # 5. DIAGNOSTICS
     # =============================================
     echo -e "\n${YELLOW}--- 5. System Diagnostics ---${NC}"
 
@@ -5991,7 +5962,7 @@
     fc-cache -fv > /dev/null && echo -e "${GREEN}âś” Font cache rebuilt.${NC}"
 
     # =============================================
-    # 7. PACKAGE HYGIENE
+    # 6. PACKAGE HYGIENE
     # =============================================
     echo -e "\n${YELLOW}--- 6. Package Hygiene Check ---${NC}"
 
