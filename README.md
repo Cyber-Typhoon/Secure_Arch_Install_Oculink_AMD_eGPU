@@ -3531,102 +3531,61 @@
   echo "  - Parser optimized for performance"
   echo "  - UKI rebuilt and signed"
   echo ""
+  ```
+- Apparmor Gaming Fix Service
+  ```bash
+  sudo tee /usr/local/bin/apparmor-gaming-fix > /dev/null << 'EOF'
+  #!/usr/bin/env bash
+  # Enforce disabled state for AppArmor profiles that break gaming
+  # Removed -e temporarily to handle grep return codes manually
+  set -uo pipefail
 
-  # ============================================================
-  # GAMING COMPATIBILITY - TEST-FIRST APPROACH
-  # ============================================================
+  GAMING_BLOCKERS=("steam" "fbwrap" "unprivileged_userns")
+  PROFILES_FIXED=0
 
-  echo ""
-  echo "=== Steam Compatibility Check ==="
-  echo ""
-  echo "TESTING APPROACH: Test first, fix only what breaks"
-  echo ""
-  echo "Step 1: Test Steam now (may fail - this is expected)"
-  echo "  Run: steam"
-  echo ""
-  echo "If Steam works → STOP. No changes needed!"
-  echo ""
-  echo "If Steam fails with 'user namespaces' error:"
-  echo ""
-  echo "Step 2: Diagnose the issue"
-  echo "  journalctl -k -g DENIED | tail -20"
-  echo "  (Look for: steam, bwrap, fbwrap, uid_map, userns)"
-  echo ""
-  echo "Step 3: Apply MINIMAL fix (in order):"
-  echo ""
-  echo "  # Fix 1: Disable steam profile (most common)"
-  echo "  sudo ln -sf /etc/apparmor.d/steam /etc/apparmor.d/disable/"
-  echo "  sudo apparmor_parser -R /etc/apparmor.d/steam 2>/dev/null"
-  echo ""
-  echo "  # Fix 2: Disable fbwrap (if still failing)"
-  echo "  sudo ln -sf /etc/apparmor.d/fbwrap /etc/apparmor.d/disable/ 2>/dev/null"
-  echo "  sudo apparmor_parser -R /etc/apparmor.d/fbwrap 2>/dev/null"
-  echo ""
-  echo "  # Restart AppArmor"
-  echo "  sudo systemctl restart apparmor.service"
-  echo ""
-  echo "  # Test again: steam"
-  echo ""
-  echo "Step 4: ONLY if still broken (rare):"
-  echo ""
-  echo "  # Last resort: unprivileged_userns"
-  echo "  sudo ln -sf /etc/apparmor.d/unprivileged_userns /etc/apparmor.d/disable/"
-  echo "  sudo apparmor_parser -R /etc/apparmor.d/unprivileged_userns"
-  echo "  sudo systemctl restart apparmor.service"
-  echo ""
-  echo "Step 5: If Proton games fail (not Steam itself):"
-  echo ""
-  echo "  # Proton edge case: umu-bwrap"
-  echo "  sudo ln -sf /etc/apparmor.d/umu-bwrap /etc/apparmor.d/disable/ 2>/dev/null"
-  echo "  sudo apparmor_parser -R /etc/apparmor.d/umu-bwrap 2>/dev/null"
-  echo "  sudo systemctl restart apparmor.service"
-  echo ""
-  echo "=== Security Verification After Fixes ==="
-  echo ""
-  echo "After disabling profiles, verify security is maintained:"
-  echo ""
-  echo "1. Check what's still protected:"  
-  echo "   sudo aa-status | wc -l"
-  echo "   (Should still show hundreds/thousands of profiles)"
-  echo ""  
-  echo "2. Verify Flatpak sandbox works:"
-  echo "   flatpak run org.freedesktop.Platform//23.08 sh -c 'id'"
-  echo "   (Should run successfully)"
-  echo ""
-  echo "3. Check disabled profiles:"
-  echo "   ls /etc/apparmor.d/disable/"
-  echo "   (Should show ONLY: steam, fbwrap, optionally unprivileged_userns)"
-  echo "   (Should NOT show: bwrap, chromium, firefox, etc.)"
-  echo ""
-  echo "4. Verify bwrap protection intact:"
-  echo "   sudo aa-status | grep -E 'bwrap|flatpak'"
-  echo "   (Should show bwrap-related profiles still active)"
-  echo ""
-  echo "=== Commit Changes After Fixes ==="
-  echo ""
-  echo "After applying fixes, commit to etckeeper:"
-  echo "  sudo etckeeper commit 'AppArmor: Applied minimal gaming compatibility fixes'"
-  echo ""
-  echo "🎯 NEXT STEPS:"
-  echo ""
-  echo "1. TEST STEAM NOW: steam"
-  echo "2. Apply fixes only if needed (follow steps above)"
-  echo "3. Verify security after fixes"
-  echo "4. Use system normally for 2-3 WEEKS (not days!)"  
-  echo "   - Games (Steam, Proton)"
-  echo "   - eGPU workflows"
-  echo "   - All regular activities"
-  echo "5. Monitor: journalctl -k -g DENIED | tail -50"
-  echo "6. Step 18: Review and enforce after learning period"
-  echo ""
-  echo "⚠️  PHILOSOPHY:"
-  echo "  - Test before changing"
-  echo "  - Fix minimally"
-  echo "  - Verify security maintained"
-  echo "  - Document what you disabled and why"
-  echo ""
-  echo "🏆 Step 11 Complete (Base Configuration)!"
-  echo "📝 Apply gaming fixes only as needed"
+  /usr/bin/mkdir -p /etc/apparmor.d/disable
+
+  for profile in "${GAMING_BLOCKERS[@]}"; do
+      if [[ -f "/etc/apparmor.d/$profile" ]]; then
+          # Use [[:space:]] to be whitespace-agnostic and 
+          # use an if-statement to handle the grep exit code safely
+          if /usr/bin/aa-status 2>/dev/null | /usr/bin/grep -qE "^[[:space:]]+$profile$"; then
+              /usr/bin/logger -t apparmor-gaming-fix "NOTICE: $profile was active, disabling..."
+              /usr/bin/ln -sf "/etc/apparmor.d/$profile" "/etc/apparmor.d/disable/$profile"
+              /usr/bin/apparmor_parser -R "/etc/apparmor.d/$profile" 2>/dev/null || true
+              ((PROFILES_FIXED++))
+          fi
+      fi
+  done
+
+  if [[ $PROFILES_FIXED -gt 0 ]]; then
+      /usr/bin/logger -t apparmor-gaming-fix "Successfully re-disabled $PROFILES_FIXED profiles."
+  else
+      /usr/bin/logger -t apparmor-gaming-fix "System clean: Gaming profiles already disabled."
+  fi
+
+  # Explicitly exit 0 so systemd is happy
+  exit 0
+  EOF
+  
+  sudo tee /etc/systemd/system/apparmor-gaming-fix.service > /dev/null << 'EOF'
+  [Unit]
+  Description=Re-enforce AppArmor gaming profile exclusions
+  Documentation=man:apparmor(7)
+  After=apparmor.service
+  Requires=apparmor.service
+
+  [Service]
+  Type=oneshot
+  ExecStart=/usr/local/bin/apparmor-gaming-fix
+  RemainAfterExit=yes
+
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now apparmor-gaming-fix.service
   ```
 - Increase Audit Backlog for AppArmor Complain Mode
   ```bash
