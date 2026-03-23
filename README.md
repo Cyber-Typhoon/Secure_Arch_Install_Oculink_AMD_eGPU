@@ -5952,8 +5952,8 @@
     fi
 
     # Cache size
-    cache_size=$(dua -sh /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}' || echo "unknown")
-    echo -e "  Pacman Cache: ${cache_size}"
+    cache_size=$(command du -sh /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}')
+    echo -e "  Pacman Cache: ${cache_size:-unknown}"
 
     # Largest packages (FIXED - using tab delimiter)
     if command -v expac &> /dev/null; then
