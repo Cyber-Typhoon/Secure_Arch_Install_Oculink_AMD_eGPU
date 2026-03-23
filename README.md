@@ -5964,13 +5964,6 @@
     # Font cache rebuild
     fc-cache -fv > /dev/null && echo -e "${GREEN}âś” Font cache rebuilt.${NC}"
 
-    echo -e "\n${CYAN}Checking for services needing restart...${NC}"
-    if command -v needrestart &> /dev/null; then
-        sudo needrestart -r l 2>/dev/null
-    else
-        echo -e "${YELLOW}⊘ needrestart not installed: sudo pacman -S needrestart${NC}"
-    fi
-
     # =============================================
     # 6. PACKAGE HYGIENE
     # =============================================
