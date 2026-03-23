@@ -1577,6 +1577,7 @@
     nautilus-open-any-terminal \
     nautilus-copy-path \
     nautilus-admin-gtk4 \
+    needrestart \
     rose-pine-cursor \
     rose-pine-gtk-theme-full \
     stylepak-git \
@@ -5951,7 +5952,7 @@
     fi
 
     # Cache size
-    cache_size=$(du -sh /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}' || echo "unknown")
+    cache_size=$(dua -sh /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}' || echo "unknown")
     echo -e "  Pacman Cache: ${cache_size}"
 
     # Largest packages (FIXED - using tab delimiter)
