@@ -5879,7 +5879,7 @@
     echo -e "\n${YELLOW}--- 4. Post-Update Cleanup ---${NC}"
 
     # Clean old maintenance logs
-    find "$HOME" -maxdepth 1 -type f -name "update-log-*.txt" -mtime +30 -delete
+    find "$LOG_DIR" -type f -name "update-log-*.txt" -mtime +30 -delete
     echo -e "${GREEN}âś” Old logs cleaned (>30 days).${NC}"
 
     # Clean systemd journal
@@ -5901,6 +5901,9 @@
     else
         echo -e "${YELLOW}âŠ Install pacman-contrib: sudo pacman -S pacman-contrib${NC}"
     fi
+
+    echo -e "${CYAN}Rebuilding dynamic linker cache...${NC}"
+    sudo ldconfig && echo -e "${GREEN}✔  ldconfig complete.${NC}"
 
     # =============================================
     # 5. DIAGNOSTICS
@@ -5959,6 +5962,13 @@
 
     # Font cache rebuild
     fc-cache -fv > /dev/null && echo -e "${GREEN}âś” Font cache rebuilt.${NC}"
+
+    echo -e "\n${CYAN}Checking for services needing restart...${NC}"
+    if command -v needrestart &> /dev/null; then
+        sudo needrestart -r l 2>/dev/null
+    else
+        echo -e "${YELLOW}⊘ needrestart not installed: sudo pacman -S needrestart${NC}"
+    fi
 
     # =============================================
     # 6. PACKAGE HYGIENE
