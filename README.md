@@ -465,7 +465,8 @@
 - Configure the mirrorlist for faster package downloads:
   ```bash
   pacman -Sy reflector
-  reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist
+  reflector --country "United States" --country "Canada" --latest 15 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+  #change country to wherever you are at the moment
   ```
 - Enable parallel downloads
   ```bash
