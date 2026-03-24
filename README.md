@@ -4659,100 +4659,189 @@
     ```
 ## Step 13: Configure Snapper and Snapshots
 
-- Install Snapper and snap-pac
-  ```bash
-  pacman -S --noconfirm snapper snap-pac btrfs-assistant
-  ```
-- Create global filter
-  ```bash
-  mkdir -p /etc/snapper/filters
-  echo -e "/home/.cache\n/tmp\n/run\n/.snapshots\n.nobackup" | sudo tee /etc/snapper/filters/global-filter.txt
-  ```
-- Create Snapper configurations for root, home and data:
-  ```bash
+```bash
+- Instal Packages
+  # rsync is required by the boot backup hook (called explicitly in hook Exec=)
+  sudo pacman -S --needed snapper snap-pac rsync btrfs-assistant
+
+- Diff Filter File
+  # IMPORTANT: This filter only affects `snapper diff` / `snapper status` output.
+  # It does NOT exclude paths from snapshots. Btrfs snapshots are atomic at the
+  # subvolume level — to truly exclude a path (e.g. /home/.cache) from snapshots
+  # it must be mounted as a separate Btrfs subvolume in fstab.
+  sudo mkdir -p /etc/snapper/filters
+  printf '/home/*/.cache\n/tmp\n/run\n/.snapshots\n/var/cache\n/var/tmp\n.nobackup\n' \
+    | sudo tee /etc/snapper/filters/global-filter.txt > /dev/null
+
+- Root Config — @snapshots Subvolume Dance 
+  # snapper create-config creates a /.snapshots Btrfs subvolume inside @.
+  # Since fstab mounts a dedicated @snapshots subvolume at /.snapshots, we must:
+  #   1) unmount the existing mount (if any)
+  #   2) run create-config (snapper creates its own /.snapshots subvolume)
+  #   3) delete the subvolume snapper just created
+  #   4) recreate /.snapshots as a plain directory and remount from fstab
+
   if mountpoint -q /.snapshots; then
-    sudo umount /.snapshots
-    sudo rmdir /.snapshots
+      sudo umount /.snapshots
   fi
+  [ -d /.snapshots ] && sudo rmdir /.snapshots 2>/dev/null || true
+
   sudo snapper -c root create-config /
+
+  sudo btrfs subvolume delete /.snapshots
+  sudo mkdir -p /.snapshots
+  sudo mount -a
+
+  sudo chmod 750 /.snapshots
+  sudo chown root:wheel /.snapshots
+
+- Home and Data Configs
   sudo snapper -c home create-config /home
   sudo snapper -c data create-config /data
-  sudo btrfs subvolume delete /.snapshots
-  sudo mkdir /.snapshots
-  sudo mount -a  # Remounts from /etc/fstab
-  sudo chmod 750 /.snapshots
-  sudo chown :wheel /.snapshots
-  sudo chown :wheel /home/.snapshots /data/.snapshots
+
+  # NOTE: For home and data, snapper creates .snapshots as a subvolume inside
+  # their respective subvolumes (@home, @data). This is correct — they are not
+  # nested inside @, so no fstab dance is needed.
+  # Repeat the delete/remount dance ONLY if your fstab has dedicated
+  # @home_snapshots / @data_snapshots subvolumes. Check with:
+  #   grep snapshots /etc/fstab
+  # No entries → the subvolumes snapper created are correct as-is.
+
+  sudo chown root:wheel /home/.snapshots /data/.snapshots
   sudo chmod 750 /home/.snapshots /data/.snapshots
-  ```
-- Configure Snapper for automatic snapshots:
-  ```bash
+
+- Configure All Three Configs
   for CONF in root home data; do
-    sudo snapper -c $CONF set-config \
-        ALLOW_GROUPS="wheel" \
-        SYNC_ACL="yes" \
-        TIMELINE_CREATE="yes" \
-        TIMELINE_CLEANUP="yes" \
-        TIMELINE_MIN_AGE="1800" \
-        TIMELINE_LIMIT_HOURLY="0" \
-        TIMELINE_LIMIT_DAILY="7" \
-        TIMELINE_LIMIT_WEEKLY="4" \
-        TIMELINE_LIMIT_MONTHLY="6" \
-        TIMELINE_LIMIT_YEARLY="0" \
-        NUMBER_CLEANUP="yes" \
-        NUMBER_LIMIT="20" \
-        NUMBER_LIMIT_IMPORTANT="10"
+      sudo snapper -c "$CONF" set-config \
+          ALLOW_GROUPS="wheel" \
+          SYNC_ACL="yes" \
+          BACKGROUND_COMPARISON="yes" \
+          FILTERS="/etc/snapper/filters/global-filter.txt" \
+          TIMELINE_CREATE="yes" \
+          TIMELINE_CLEANUP="yes" \
+          TIMELINE_MIN_AGE="1800" \
+          TIMELINE_LIMIT_HOURLY="5" \
+          TIMELINE_LIMIT_DAILY="7" \
+          TIMELINE_LIMIT_WEEKLY="4" \
+          TIMELINE_LIMIT_MONTHLY="6" \
+          TIMELINE_LIMIT_YEARLY="0" \
+          NUMBER_CLEANUP="yes" \
+          NUMBER_LIMIT="50" \
+          NUMBER_LIMIT_IMPORTANT="10" \
+          EMPTY_PRE_POST_CLEANUP="yes" \
+          EMPTY_PRE_POST_MIN_AGE="1800"
   done
-  ```
-- Config permissions:
-  ```bash
+  # TIMELINE_LIMIT_HOURLY=5: captures non-pacman changes (config edits, user
+  #   errors) during active use. Lower to 0 once the system is stable.
+  # NUMBER_LIMIT=50: snap-pac generates a pre/post pair per pacman transaction.
+  #   On rolling Arch, 20 fills in under a week of normal use.
+  # EMPTY_PRE_POST_CLEANUP: removes snap-pac pairs where nothing actually changed,
+  #   preventing silent snapshot bloat.
+  # FILTERS: per-config assignment; also auto-loaded globally from the directory.
+  #   Kept for self-documentation and deterministic behavior with multiple files.
+
+- Secure Config Files
   sudo chmod 640 /etc/snapper/configs/*
-  ```
-  - Create the backup directory on the Btrfs root
-  ```bash
+
+- Configure SNAP-PAC
+  # Without this file snap-pac snapshots every config it finds automatically.
+  # Explicit is safer as your config count grows (e.g. if you add a cache or
+  # VM subvolume later that you do NOT want tied to pacman transactions).
+  sudo tee /etc/snap-pac.ini > /dev/null <<'EOF'
+  [root]
+  snapshot = True
+  cleanup_algorithm = number
+
+  [home]
+  snapshot = True
+  cleanup_algorithm = number
+
+  [data]
+  snapshot = True
+  cleanup_algorithm = number
+  EOF
+
+- Boot Backup Pacman Hook
+  # /boot (FAT32 ESP) is outside all Btrfs subvolumes — invisible to Snapper.
+  # This hook rsyncs /boot into /etc/reproducible-boot, which lives inside @
+  # (the root subvolume). Every root snapshot therefore captures the matching
+  # boot state, making rollbacks coherent between userspace and kernel/initramfs.
+  #
+  # Named 95- for correct ordering between the other PostTransaction hooks:
+  #   90-mkinitcpio-install.hook  → generates NEW kernel + initramfs into /boot
+  #   95-bootbackup.hook          → rsyncs the freshly built /boot  ← this hook
+  #   zz-snap-pac-post.hook       → takes the snapshot
+  #
+  # If this ran at 90-, it would fire before mkinitcpio, copying the OLD kernel.
+  # The snapshot would then contain a stale /etc/reproducible-boot — on rollback:
+  # new modules in /usr/lib/modules, old kernel in /etc/reproducible-boot →
+  # kernel/module mismatch → boot failure.
+
+  sudo mkdir -p /etc/pacman.d/hooks
   sudo mkdir -p /etc/reproducible-boot
-  ```
-  - Create a Pacman hook to sync the ESP to the root before/after transactions
-  ```bash
-  sudo tee /etc/pacman.d/hooks/95-bootbackup.hook <<'EOF'
+
+  sudo tee /etc/pacman.d/hooks/95-bootbackup.hook > /dev/null <<'EOF'
   [Trigger]
   Type = Path
   Operation = Install
   Operation = Upgrade
   Operation = Remove
   Target = boot/*
+  Target = usr/lib/modules/*/vmlinuz
 
   [Action]
-  Description = Backing up /boot to /etc/reproducible-boot (for Snapper)...
+  Description = Syncing /boot to /etc/reproducible-boot (Snapper-visible copy)...
   When = PostTransaction
   Exec = /usr/bin/rsync -a --delete /boot/ /etc/reproducible-boot/
   EOF
 
   sudo chmod 644 /etc/pacman.d/hooks/95-bootbackup.hook
-  ```
-  - Enable Snapper timeline and cleanup:
-  ```bash
-  sudo systemctl enable --now snapper-timeline.timer
-  sudo systemctl enable --now snapper-cleanup.timer
-  ```
-  - Verify configuration:
-  ```bash 
+
+- Enable Timers
+  sudo systemctl enable --now snapper-timeline.timer   # periodic timeline snapshots
+  sudo systemctl enable --now snapper-cleanup.timer    # periodic cleanup of old snapshots
+  sudo systemctl enable --now snapper-boot.timer       # snapshot on every boot
+
+- Verify Configuration
+  echo "════ Configs ════"
   snapper list-configs
-  snapper -c root get-config
-  snapper -c home get-config
-  snapper -c data get-config
-  ```
-  - Test snapshot creation:
-  ```bash
-  snapper -c root create --description "Initial test snapshot"
-  snapper -c home create --description "Initial test snapshot"
-  snapper -c data create --description "Initial test snapshot"
-  snapper -c root list  # Check all configs similarly
-  ```
-  - Check for AppArmor denials (if enabled in Step 11)
-  ```bash
-  echo "NOTE: If AppArmor is enabled, check for denials: journalctl -u apparmor | grep -i 'snapper'. Generate profiles with 'aa-genprof snapper' if needed."
-  journalctl -u apparmor | grep -i "snapper"
+
+  echo ""
+  echo "════ Subvolume check (all three must appear) ════"
+  sudo btrfs subvolume list / | grep -E '\.snapshots'
+
+  echo ""
+  for CONF in root home data; do
+      echo "════ $CONF ════"
+      snapper -c "$CONF" get-config \
+          | grep -E 'ALLOW|SYNC|FILTERS|TIMELINE|NUMBER|EMPTY|BACKGROUND'
+      echo ""
+  done
+
+  echo "════ Mountpoint permissions ════"
+  ls -ld /.snapshots /home/.snapshots /data/.snapshots
+
+- Initial Baseline Snapshots
+  for CONF in root home data; do
+      sudo snapper -c "$CONF" create \
+          --description "Baseline — post-snapper-install, pre-normal-use" \
+        --userdata "important=yes"
+  done
+
+  echo ""
+  echo "════ Snapshot lists ════"
+  for CONF in root home data; do
+      echo "── $CONF ──"
+      snapper -c "$CONF" list
+  done
+
+- Apparmor Check
+  if systemctl is-active --quiet apparmor; then
+      echo "Checking AppArmor for Snapper denials..."
+      journalctl -u apparmor --no-pager | grep -i "snapper" \
+          && echo ">>> Denials found. Run: sudo aa-genprof snapper" \
+          || echo "OK — no AppArmor denials for Snapper."
+  fi
   ```
 ## Step 14: Configure Dotfiles
 
