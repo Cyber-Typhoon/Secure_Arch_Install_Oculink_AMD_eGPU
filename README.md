@@ -6279,7 +6279,10 @@
     #  • You install new software introducing SUID
     #      ◦ Example: docker, wireshark, virtualization tools
     # When that happens:
-    # sudo cp /var/lib/suid-audit/current.txt /var/lib/suid-audit/baseline.txt 
+    # sudo cp /var/lib/suid-audit/current.txt /var/lib/suid-audit/baseline.txt
+
+    # We can remove the UKI sign to gain time in the build:
+    sudo rm /etc/pacman.d/hooks/90-uki-sign.hook     
     ```
 - **b) Monitor Logs**:
   - Check for errors in system logs:
