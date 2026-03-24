@@ -4710,8 +4710,8 @@
   #   grep snapshots /etc/fstab
   # No entries → the subvolumes snapper created are correct as-is.
 
-  sudo chown root:wheel /home/.snapshots /data/.snapshots
-  sudo chmod 750 /home/.snapshots /data/.snapshots
+  sudo chown root:wheel /home/.snapshots /data/.snapshots 2>/dev/null
+  sudo chmod 750 /home/.snapshots /data/.snapshots 2>/dev/null
 
 - Configure All Three Configs
   for CONF in root home data; do
@@ -4796,7 +4796,7 @@
   [Action]
   Description = Syncing /boot to /etc/reproducible-boot (Snapper-visible copy)...
   When = PostTransaction
-  Exec = /usr/bin/rsync -a --delete /boot/ /etc/reproducible-boot/
+  Exec = /usr/bin/rsync -a --delete /boot/ /etc/reproducible-boot/ || exit 1
   EOF
 
   sudo chmod 644 /etc/pacman.d/hooks/95-bootbackup.hook
