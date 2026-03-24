@@ -4697,13 +4697,16 @@
 
 - Home and Data Configs
   sudo snapper -c home create-config /home
-  sudo snapper -c data create-config /data
 
-  # NOTE: For home and data, snapper creates .snapshots as a subvolume inside
-  # their respective subvolumes (@home, @data). This is correct — they are not
-  # nested inside @, so no fstab dance is needed.
-  # Repeat the delete/remount dance ONLY if your fstab has dedicated
-  # @home_snapshots / @data_snapshots subvolumes. Check with:
+  # Guard in case /data is not yet mounted
+  if mountpoint -q /data; then
+      sudo snapper -c data create-config /data
+  fi
+
+  # For home and data, snapper creates .snapshots as a subvolume inside their
+  # respective subvolumes (@home, @data) — not nested inside @, so no fstab
+  # dance is needed. Repeat the delete/remount dance ONLY if your fstab has
+  # dedicated @home_snapshots / @data_snapshots subvolumes. Check with:
   #   grep snapshots /etc/fstab
   # No entries → the subvolumes snapper created are correct as-is.
 
@@ -4767,20 +4770,21 @@
   # (the root subvolume). Every root snapshot therefore captures the matching
   # boot state, making rollbacks coherent between userspace and kernel/initramfs.
   #
-  # Named 95- for correct ordering between the other PostTransaction hooks:
+  # Hook execution order on a kernel-touching pacman transaction:
   #   90-mkinitcpio-install.hook  → generates NEW kernel + initramfs into /boot
   #   95-bootbackup.hook          → rsyncs the freshly built /boot  ← this hook
-  #   zz-snap-pac-post.hook       → takes the snapshot
+  #   zz-snap-pac-post.hook       → takes the post-transaction snapshot  
   #
-  # If this ran at 90-, it would fire before mkinitcpio, copying the OLD kernel.
-  # The snapshot would then contain a stale /etc/reproducible-boot — on rollback:
-  # new modules in /usr/lib/modules, old kernel in /etc/reproducible-boot →
-  # kernel/module mismatch → boot failure.
+  # At 90- this hook would fire before mkinitcpio, copying the OLD kernel into
+  # /etc/reproducible-boot. The snapshot would contain a stale boot mirror —
+  # on rollback: new modules in /usr/lib/modules, old kernel restored → mismatch
+  # → boot failure. The 95- naming is not cosmetic; it is load-bearing.
 
   sudo mkdir -p /etc/pacman.d/hooks
   sudo mkdir -p /etc/reproducible-boot
 
   sudo tee /etc/pacman.d/hooks/95-bootbackup.hook > /dev/null <<'EOF'
+  
   [Trigger]
   Type = Path
   Operation = Install
@@ -4803,6 +4807,15 @@
   sudo systemctl enable --now snapper-boot.timer       # snapshot on every boot
 
 - Verify Configuration
+  echo "════ Snapshot coverage — what IS included in root snapshots ════"
+  echo "  /etc, /usr, /opt, /root, /etc/reproducible-boot (boot mirror)"
+
+  echo ""
+  echo "════ Snapshot coverage — what is NOT included (separate subvolumes) ════"
+  mount | grep btrfs | grep -E 'subvol=@(var|log|srv|swap|cache|tmp)' \
+      | awk '{print "  EXCLUDED: " $3 " (" $0 ")"}'
+  echo "  (This is expected — intentional architecture, not a gap)"
+
   echo "════ Configs ════"
   snapper list-configs
 
@@ -4819,7 +4832,7 @@
   done
 
   echo "════ Mountpoint permissions ════"
-  ls -ld /.snapshots /home/.snapshots /data/.snapshots
+  ls -ld /.snapshots /home/.snapshots /data/.snapshots 2>/dev/null
 
 - Initial Baseline Snapshots
   for CONF in root home data; do
