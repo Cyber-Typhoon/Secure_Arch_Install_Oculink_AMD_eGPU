@@ -4855,6 +4855,171 @@
           && echo ">>> Denials found. Run: sudo aa-genprof snapper" \
           || echo "OK — no AppArmor denials for Snapper."
   fi
+
+  # ════════════════════════════════════════════════════════════════════════════════
+  # STEP 13 — APPENDIX: Rollback Procedure
+  # Arch Linux · systemd-boot · Btrfs · LUKS2
+  #
+  # Two scenarios:
+  #   A) System still boots — identify the target, surgically undo if possible
+  #   B) System does not boot — full recovery from live USB
+  #
+  # NOTE: /var, /var/log, /var/lib are NOT snapshotted (separate subvolumes).
+  # After any rollback, service state in /var will be newer than the restored root.
+  # For a desktop this is a non-issue. Databases (PostgreSQL, MariaDB) may need
+  # manual attention if their data directory lives inside /var.
+  # ════════════════════════════════════════════════════════════════════════════════
+
+  # ════════════════════════════════════════════════════════════════════════════════
+  # SCENARIO A — SYSTEM STILL BOOTS
+  # Use this to identify what to roll back to and surgically undo pacman changes.
+  # For a full subvolume swap you must use Scenario B regardless — you cannot
+  # replace @ while it is the running root.
+  # ════════════════════════════════════════════════════════════════════════════════
+
+  # ── A1. Identify the snapshot to roll back to ──────────────────────────────────
+  snapper -c root list
+  snapper -c home list
+  snapper -c data list
+  # Note the snapshot NUMBER you want. Entries marked important=yes are
+  # pre/post pacman transactions and manual baselines.
+
+  # ── A2. Inspect what changed between a snapshot and now ───────────────────────
+  sudo snapper -c root status NUMBER..0   # list changed files
+  sudo snapper -c root diff NUMBER..0 | less   # show actual diffs
+
+  # ── A3. Undo a single pacman transaction (surgical, no reboot required) ────────
+  # snap-pac creates a pre/post pair for every pacman transaction.
+  # undochange restores only the files that changed between PRE and POST.
+  # This is the right first tool — faster and safer than a full subvolume swap.
+  sudo snapper -c root undochange PRE..POST
+
+  # After undochange, sync /boot to match the restored root state.
+  # undochange operates on the Btrfs subvolume only — it never touches the ESP.
+  # If the rollback involved anything kernel or initramfs related, /boot is now
+  # out of sync without this step.
+  sudo rsync -a --delete /etc/reproducible-boot/ /boot/
+
+  # Reboot to apply.
+
+  # ── A4. Full subvolume rollback ────────────────────────────────────────────────
+  # If undochange is not sufficient (e.g. broken kernel, wrecked /etc, bad
+  # bootloader config), you need a full @ swap. This cannot be done from a
+  # running system — the kernel holds a lock on the mounted @.
+  # Note the snapshot NUMBER you want from A1, then reboot into a live USB
+  # and follow Scenario B using that number.
+
+  # ════════════════════════════════════════════════════════════════════════════════
+  # SCENARIO B — FULL RECOVERY FROM LIVE USB
+  # Boot from Arch live USB, then follow these steps exactly.
+  # ════════════════════════════════════════════════════════════════════════════════
+
+  # ── B1. Decrypt LUKS ──────────────────────────────────────────────────────────
+  cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+  # If using a keyfile:
+  # cryptsetup luksOpen --key-file /path/to/keyfile /dev/nvme1n1p2 cryptroot
+
+  # ── B2. Mount the Btrfs top-level (subvolid=5 — not any named subvolume) ──────
+  # This gives visibility of all sibling subvolumes: @, @home, @snapshots, etc.
+  # Mounting by subvolume name would land inside @ with no view of its siblings.
+  mount -o subvolid=5 /dev/mapper/cryptroot /mnt
+  ls /mnt
+  # Expected: @ @home @data @snapshots @var @log @srv @swap
+
+  # ── B3. Identify the snapshot to restore ──────────────────────────────────────
+  ls /mnt/@snapshots/
+  cat /mnt/@snapshots/N/info.xml   # replace N with your chosen snapshot number
+
+  # ── B4. Rename the broken @ out of the way ────────────────────────────────────
+  # Rename rather than delete — gives a revert-of-a-revert option if the chosen
+  # snapshot also has problems. Delete only after confirming the restore works.
+  mv /mnt/@ /mnt/@.broken
+
+  # ── B5. Clone the snapshot into @ ─────────────────────────────────────────────
+  btrfs subvolume snapshot /mnt/@snapshots/N/snapshot /mnt/@
+  # Creates a read-write subvolume. The original snapshot stays intact.
+
+  # ── B6. Sync /boot from the snapshot's reproducible-boot mirror ───────────────
+  # The ESP (FAT32) is outside all Btrfs subvolumes — invisible to Snapper.
+  # Without this step the restored @ contains coherent userspace but /boot still
+  # has whatever kernel was there at failure time — kernel/module mismatch →
+  # boot failure.
+  # /etc/reproducible-boot inside @ holds the /boot state at snapshot time.
+  # We mount the ESP directly into the restored @/boot — /mnt/boot does not
+  # exist at the raw top-level (subvolid=5), only @/boot does.
+
+  lsblk -f   # verify ESP partition before mounting
+  mount /dev/nvme1n1p1 /mnt/@/boot   # adjust if your ESP is on a different partition
+
+  # Restore /boot from the snapshot's mirror
+  rsync -a --delete /mnt/@/etc/reproducible-boot/ /mnt/@/boot/
+
+  # ── B7. Verify bootloader entries ─────────────────────────────────────────────
+  ls /mnt/@/boot/loader/entries/
+  # Entries should reference the UKIs or vmlinuz just restored.
+  # In the vast majority of cases they will be intact — systemd-boot entries
+  # are static files that were part of @ and were restored in B5.
+
+  # ── B8. (Only if bootloader entries are missing or corrupted) Chroot ──────────
+  mkdir -p /mnt/newroot
+  mount -o subvol=@ /dev/mapper/cryptroot /mnt/newroot
+  mount -o subvol=@home /dev/mapper/cryptroot /mnt/newroot/home
+  mount -o subvol=@var  /dev/mapper/cryptroot /mnt/newroot/var  2>/dev/null || true
+  mount --bind /proc /mnt/newroot/proc
+  mount --bind /sys  /mnt/newroot/sys
+  mount --bind /dev  /mnt/newroot/dev
+  mount --bind /run  /mnt/newroot/run
+
+  arch-chroot /mnt/newroot
+  mkinitcpio -P                     # regenerate all initramfs presets
+  bootctl install --esp-path=/boot  # reinstall systemd-boot if needed
+  exit
+
+  umount -R /mnt/newroot
+
+  # ── B9. Unmount and reboot ─────────────────────────────────────────────────────
+  umount /mnt/@/boot
+  umount /mnt
+  cryptsetup luksClose cryptroot
+  reboot
+
+  # ── B10. Post-boot cleanup (only after confirming the system is healthy) ───────
+  # Mount the Btrfs top-level to reach @.broken.
+  # NEVER run btrfs subvolume delete on /.snapshots — that is your entire
+  # snapshot store. The target here is only the broken subvolume renamed in B4.
+  sudo mount -o subvolid=5 /dev/mapper/cryptroot /mnt
+  sudo btrfs subvolume delete /mnt/@.broken
+  sudo umount /mnt
+
+  # ════════════════════════════════════════════════════════════════════════════════
+  # QUICK REFERENCE — the commands you will actually type in a crisis
+  # ════════════════════════════════════════════════════════════════════════════════
+  #
+  #  List snapshots:
+  #    snapper -c root list 
+  #
+  #  Inspect what changed:
+  #    snapper -c root status N..0
+  #
+  #  Undo a pacman transaction (soft rollback):
+  #    sudo snapper -c root undochange PRE..POST
+  #    sudo rsync -a --delete /etc/reproducible-boot/ /boot/
+  #    reboot
+  #
+  #  Full hard rollback (live USB):
+  #    cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
+  #    mount -o subvolid=5 /dev/mapper/cryptroot /mnt
+  #    mv /mnt/@ /mnt/@.broken
+  #    btrfs subvolume snapshot /mnt/@snapshots/N/snapshot /mnt/@
+  #    lsblk -f && mount /dev/nvme1n1p1 /mnt/@/boot
+  #    rsync -a --delete /mnt/@/etc/reproducible-boot/ /mnt/@/boot/
+  #    umount /mnt/@/boot && umount /mnt
+  #    cryptsetup luksClose cryptroot && reboot
+  #
+  #  Post-recovery cleanup (after confirmed working):
+  #    sudo mount -o subvolid=5 /dev/mapper/cryptroot /mnt
+  #    sudo btrfs subvolume delete /mnt/@.broken
+  #    sudo umount /mnt
   ```
 ## Step 14: Configure Dotfiles
 
