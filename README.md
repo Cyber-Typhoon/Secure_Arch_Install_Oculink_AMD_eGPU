@@ -1536,7 +1536,7 @@
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gnome-font-viewer gnome-menus \
-  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf qt6-wayland qt5-wayland nautilus-share
+  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf qt6-wayland qt5-wayland nautilus-share gst-thumbnailers
   ```
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
@@ -1570,7 +1570,6 @@
     fresh-editor-bin \
     folder-color-nautilus \
     libva-vdpau-driver \
-    gst-thumbnailers \
     gst-plugins-rs-git \
     brave-bin \
     kanagawa-icon-theme-git \
@@ -6247,7 +6246,7 @@
         missing_count=0
     
         while read -r pkg _; do
-            if ! paru -Si "$pkg" &>/dev/null; then
+            if ! pacman -Si "$pkg" &>/dev/null && ! paru -Si "$pkg" &>/dev/null; then
                 echo -e "${RED}  âš  $pkg ${NC}(no longer in AUR)"
                 ((missing_count++))
             fi
