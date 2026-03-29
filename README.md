@@ -1173,11 +1173,10 @@
   RemainAfterExit=yes
 
   # Execute the TPM Seal 
-  ExecStart=/usd/bin/systemd-cryptenroll /dev/disk/by-uuid/"TYPE_LUKS_UUID" \
+  ExecStart=/usr/bin/systemd-cryptenroll /dev/disk/by-uuid/"TYPE_LUKS_UUID" \
     --wipe-slot=tpm2 \
     --tpm2-device=auto \
     --tpm2-pcrs=7 \
-    --tpm2-public-key=/etc/tpm2-ukey.pem
 
   # Automatic cleanup of the trigger file
   ExecStartPost=/usr/bin/rm -f /etc/allow-tpm-reenroll
