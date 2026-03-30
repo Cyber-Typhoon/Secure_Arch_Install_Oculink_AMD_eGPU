@@ -864,7 +864,7 @@
   # This creates the standard file that UKI builders (like ukify) use by default
   mkdir -p /etc/kernel
   cat << EOF > /etc/kernel/cmdline
-  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51
+  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51 xe.enable_psr=0 split_lock_detect=warn xe.force_low_latency=1
   EOF
   # Double check if the $ROOT_UUID and $RESUME_OFFSET are numerical and not variables.
 
@@ -876,6 +876,7 @@
   all_config="/etc/mkinitcpio.conf"
   EOF
   echo "Created /etc/mkinitcpio.d/linux.preset."
+  # Monitor after Kernel 6.15+ remove xe.force_low_latency=1 and xe.enable_psr=0. These were used to prevent the iGPU idle state causing pop-up asking to close (force to quit) applications like Steam and Brave. 
   # Remove any i915.* parameters. Xe driver is default and stable for Meteor Lake (Core Ultra 7 255H) on kernel 6.12+.
   # No xe.force_probe needed. i915 is kept in MODULES (line 2985) as fallback only.
   # Mesa 26.0+ includes BTI prefetch for Intel ANV (better Arc 140T Vulkan performance) and ACO compiler for RadeonSI (faster AMD shader compile).
