@@ -864,7 +864,7 @@
   # This creates the standard file that UKI builders (like ukify) use by default
   mkdir -p /etc/kernel
   cat << EOF > /etc/kernel/cmdline
-  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51 xe.enable_psr=0 split_lock_detect=warn xe.force_low_latency=1
+  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51 xe.enable_psr=0 split_lock_detect=off systemd.stub_measured_sections=0
   EOF
   # Double check if the $ROOT_UUID and $RESUME_OFFSET are numerical and not variables.
 
@@ -892,6 +892,7 @@
   # iommu.strict=1 - Breaks some DMA paths (esp. eGPU edge cases) - “Enable iommu.strict=1 only if DMA misbehavior is observed.”
   # intel_idle.max_cstate=2 - Power + thermal penalty
   # Hibernation is intentionally unavailable until Step 15
+  # systemd.stub_measured_sections=0 --> opt-out for systemd-stub’s TPM measurements of the UKI sections (PCR 11). If we decide to use PCR 11 on the TPM2 we need to remove this.
   
 
   # LTS preset (atomic copy, just rename the UKI)
@@ -2672,6 +2673,9 @@
   !/var/tmp
   !/var/cache
   !/var/spool
+  !/.snapshots
+  !/home/.snapshots
+  !/data/.snapshots
   !/tmp
   !/proc
   !/sys
@@ -2950,6 +2954,7 @@
 
   # Scan entire system safely (no -xdev blind spots)
   find / \
+    \( -path "/.snapshots" -o -path "/home/.snapshots" -o -path "/data/.snapshots" \) -prune -o \
     -type d \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /tmp -o -path /var/tmp \) -prune \
     -o -type f \( -perm -4000 -o -perm -2000 \) -print \
     2>/dev/null | sort > "$CURRENT"
@@ -3603,20 +3608,20 @@
 
   # AppArmor Complain Mode - Increase Backlog
   # 2040+ profiles in complain mode = massive log volume
-  # Default: 8192-16384 → New: 32768
-  -b 32768
+  # Default: 8192-16384 → New: 131072
+  -b 131072
   EOF
   else
       # Append to existing file
       sudo tee -a /etc/audit/rules.d/audit.rules > /dev/null <<'EOF'
   # AppArmor Complain Mode - Increase Backlog
   # 2040+ profiles generate massive log volume
-  -b 32768
+  -b 131072
   EOF
   fi
 
   # Apply immediately
-  sudo auditctl -b 32768
+  sudo auditctl -b 131072 -r 0
 
   # Reload all rules
   sudo augenrules --load > /dev/null 2>&1
@@ -3624,10 +3629,10 @@
   # Verify
   CURRENT_BACKLOG=$(sudo auditctl -s | grep backlog_limit | awk '{print $2}')
 
-  if [[ "$CURRENT_BACKLOG" == "32768" ]]; then
-      echo "✓ Audit backlog increased to 32768"
+  if [[ "$CURRENT_BACKLOG" == "131072" ]]; then
+      echo "✓ Audit backlog increased to 131072"
   else
-      echo "  Audit backlog: $CURRENT_BACKLOG (expected 32768)"
+      echo "  Audit backlog: $CURRENT_BACKLOG (expected 131072)"
       echo "   This is non-critical, system will work fine"
   fi
 
@@ -4723,7 +4728,7 @@
           TIMELINE_CREATE="yes" \
           TIMELINE_CLEANUP="yes" \
           TIMELINE_MIN_AGE="1800" \
-          TIMELINE_LIMIT_HOURLY="5" \
+          TIMELINE_LIMIT_HOURLY="0" \
           TIMELINE_LIMIT_DAILY="7" \
           TIMELINE_LIMIT_WEEKLY="4" \
           TIMELINE_LIMIT_MONTHLY="6" \
@@ -4734,7 +4739,7 @@
           EMPTY_PRE_POST_CLEANUP="yes" \
           EMPTY_PRE_POST_MIN_AGE="1800"
   done
-  # TIMELINE_LIMIT_HOURLY=5: captures non-pacman changes (config edits, user
+  # TIMELINE_LIMIT_HOURLY=0: captures non-pacman changes (config edits, user
   #   errors) during active use. Lower to 0 once the system is stable.
   # NUMBER_LIMIT=50: snap-pac generates a pre/post pair per pacman transaction.
   #   On rolling Arch, 20 fills in under a week of normal use.
@@ -4742,6 +4747,9 @@
   #   preventing silent snapshot bloat.
   # FILTERS: per-config assignment; also auto-loaded globally from the directory.
   #   Kept for self-documentation and deterministic behavior with multiple files.
+  # EXCEPTION FOR HOME: Disable timeline creation for /home to prevent Btrfs 
+  # metadata locking caused by constant browser cache and config churn.
+  sudo snapper -c home set-config TIMELINE_CREATE="no"
 
 - Secure Config Files
   sudo chmod 640 /etc/snapper/configs/*
@@ -4805,6 +4813,31 @@
   sudo systemctl enable --now snapper-timeline.timer   # periodic timeline snapshots
   sudo systemctl enable --now snapper-cleanup.timer    # periodic cleanup of old snapshots
   sudo systemctl enable --now snapper-boot.timer       # snapshot on every boot
+
+- Optimize File Indexing (mlocate/plocate)
+  # Prevent updatedb from crawling Btrfs snapshots, which causes CPU/IO spikes.
+  # Edit /etc/updatedb.conf
+  PRUNE_BIND_MOUNTS = "yes"
+  PRUNENAMES = ".git .hg .svn .snapshots"
+  PRUNEPATHS = "/tmp /var/spool /media /var/lib/os-prober /var/lib/flatpak /var/lib/libvirt/images /.snapshots /home/.snapshots /data/.snapshots"
+  PRUNEFS = "NFS nfs nfs4 rpc_pipefs afs binfmt_misc devpts debugfs securityfs sysfs proc fuse.curlftpfs devfs autofs mfs shfs fuse.sshfs gpfs sfs lustre tmpfs devtmpfs zfs"
+
+  # Update db
+  sudo updatedb
+
+  # Disable quotas for your subvolumes
+  sudo btrfs quota disable /
+  sudo btrfs quota disable /home
+  sudo btrfs quota disable /data
+
+  sudo snapper -c root delete 80-120
+  sudo snapper -c root cleanup timeline
+  sudo snapper -c home cleanup timeline
+  sudo snapper -c data cleanup timeline
+
+  # Automate Prune
+  snapper -c root list | awk '$1 ~ /^[1-9][0-9]*$/ {print $1}' | head -n -15 | xargs -r sudo snapper -c root delete
+  snapper -c home list | awk '$1 ~ /^[1-9][0-9]*$/ {print $1}' | head -n -15 | xargs -r sudo snapper -c home delete
 
 - Verify Configuration
   echo "════ Snapshot coverage — what IS included in root snapshots ════"
@@ -6231,6 +6264,22 @@
     # Font cache rebuild
     fc-cache -fv > /dev/null && echo -e "${GREEN}âś” Font cache rebuilt.${NC}"
 
+    echo -e "\n${YELLOW}--- Security Audit (arch-audit) ---${NC}"
+
+    # Arch Audit
+    if command -v arch-audit &> /dev/null; then
+       audit_output=$(arch-audit | grep High || true)
+
+       if [[ -n "$audit_output" ]]; then
+           echo -e "${RED}⚠ High severity vulnerabilities found:${NC}"
+           echo "$audit_output"
+       else
+           echo -e "${GREEN}✔ No high severity vulnerabilities.${NC}"
+       fi
+    else
+       echo -e "${YELLOW}⊘ arch-audit not installed.${NC}"
+    fi
+
     # =============================================
     # 6. PACKAGE HYGIENE
     # =============================================
@@ -6358,7 +6407,12 @@
   #   • UKI rebuilt with different cmdline
   
   sudo tpm-seal-fix
+
+  sudo systemctl mask systemd-pcrextend.service
   
+  # PCR 11 is service is masked and should be kept like that since we are only validating 7 but in case you want to bring it back
+  # sudo systemctl unmask systemd-pcrextend.service
+  # sudo systemctl enable --now systemd-pcrextend.service  
   ```
 - **h) Security Audit**:
   ```bash
