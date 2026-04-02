@@ -711,13 +711,7 @@
   }
   
   # Modern CLI tool alias:
-  if [[ $- == *i* ]]; then        
-  alias grep='rg --color=auto'
-  alias find='fd --color=auto --hidden --no-ignore'
-  alias ls='eza --icons --git --color=auto --group-directories-first --header'
-  alias cat='bat -p --paging=never'
-  alias du='dua'                    
-  alias ps='procs --color=always'
+  if [[ $- == *i* ]]; then
   alias dig='dog'
   alias btop='btm'
   alias iftop='bandwhich --immediate --tree'
