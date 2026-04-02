@@ -2276,8 +2276,8 @@
   -D
 
   ## Buffer & failure handling (16k for high‑thread CPU)
-  -b 16384
-  -f 1
+  -b 32768
+  -f 0
 
   ## Identity & authentication files
   -w /etc/passwd      -p wa -k identity
@@ -2312,8 +2312,10 @@
   -a always,exit -F arch=b32 -S execve -F path=/usr/bin/pkexec      -k priv_esc
 
   ## Filesystem mounts (eGPU / USB monitoring)
-  -a always,exit -F arch=b64 -S mount -S umount2 -k mounts
-  -a always,exit -F arch=b32 -S mount -S umount2 -k mounts
+  -a always,exit -F arch=b64 -S mount   -F exe=/usr/bin/mount  -k mounts
+  -a always,exit -F arch=b64 -S umount2 -F exe=/usr/bin/umount -k mounts
+  -a always,exit -F arch=b32 -S mount   -F exe=/usr/bin/mount  -k mounts
+  -a always,exit -F arch=b32 -S umount2 -F exe=/usr/bin/umount -k mounts
 
   ## Time changes (for forensic timeline)
   -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time_change
