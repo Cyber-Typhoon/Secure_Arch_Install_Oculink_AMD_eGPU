@@ -741,6 +741,53 @@
   # - fix-tpm       → /usr/local/bin/fix-tpm (script)
   # - yay           → /usr/local/bin/yay (symlink to paru)
   # - sysctl/systeroid → separate tools (no alias, use each for its purpose)
+
+  # ─── Srcery Welcome Banner ─────────────────────────────────────────────────────
+  _welcome() {
+  # ── Srcery palette via standard ANSI codes ──────────────────────────────────
+  local reset=$'\e[0m'
+  local yellow=$'\e[33m'         # Srcery Yellow       #FBB829  warm amber
+  local bright_white=$'\e[97m'   # Srcery Bright White  #FCE8C3 cream
+  local bright_black=$'\e[90m'   # Srcery Bright Black  #918175 muted stone
+  local cyan=$'\e[36m'           # Srcery Cyan          #0AAEB3 cool teal
+  local bright_cyan=$'\e[96m'    # Srcery Bright Cyan   #2BE4D0 electric
+  local green=$'\e[32m'          # Srcery Green         #519F50  forest
+  local orange=$'\e[38;5;202m'   # Srcery Orange        #FF5F00  xterm 202
+
+  # ── Dynamic values ──────────────────────────────────────────────────────────
+  local date_str
+  date_str=$(date '+%A, %B %d, %Y — %H:%M')
+
+  # ── Helpers ─────────────────────────────────────────────────────────────────
+  # _tool new old  — prints "  new  instead of  old"
+  _tool() {
+    printf "  ${bright_cyan}%-6s${reset}${bright_black}instead of  ${reset}${bright_black}%s${reset}\n" "$1" "$2"
+  }
+
+  # ── Layout ──────────────────────────────────────────────────────────────────
+  local stripe="${yellow}▪▪▪${reset}"
+  local rule="${bright_black}────────────────────────────────${reset}"
+  local sep="${bright_black} · ${reset}"
+
+  print "  ${stripe}  ${bright_white}Welcome back!${reset}  ${stripe}"
+  print "  ${rule}"
+  printf "  ${bright_black}%-6s${reset}${cyan}%s${reset}\n" "Date" "$date_str"
+  print "  ${rule}"
+  _tool "rg"    "grep"
+  _tool "fd"    "find"
+  _tool "eza"   "ls"
+  _tool "bat"   "cat"
+  _tool "dua"   "du"
+  _tool "procs" "ps"
+  print "  ${rule}"
+  print "  ${bright_black}run ${reset}${orange}update${reset}${bright_black} to update the system${reset}"
+  }
+
+  # Call at end of .zshrc — after aliases, after PATH, after everything.
+  _welcome
+
+  # Enable Starship
+  eval "$(starship init zsh)"   
   EOF
 
   # Set ownership and permissions
