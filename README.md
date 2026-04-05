@@ -1558,7 +1558,7 @@
   # CLI Tools
   atuin bat bandwhich bottom broot cmake extra-cmake-modules git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
   helix httpie fastfetch macchina linux-docs nasm procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
-  yazi zoxide zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search wl-clipboard \
+  yazi zoxide zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search wl-clipboard xclip \
   \
   # Multimedia (system)
   ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
