@@ -1572,9 +1572,16 @@
   lib32-libva lib32-mpg123 lib32-ocl-icd lib32-openal lib32-libpulse lib32-libxcomposite lib32-libxinerama lib32-vulkan-intel lib32-vulkan-radeon libxslt mpg123 openal protontricks winetricks \
   \
   # Fonts (Emoji/symbol coverage + CJK support)
-  noto-fonts noto-fonts-cjk noto-fonts-emoji noto-fonts-extra ttf-jetbrains-mono-nerd inter-font otf-hermit ttf-mona-sans	ttf-monaspace-variable \
-  ttf-roboto ttf-roboto-mono-nerd cantarell-fonts ttf-ubuntu-mono-nerd ttf-ubuntu-nerd ttf-ibmplex-mono-nerd ttf-atkinson-hyperlegible otf-ipaexfont ttf-libertinus ttf-liberation \
-  ttf-firacode-nerd ttf-cascadia-code-nerd ttf-hack-nerd ttf-iosevka-nerd ttf-sourcecodepro-nerd ttf-anonymouspro-nerd ttf-dejavu-nerd ttf-nerd-fonts-symbols-mono ttf-croscore ttf-victor-mono-nerd \
+  # Core system + fallback
+  noto-fonts noto-fonts-cjk noto-fonts-emoji \
+  # UI / system fonts
+  cantarell-fonts inter-font ttf-roboto otf-ipaexfont ttf-liberation \
+  # Coding fonts
+  ttf-jetbrains-mono-nerd ttf-cascadia-code-nerd otf-commit-mono-nerd \
+  # Symbols / icons fallback  
+  ttf-nerd-fonts-symbols-mono \
+  # Language support
+  ttf-croscore \
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gnome-font-viewer gnome-menus \
