@@ -7242,6 +7242,12 @@
   | Pending updates | `checkupdates` | 1 hr |
   | eGPU presence | `lspci \| grep -i amd` | 10 min |
   | Namespace audit | `lsns -t user` | 5 min |
+  | Reproducible | *see below | 30 min |
 
-  That's 16 checks, all local, all scriptable in a few lines each, all feeding into one dashboard panel with `notify-send` push alerts for the critical ones.
+  # *If you want a more nuanced view of your system's integrity, these factors are arguably more meaningful:
+  # Local Verification Coverage: Instead of just showing the global score, a metric showing "Verified Locally: 85/1912 BAD packages" would tell you how much of the "untrusted" software on your system you have personally audited.
+  # Chain of Trust Status: Monitoring how many of your packages are signed by "Master Keys" versus individual developer keys.
+  # The "Delta" Factor: A metric showing the difference between the Global Score and your Personal Reproducibility Score. If the global score is 87% but your local verification of "BAD" packages brings your personal confidence to 92%, that's a significant security win.  
+
+  # That's 17 checks, all local, all scriptable in a few lines each, all feeding into one dashboard panel with `notify-send` push alerts for the critical ones.
   ```  
