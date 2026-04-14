@@ -7210,6 +7210,7 @@
   ```
 - Install a custom theme for GNOME:
   ```bash
+  nano ~/bin/setup-white-folders.sh
   #!/usr/bin/env bash
   # =============================================================================
   # setup-white-folders.sh — Rose Pine White Folder Child Theme
