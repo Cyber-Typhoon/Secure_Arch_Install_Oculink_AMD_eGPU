@@ -7084,7 +7084,7 @@
 ## Step 19: User Customizations ** To be refined post production! WIP - For now ignore this part.
 
 - Wallpaper Rotation — GNOME (Arch Linux)
-```bash
+  ```bash
   # Uses GNOME's native XML slideshow: no extensions, no daemons, smooth cross-fades.
 
   ---
@@ -7210,20 +7210,111 @@
   ```
 - Install a custom theme for GNOME:
   ```bash
-  # Review this video https://www.youtube.com/watch?v=3KhHVkL8yKM
-  ```
-- Configure GNOME CSS for a dark theme:
-  ```bash
-  mkdir -p ~/.config/gtk-3.0
-  cat << 'EOF' > ~/.config/gtk-3.0/gtk.css
-  window {
-    background-color: #1e1e1e;
-  }
+  #!/usr/bin/env bash
+  # =============================================================================
+  # setup-white-folders.sh — Rose Pine White Folder Child Theme
+  # Creates a derivative theme that inherits from rose-pine-icons.
+  # Only overrides folder/user icons — everything else falls through to parent.
+  # Symlinks to system files: zero disk waste, survives package updates.
+  # =============================================================================
+  set -euo pipefail
+
+  # ── Config ────────────────────────────────────────────────────────────────────
+  PARENT_THEME="rose-pine-icons"
+  CHILD_THEME="rose-pine-white"
+  SOURCE="/usr/share/icons/${PARENT_THEME}"
+  DEST="$HOME/.local/share/icons/${CHILD_THEME}"
+
+  # ── Guards ────────────────────────────────────────────────────────────────────
+  if [[ ! -d "$SOURCE" ]]; then
+    echo "❌  Source theme not found: ${SOURCE}" >&2
+    echo "    Is rose-pine-icons installed? (yay -S rose-pine-icon-theme)" >&2
+    exit 1
+  fi
+
+  # ── Create child theme index.theme ───────────────────────────────────────────
+  # Inherits= tells GTK: "look here first, fall back to parent for everything else"
+  mkdir -p "$DEST"
+  cat > "${DEST}/index.theme" <<EOF
+  [Icon Theme]
+  Name=Rose Pine (White Folders)
+  Comment=Rose Pine with white folder overrides
+  Inherits=${PARENT_THEME}
+  Example=folder
   EOF
+
+  echo "✔  Child theme created → Inherits: ${PARENT_THEME}"
+
+  # ── Discover all size/context directories containing white folder icons ────────
+  # Covers both places/ (Nautilus) and symbolic/ (sidebar, shell UI elements)
+  mapfile -t CONTEXT_DIRS < <(
+    find "$SOURCE" -type d \( -name "places" -o -name "symbolic" \) | sort
+  )
+
+  echo "✔  Found ${#CONTEXT_DIRS[@]} context directories to scan."
+
+  LINKED=0
+
+  for CONTEXT_PATH in "${CONTEXT_DIRS[@]}"; do
+    REL="${CONTEXT_PATH#"${SOURCE}/"}"
+    DEST_DIR="${DEST}/${REL}"
+    mkdir -p "$DEST_DIR"
+
+    while IFS= read -r -d '' WHITE_ICON; do
+      FILENAME=$(basename "$WHITE_ICON")
+
+      # folder-white-documents.svg → folder-documents.svg
+      # folder-white.svg           → folder.svg
+      # user-white-home.svg        → user-home.svg
+      STANDARD_NAME="${FILENAME//-white/}"
+
+      # ln -sf: idempotent — safe to re-run, self-heals broken symlinks
+      ln -sf "$WHITE_ICON" "${DEST_DIR}/${STANDARD_NAME}"
+      (( LINKED++ ))
+
+    done < <(find "$CONTEXT_PATH" \
+      \( -name "folder-white*.svg" -o -name "user-white*.svg" \) \
+      -print0)
+  done
+
+  echo "✔  Linked ${LINKED} white folder overrides."
+
+  # ── Update icon cache ─────────────────────────────────────────────────────────
+  if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f -t "$DEST"
+    echo "✔  Icon cache updated."
+  else
+    echo "⚠  gtk-update-icon-cache not found — log out/in to apply changes."
+  fi
+
+  echo ""
+  echo "✅  Done!"
+  echo "   Apply in GNOME Tweaks → Appearance → Icons → 'Rose Pine (White Folders)'"
+  echo "   or run:"
+  echo "   gsettings set org.gnome.desktop.interface icon-theme '${CHILD_THEME}'"
+  echo ""
+  echo "   If icons don't refresh immediately: Alt+F2 → type 'r' → Enter"
+  echo ""
+  echo "   To revert:"
+  echo "   gsettings set org.gnome.desktop.interface icon-theme '${PARENT_THEME}'"
+  echo "   rm -rf \"${DEST}\""
   ```
-- Apply the theme:
+- Deploy the theme:
   ```bash
-  gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
+  # One-time setup
+  chmod +x ~/bin/setup-white-folders.sh
+  ~/bin/setup-white-folders.sh
+
+  # Apply
+  gsettings set org.gnome.desktop.interface icon-theme 'rose-pine-white'
+
+  # Verify
+  gsettings get org.gnome.desktop.interface icon-theme
+  # → 'rose-pine-white'
+
+  # Revert anytime
+  gsettings set org.gnome.desktop.interface icon-theme 'rose-pine-icons'
+  rm -rf ~/.local/share/icons/rose-pine-white
   ```
 - Use eww 
   ```bash
