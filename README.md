@@ -7090,101 +7090,123 @@
   ---
   
   # Create the slideshow XML
-  mkdir -p ~/.local/share/backgrounds
-  nano ~/.local/share/backgrounds/wallpaper-slideshow.xml
-  
+  nano ~/bin/generate-slideshow.sh
+
+  #!/usr/bin/env bash
+  # =============================================================================
+  # generate-slideshow.sh — GNOME Native Wallpaper Rotation
+  # Place at : ~/bin/generate-slideshow.sh
+  # Install  : chmod +x ~/bin/generate-slideshow.sh
+  # Auto-run : systemd path unit watches the folder via inotify
+  # =============================================================================
+  set -euo pipefail
+
+  # ── Config (edit these) ───────────────────────────────────────────────────────
+  WALLPAPER_DIR="$HOME/Pictures/Wallpapers/Rotation"
+  XML_PATH="$HOME/.local/share/backgrounds/wallpaper-slideshow.xml"
+  HASH_FILE="$HOME/.cache/wallpaper-slideshow.hash"
+  DURATION=300.0          # seconds each wallpaper is displayed
+  TRANSITION=5.0          # seconds for cross-fade
+  RANDOMIZE_ORDER=false   # true = different random order every run
+
+  # ── Guard: directory must exist ───────────────────────────────────────────────
+  if [[ ! -d "$WALLPAPER_DIR" ]]; then
+    echo "❌  Directory not found: ${WALLPAPER_DIR}" >&2
+    exit 1
+  fi
+
+  # ── Collect images safely (null-delimited; handles spaces & unicode) ──────────
+  if [[ "$RANDOMIZE_ORDER" == true ]]; then
+    SORT_CMD="shuf -z"
+  else
+    SORT_CMD="sort -z"
+  fi
+
+  mapfile -d '' IMAGES < <(
+    find "$WALLPAPER_DIR" -maxdepth 1 -type f \
+      \( -iname "*.jpg" -o -iname "*.jpeg" \
+         -o -iname "*.png" -o -iname "*.webp" \) \
+      -print0 | $SORT_CMD
+  )
+
+  COUNT=${#IMAGES[@]}
+  if [[ $COUNT -lt 2 ]]; then
+    echo "❌  Need at least 2 images in ${WALLPAPER_DIR}, found ${COUNT}." >&2
+    exit 1
+  fi
+
+  # ── Guard: skip if image set hasn't changed ───────────────────────────────────
+  mkdir -p "$(dirname "$HASH_FILE")"
+  NEW_HASH=$(printf '%s\0' "${IMAGES[@]}" | sha256sum)
+
+  if [[ -f "$HASH_FILE" ]] && grep -qF "$NEW_HASH" "$HASH_FILE"; then
+    echo "✔  No changes detected — skipping regeneration."
+    exit 0
+  fi
+
+  echo "$NEW_HASH" > "$HASH_FILE"
+  echo "✔  Found ${COUNT} images — regenerating slideshow."
+
+  # ── Create output directories ─────────────────────────────────────────────────
+  mkdir -p "$(dirname "$XML_PATH")"
+  mkdir -p "$HOME/.local/share/gnome-background-properties"
+
+  # ── Generate slideshow XML ────────────────────────────────────────────────────
+  {
+    cat <<'XMLHEAD'
+  <?xml version="1.0" encoding="UTF-8"?>
   <background>
     <starttime>
       <year>2024</year><month>01</month><day>01</day>
       <hour>00</hour><minute>00</minute><second>00</second>
     </starttime>
+  XMLHEAD
 
-    <static><duration>300.0</duration><file>/home/USER/Pictures/Wallpapers/wall1.jpg</file></static>
-    <transition><duration>5.0</duration>
-      <from>/home/USER/Pictures/Wallpapers/wall1.jpg</from>
-      <to>/home/USER/Pictures/Wallpapers/wall2.jpg</to>
-    </transition>
+    for i in "${!IMAGES[@]}"; do
+      NEXT=$(( (i + 1) % COUNT ))
+      printf '  <static><duration>%s</duration><file>%s</file></static>\n' \
+        "$DURATION" "${IMAGES[i]}"
+      printf '  <transition><duration>%s</duration><from>%s</from><to>%s</to></transition>\n' \
+        "$TRANSITION" "${IMAGES[i]}" "${IMAGES[NEXT]}"
+    done
 
-    <static><duration>300.0</duration><file>/home/USER/Pictures/Wallpapers/wall2.jpg</file></static>
-    <transition><duration>5.0</duration>
-      <from>/home/USER/Pictures/Wallpapers/wall2.jpg</from>
-      <to>/home/USER/Pictures/Wallpapers/wall1.jpg</to>
-    </transition>
-  </background>
-  
+    echo '</background>'
+  } > "$XML_PATH"
 
-  > Use **absolute paths** — GNOME does not expand `~` or `$HOME` in XML.  
-  > The final `<transition>` back to the first image is required — without it the slideshow stops.  
-  > `<starttime>` is a timeline anchor, not a start trigger. Any past date works.
+  echo "✔  XML written → ${XML_PATH}"
 
-  ---
+  # ── Apply to GNOME (light + dark + display mode) ──────────────────────────────
+  FILE_URI="file://${XML_PATH}"
+  gsettings set org.gnome.desktop.background picture-uri      "$FILE_URI"
+  gsettings set org.gnome.desktop.background picture-uri-dark "$FILE_URI"
+  gsettings set org.gnome.desktop.background picture-options  'zoom'
 
-  # Apply it
+  # Verify
+  APPLIED=$(gsettings get org.gnome.desktop.background picture-uri)
+  if [[ "$APPLIED" == *"wallpaper-slideshow.xml"* ]]; then
+    echo "✔  Applied: ${APPLIED}"
+  else
+    echo "⚠  Unexpected gsettings value: ${APPLIED}" >&2
+  fi
 
-  gsettings set org.gnome.desktop.background picture-uri \
-    "file:///home/USER/.local/share/backgrounds/wallpaper-slideshow.xml"
-
-  # Dark mode
-  gsettings set org.gnome.desktop.background picture-uri-dark \
-    "file:///home/USER/.local/share/backgrounds/wallpaper-slideshow.xml"
-
-  Verify:
-
-  gsettings get org.gnome.desktop.background picture-uri
-
-  # Optional: Register in GNOME Settings UI
-
-  mkdir -p ~/.local/share/gnome-background-properties
-  nano ~/.local/share/gnome-background-properties/slideshow.xml
-  
+  # ── Register in GNOME Settings UI ────────────────────────────────────────────
+  cat > "$HOME/.local/share/gnome-background-properties/rotation-slideshow.xml" <<PROPS
   <?xml version="1.0" encoding="UTF-8"?>
   <!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
   <wallpapers>
     <wallpaper>
       <name>My Rotating Wallpapers</name>
-      <filename>/home/USER/.local/share/backgrounds/wallpaper-slideshow.xml</filename>
+      <filename>${XML_PATH}</filename>
       <options>zoom</options>
+      <shade_type>solid</shade_type>
+      <pcolor>#111111</pcolor>
+      <scolor>#111111</scolor>
     </wallpaper>
   </wallpapers>
+  PROPS
 
-  # Auto-generate XML from a folder (recommended for many wallpapers)
-
-  Save as `~/bin/generate-slideshow.sh`:
-
-  #!/bin/bash
-
-  WALLPAPER_DIR="/home/USER/Pictures/Wallpapers"
-  XML_PATH="$HOME/.local/share/backgrounds/wallpaper-slideshow.xml"
-  DURATION=300.0
-  TRANSITION=5.0
-
-  IMAGES=($(find "$WALLPAPER_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) | sort))
-  # For random order, replace `sort` with `shuf`
-
-  [ ${#IMAGES[@]} -lt 2 ] && echo "Need at least 2 images" && exit 1
-
-  cat <<EOF > "$XML_PATH"
-  <background>
-    <starttime>
-      <year>2024</year><month>01</month><day>01</day>
-      <hour>00</hour><minute>00</minute><second>00</second>
-    </starttime>
-  EOF
-
-  for i in "${!IMAGES[@]}"; do
-    NEXT=$(( (i + 1) % ${#IMAGES[@]} ))
-    echo "  <static><duration>$DURATION</duration><file>${IMAGES[i]}</file></static>" >> "$XML_PATH"
-    echo "  <transition><duration>$TRANSITION</duration><from>${IMAGES[i]}</from><to>${IMAGES[NEXT]}</to></transition>" >> "$XML_PATH"
-  done
-
-  echo "</background>" >> "$XML_PATH"
-
-  gsettings set org.gnome.desktop.background picture-uri "file://$XML_PATH"
-
-  ---
-  # Provide Access
-  chmod +x ~/bin/generate-slideshow.sh
-  ~/bin/generate-slideshow.sh   # re-run whenever wallpapers change
+  echo "✔  Registered in GNOME Settings UI."
+  echo "   Drop new images into ${WALLPAPER_DIR} — systemd handles the rest."
   ```
 - Install a custom theme for GNOME:
   ```bash
