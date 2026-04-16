@@ -694,11 +694,6 @@
 - Shell Configuration — Add to ~/.zshrc or ~/.bashrc
   ```bash
   cat << 'EOF' >> /home/$username/.zshrc
-  # Load fzf if available
-  if command -v fzf >/dev/null 2>&1; then
-    source <(fzf --zsh)
-  fi
-
   # Block 'yay' via pacman
   pacman() {
   for arg in "$@"; do
@@ -709,12 +704,13 @@
   done
   command pacman "$@"
   }
-  
-  # Modern CLI tool alias:
+
+  # Modern CLI tools alias:
   if [[ $- == *i* ]]; then
   alias dig='dog'
   alias btop='btm'
   alias iftop='bandwhich --immediate --tree'
+  alias cd='z'
 
   # Ignore trivial & sensitive commands
   setopt HIST_IGNORE_SPACE
@@ -725,69 +721,118 @@
 
   # Don't record obvious secrets
   export HISTIGNORE="*password*:*token*:*secret*:*--key*"
-  
-  # Optional: make sudo preserve these aliases when you really want it
-  # (rarely needed, but harmless)
-  alias sudo='sudo '  # trailing space → sudo also expands aliases
+
+  # Optional: make sudo preserve these aliases when need
+  # Trailing space make it happen
+  alias sudo='sudo '
   fi
-  
-  # zoxide: use 'z' and 'zi' (no autojump alias needed)
-  (( ${+commands[zoxide]} )) && eval "$(zoxide init zsh)"
-    
+
   # Safe update alias
-  alias update='update-system' # This will be created in Step 18. Post Installation.
-  echo "Run 'update' weekly. Use 'paru -Syu' for full control."
+  alias update='update-system'
+  # echo "Run 'update' weekly. Use 'paru -Syu' for full control."
   # NOTE: The following are now system-wide tools, not aliases:
-  # - fix-tpm       → /usr/local/bin/fix-tpm (script)
-  # - yay           → /usr/local/bin/yay (symlink to paru)
-  # - sysctl/systeroid → separate tools (no alias, use each for its purpose)
+  # - fix-tpm  -> /usr/local/bin/fix-tpm (script)
+  # - yay      -> /usr/local/bin/yay (symlink to paru)
+  # - sysctl/systeroid -> separate tools (no alias, use each for this purpose)
+
+  # Completion 
+
+  autoload -Uz compinit
+  compinit
+
+  zstyle ':completion:*' menu select
+  zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+  zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+
+  source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+  source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+
+  # Suggestion color (Srcery stone color)
+  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#918175"
+
+  source /home/zureta/.config/broot/launcher/bash/br
+  # Note: XDG variables and PATH are handled by ~/.profile on login.
+  # We append PATH here as a fallback for non-login interactive shells.
+  [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$PATH:$HOME/.local/bin"
 
   # ─── Srcery Welcome Banner ─────────────────────────────────────────────────────
+  # Paste into ~/.zshrc — call _welcome at the very END of the file so all
+  # aliases (update, paru, etc.) are already defined when it runs.
+  # ───────────────────────────────────────────────────────────────────────────────
+
   _welcome() {
-  # ── Srcery palette via standard ANSI codes ──────────────────────────────────
-  local reset=$'\e[0m'
-  local yellow=$'\e[33m'         # Srcery Yellow       #FBB829  warm amber
-  local bright_white=$'\e[97m'   # Srcery Bright White  #FCE8C3 cream
-  local bright_black=$'\e[90m'   # Srcery Bright Black  #918175 muted stone
-  local cyan=$'\e[36m'           # Srcery Cyan          #0AAEB3 cool teal
-  local bright_cyan=$'\e[96m'    # Srcery Bright Cyan   #2BE4D0 electric
-  local green=$'\e[32m'          # Srcery Green         #519F50  forest
-  local orange=$'\e[38;5;202m'   # Srcery Orange        #FF5F00  xterm 202
+    # ── Srcery palette via standard ANSI codes ──────────────────────────────────
+    local reset=$'\e[0m'
+    local yellow=$'\e[33m'         # Srcery Yellow       #FBB829  warm amber
+    local bright_white=$'\e[97m'   # Srcery Bright White  #FCE8C3 cream
+    local bright_black=$'\e[90m'   # Srcery Bright Black  #918175 muted stone
+    local cyan=$'\e[36m'           # Srcery Cyan          #0AAEB3 cool teal
+    local bright_cyan=$'\e[96m'    # Srcery Bright Cyan   #2BE4D0 electric
+    local green=$'\e[32m'          # Srcery Green         #519F50  forest
+    local orange=$'\e[38;5;202m'   # Srcery Orange        #FF5F00  xterm 202
 
-  # ── Dynamic values ──────────────────────────────────────────────────────────
-  local date_str
-  date_str=$(date '+%A, %B %d, %Y — %H:%M')
+    # ── Dynamic values ──────────────────────────────────────────────────────────
+    local date_str
+    date_str=$(date '+%A, %B %d, %Y')
 
-  # ── Helpers ─────────────────────────────────────────────────────────────────
-  # _tool new old  — prints "  new  instead of  old"
-  _tool() {
-    printf "  ${bright_cyan}%-6s${reset}${bright_black}instead of  ${reset}${bright_black}%s${reset}\n" "$1" "$2"
-  }
+    # ── Helpers ─────────────────────────────────────────────────────────────────
+    # _tool new old  — prints "  new  instead of  old"
+    _tool() {
+      printf "  ${bright_cyan}%-6s${reset}${bright_black}instead of  ${reset}${bright_black}%s${reset}\n" "$1" "$2"
+    }
 
-  # ── Layout ──────────────────────────────────────────────────────────────────
-  local stripe="${yellow}▪▪▪${reset}"
-  local rule="${bright_black}────────────────────────────────${reset}"
-  local sep="${bright_black} · ${reset}"
+    # ── Layout ──────────────────────────────────────────────────────────────────
+    local stripe="${yellow}▪▪▪${reset}"
+    local rule="${bright_black}────────────────────────────────${reset}"
+    local sep="${bright_black} · ${reset}"
 
-  print "  ${stripe}  ${bright_white}Welcome back!${reset}  ${stripe}"
-  print "  ${rule}"
-  printf "  ${bright_black}%-6s${reset}${cyan}%s${reset}\n" "Date" "$date_str"
-  print "  ${rule}"
-  _tool "rg"    "grep"
-  _tool "fd"    "find"
-  _tool "eza"   "ls"
-  _tool "bat"   "cat"
-  _tool "dua"   "du"
-  _tool "procs" "ps"
-  print "  ${rule}"
-  print "  ${bright_black}run ${reset}${orange}update${reset}${bright_black} to update the system${reset}"
+    print "  ${stripe}  ${bright_white}Welcome back!${reset}  ${stripe}"
+    print "  ${rule}"
+    printf "  ${bright_black}%-6s${reset}${cyan}%s${reset}\n" "Date" "$date_str"
+    print "  ${rule}"
+    _tool "rg"    "grep"
+    _tool "eza"   "ls"
+    _tool "bat"   "cat"
+    _tool "dua"   "du and ncdu"
+    _tool "procs" "ps"
+    print "  ${rule}"
+    print "  ${bright_black}run ${reset}${orange}update${reset}${bright_black} to update the system${reset}"
   }
 
   # Call at end of .zshrc — after aliases, after PATH, after everything.
   _welcome
 
-  # Enable Starship
-  eval "$(starship init zsh)"   
+  # ─── Reproducible Packages ────────────────────────────────────────────────────────────
+  repropkg() {
+    local pkg="$1"
+    shift
+    local ver=$(pacman -Q "$pkg" | awk '{print $2}')
+    local file
+    # Try x86_64 first, then any
+    file=$(ls /var/cache/pacman/pkg/${pkg}-${ver}-x86_64.pkg.tar.zst \
+              /var/cache/pacman/pkg/${pkg}-${ver}-any.pkg.tar.zst 2>/dev/null | head -1)
+    if [[ -z "$file" ]]; then
+      echo "==> ERROR: could not find cached package for ${pkg}-${ver}"
+      return 1
+    fi
+    repro "$@" "$file"
+  }
+
+  # ─── Starship ────────────────────────────────────────────────────────────
+  eval "$(starship init zsh)" 
+
+  # ─── fzf ────────────────────────────────────────────────────────────
+
+  if command -v fzf >/dev/null 2>&1; then
+    source <(fzf --zsh)
+  fi
+
+  # ─── zoxide ─────────────────────────────────────────────────────────
+
+  if command -v zoxide >/dev/null 2>&1; then
+    eval "$(zoxide init zsh)"
+    alias cd='z'
+  fi
   EOF
 
   # Set ownership and permissions
@@ -1696,45 +1741,80 @@
 
   if [[ ! -f ~/.config/wezterm/wezterm.lua ]]; then
     cat <<'EOF' > ~/.config/wezterm/wezterm.lua
+  -- Pull in the wezterm API
   local wezterm = require 'wezterm'
+
+  -- This will hold the configuration.
   local config = wezterm.config_builder()
 
   -- Fonts & Rendering
   config.font = wezterm.font_with_fallback({
-    { family = "JetBrains Mono", weight = "Regular" },
+  --  { family = "JetBrains Mono", weight = "Regular" },
+    { family = "JetBrainsMono Nerd Font Mono", scale = 1.0 },
+  --  { family = "JetBrainsMono NFM", scale = 1.0 },
     { family = "Symbols Nerd Font Mono", scale = 1.0 },
     "Noto Color Emoji",
   })
+
   config.font_size           = 12.5
-  config.line_height         = 1.03
-  config.harfbuzz_features   = { 'liga', 'calt', 'ss01', 'ss02', 'ss03', 'ss04', 'ss05' }
+  config.line_height         = 1.14
+  -- config.harfbuzz_features   = { 'liga', 'calt', 'ss01', 'ss02', 'ss03', 'ss04', 'ss05' }
+  config.harfbuzz_features = { 'liga', 'calt' }
 
-  -- Appearance
-  config.color_scheme             = 'rose-pine'
-  config.window_background_opacity = 0.90
-  config.text_background_opacity   = 1.0
-  config.window_padding = {
-    left   = '12px',
-    right  = '12px',
-    top    = '8px',
-    bottom = '8px',
-  }
+  -- Changing the initial geometry for new windows:
+  config.initial_cols = 146
+  config.initial_rows = 39
 
-  -- RESIZE allows the "Super+MiddleClick" trick and standard edge dragging
-  config.window_decorations     = "RESIZE" 
-  config.hide_tab_bar_if_only_one_tab = true
+  -- Suppress the "Font problem" notification toast globally
+  -- config.warn_about_missing_glyphs = false
 
-  -- Performance (WebGpu is king for Intel ARL)
-  config.front_end    = "WebGpu"
+  -- Appearance (Srcery Theme & No Translucency)
+  config.color_scheme = 'Srcery (Gogh)'
+
+  -- "RESIZE" keeps the ability to grab edges.
+  config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
+  -- config.tab_bar_at_bottom = true
+  -- config.use_fancy_tab_bar = false
+  config.tab_and_split_indices_are_zero_based = true
+  -- config.integrated_title_button_color = "Cyan"
+  -- config.integrated_title_button_style = "Gnome"
+
+  -- Adjust Cursor Animation 
+  config.default_cursor_style = 'BlinkingBar'
+
+  -- Add Tab Number
+  config.show_tab_index_in_tab_bar = true
+
+  -- Performance / Backend
+  config.front_end = "WebGpu"
+  -- config.front_end = "OpenGL"
   config.webgpu_power_preference = "HighPerformance"
-  config.enable_wayland = true
 
-  -- Quality of Life
-  config.audible_bell = 'Disabled'
-  config.visual_bell  = {
-    target = 'BackgroundColor',
-    fade_in_duration_ms = 100,
-    fade_out_duration_ms = 100,
+  -- Dim inactive panes
+  config.inactive_pane_hsb = {
+   saturation = 0.85,
+   brightness = 0.75,
+   } 
+  
+  -- Adjust Borders
+  config.window_padding = {
+    left = 2,
+    right = 2,
+    top = 1,
+    bottom = 1,
+  } 
+
+  config.window_frame = {
+    border_top_height   = '3px',
+    border_left_width   = '3px',
+    border_right_width  = '3px',
+    border_bottom_height = '3px',
+    border_top_color    = '#2C78BF',
+    border_left_color   = '#2C78BF',
+    border_right_color  = '#2C78BF', 
+    border_bottom_color = '#2C78BF',
+    inactive_titlebar_bg = '#1c1b19',
+    active_titlebar_bg   = '#2d2c29',
   }
 
   return config
@@ -2399,6 +2479,107 @@
 
   # mount monitoring (plug a USB stick or disconnect the eGPU)
   sudo ausearch -k mounts | tail -n 5
+
+  # auditd.conf final output
+  #
+  # This file controls the configuration of the audit daemon
+  #
+
+  local_events = yes
+  write_logs = yes
+  log_file = /var/log/audit/audit.log
+  log_group = root
+  log_format = ENRICHED
+  flush = INCREMENTAL_ASYNC
+  freq = 50
+  max_log_file = 8
+  num_logs = 5
+  priority_boost = 4
+  name_format = NONE
+  ##name = mydomain
+  max_log_file_action = ROTATE
+  space_left = 75
+  space_left_action = SYSLOG
+  verify_email = yes
+  action_mail_acct = root
+  admin_space_left = 50
+  admin_space_left_action = SUSPEND
+  disk_full_action = SUSPEND
+  disk_error_action = SUSPEND
+  report_interval = 0
+  use_libwrap = yes
+  ##tcp_listen_port = 60
+  tcp_listen_queue = 5
+  tcp_max_per_addr = 1
+  ##tcp_client_ports = 1024-65535
+  tcp_client_max_idle = 0
+  transport = TCP
+  krb5_principal = auditd
+  ##krb5_key_file = /etc/audit/audit.key
+  distribute_network = no
+  q_depth = 8192
+  overflow_action = SYSLOG
+  max_restarts = 10
+  plugin_dir = /etc/audit/plugins.d
+  end_of_event_timeout = 2
+
+  # Final suid-audit output
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  AUDIT_DIR="/var/lib/suid-audit"
+  LOG_DIR="/var/log/suid-audit"
+
+  BASELINE="$AUDIT_DIR/baseline.txt"
+  CURRENT="$AUDIT_DIR/current.txt"
+  LOG="$LOG_DIR/audit.log"
+
+  mkdir -p "$AUDIT_DIR" "$LOG_DIR"
+  chmod 700 "$AUDIT_DIR" "$LOG_DIR"
+
+  log() {
+      echo "$(date '+%F %T') - $*" | tee -a "$LOG"
+  }
+
+  log "Starting SUID/SGID audit..."
+
+  # Scan entire system safely (no -xdev blind spots)  
+  find / \
+    \( -path "/.snapshots" -o -path "/home/.snapshots" -o -path "/data/.snapshots" \
+       -o -path "/var/lib/repro" \
+       -o -path /proc -o -path /sys -o -path /dev -o -path /run \
+       -o -path /tmp -o -path /var/tmp \) -prune \
+    -o -type f \( -perm -4000 -o -perm -2000 \) -print \
+    2>/dev/null | sort > "$CURRENT"
+
+  # First run → create baseline
+  if [[ ! -f "$BASELINE" ]]; then
+      cp "$CURRENT" "$BASELINE"
+      chmod 600 "$BASELINE"
+      log "Baseline created at $BASELINE"
+      exit 0
+  fi
+
+  # Detect new entries (safe, no diff parsing bugs)
+  NEW=$(comm -13 "$BASELINE" "$CURRENT")
+
+  if [[ -z "$NEW" ]]; then
+      log "No new SUID/SGID binaries detected."
+  else
+      log "New SUID/SGID binaries detected! "
+
+      while IFS= read -r file; do
+          [[ -z "$file" ]] && continue
+
+          if ! pacman -Qo "$file" &>/dev/null; then
+              log "CRITICAL: Unowned SUID/SGID binary: $file"
+          else
+              log "Package-owned SUID/SGID added: $file"
+          fi
+      done <<< "$NEW"
+  fi
+
+  log "Audit completed."
   ```  
 - Configure `dnscrypt-proxy` for secure DNS:
   ```bash
@@ -7307,6 +7488,279 @@
 
   # Revert anytime
   gsettings set org.gnome.desktop.interface icon-theme 'rose-pine-icons'
+  ```
+- Config Helix
+  ```bash
+  # ~/.config/helix/config.toml
+  theme = "bogster_light"
+
+  [editor]
+  line-number = "relative"
+  cursorline = true
+  color-modes = true
+  scrolloff = 8
+  bufferline = "multiple"
+  true-color = true
+  popup-border = "all"
+  end-of-line-diagnostics = "hint"
+  trim-trailing-whitespace = true
+  insert-final-newline = true
+
+  [editor.cursor-shape]
+  insert = "bar"
+  normal = "block"
+  select = "underline"
+
+  [editor.lsp]
+  display-inlay-hints = true
+  display-signature-help-docs = true
+
+  [editor.statusline]
+  left = ["mode", "spinner", "file-name", "file-modification-indicator"]
+  center = ["version-control"]
+  right = ["diagnostics", "position", "file-encoding", "file-type"]
+  separator = "│"
+  mode.normal = "NORMAL"
+  mode.insert = "INSERT"
+  mode.select = "SELECT"
+
+  [editor.indent-guides]
+  render = true
+  character = "╎"
+  skip-levels = 1
+
+  [editor.inline-diagnostics]
+  cursor-line = "warning"
+
+  [editor.search]
+  smart-case = true
+  wrap-around = true
+
+  [editor.soft-wrap]
+  enable = true
+  ```
+- Fastfetch config
+  ```bash
+  # Edit ~/.config/fastfetch/config.jsonc
+  // ~/.config/fastfetch/config.jsonc
+  // ─── Srcery Fastfetch ─────────────────────────────────────────────────────
+  // Kitty image protocol · Categories · Security status · Srcery palette
+  //
+  // SETUP:
+  //   1. Set logo.source to your actual image path
+  //   2. Adjust logo.height to match line count (count your modules)
+  //   3. Install: fastfetch mokutil btrfs-progs snapper apparmor ufw dnscrypt-proxy
+  //   4. Place at: ~/.config/fastfetch/config.jsonc
+  //
+  // SECURITY MODULES: each runs a live shell command on every fetch.
+  // If a tool is not installed, that line will show an error — comment it out.
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+      "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+      "logo": {
+          "type": "kitty-direct",
+          "source": "/home/zureta/Pictures/Fastfetch/fastfetch_white.png",
+          "width": 48,
+          "height": 34
+      },
+      "display": {
+          "separator": "  ",
+          "key": {
+              "width": 18
+          },
+          "color": {
+              "keys": "90",
+              "title": "33"
+          }
+      },
+      "modules": [
+          "title",
+          {
+              "type": "separator",
+              "string": "─",
+              "color": "90"
+          },
+          {
+              "type": "custom",
+              "format": "\u001b[33m Hardware \u001b[90m────────────────────\u001b[0m"
+          },
+          {
+              "type": "host",
+              "key": "  Model",
+              "keyColor": "90"
+          },
+          {
+              "type": "cpu",
+              "key": "  CPU",
+              "keyColor": "90"
+          },
+          {
+              "type": "gpu",
+              "key": "  GPU",
+              "keyColor": "90"
+          },
+          {
+              "type": "memory",
+              "key": "󱊄  RAM",
+              "keyColor": "90"
+          },
+          {
+              "type": "disk",
+              "key": "  Disk",
+              "keyColor": "90"
+          },
+          {
+              "type": "display",
+              "key": "  Resolution",
+              "keyColor": "90"
+          },
+          {
+              "type": "custom",
+              "format": "\u001b[33m Software \u001b[90m────────────────────\u001b[0m"
+          },
+          {
+              "type": "os",
+              "key": "  OS",
+              "keyColor": "90"
+          },
+          {
+              "type": "kernel",
+              "key": "  Kernel",
+              "keyColor": "90"
+          },
+          {
+              "type": "de",      
+              "key": "  DE",
+              "keyColor": "90"
+          },
+          {
+              "type": "wm",
+              "key": "  WM",
+              "keyColor": "90"
+          },
+          {
+              "type": "shell",
+              "key": "  Shell",
+              "keyColor": "90"
+          },
+          {
+              "type": "terminal",
+              "key": "  Terminal",
+              "keyColor": "90"
+          },
+          {
+              "type": "packages",
+              "key": "  Packages",
+              "keyColor": "90"
+          },
+          {
+              "type": "gtk",
+              "key": "  Theme",
+              "keyColor": "90"
+          },
+          {
+              "type": "custom",
+              "format": "\u001b[33m Uptime / Age \u001b[90m────────────────\u001b[0m"
+          },
+          {
+              "type": "os-age",
+              "key": "  OS Age",
+              "keyColor": "90"
+          },
+          {
+              "type": "uptime",
+              "key": "  Uptime",
+              "keyColor": "90"
+          },
+          {
+              "type": "custom",
+              "format": "\u001b[33m Security \u001b[90m────────────────────\u001b[0m"
+          },
+          {
+              "type": "command",
+              "key": "󰒃  Lynis Score",
+              "keyColor": "90",
+              "text": "report='/var/log/lynis/lynis-report.dat'; [ -f \"$report\" ] && awk -F= '/hardening_index/{print $2}' \"$report\" || echo '\u001b[31mNot found\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "󰒃  LVFS HSI",
+              "keyColor": "90",
+              "text": "fwupdmgr security --force 2>/dev/null | grep -i 'Host Security ID' | sed 's/.*HSI://' | xargs | awk '{print \"HSI:\"$1}'"
+          },
+          {
+              "type": "command",
+              "key": "  Secure Boot",
+              "keyColor": "90",
+              "text": "bootctl status 2>/dev/null | grep -q 'Secure Boot: enabled' && printf '\\u001b[32m✓ Enabled\\u001b[0m' || printf '\\u001b[31m✗ Disabled\\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "  TPM2",
+              "keyColor": "90",
+              "text": "[ -d /sys/class/tpm/tpm0 ] && printf '\\u001b[32m✓ Present\\u001b[0m' || printf '\\u001b[31m✗ Not found\\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "  LUKS",
+              "keyColor": "90",
+              "text": "lsblk -rpo NAME,TYPE 2>/dev/null | awk '$2==\"crypt\"{f=1} END{if(f) printf \"\\u001b[32m✓ Active\\u001b[0m\"; else printf \"\\u001b[31m✗ None\\u001b[0m\"}'"
+          },
+          {
+              "type": "command",
+              "key": "  BTRFS",
+              "keyColor": "90",
+              "text": "btrfs device stats / 2>/dev/null | awk -F= 'NF==2 && $2+0>0{e++} END{if(e>0) printf \"\\u001b[31m⚠ %d errors\\u001b[0m\",e; else printf \"\\u001b[32m✓ Clean\\u001b[0m\"}'"
+          },
+          {
+              "type": "command",
+              "key": "  AIDE",
+              "keyColor": "90",
+              "text": "systemctl is-active aidecheck.timer 2>/dev/null | grep -q '^active' && printf '\\u001b[32m✓ Scheduled\\u001b[0m' || printf '\\u001b[93m⚠ Not active\\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "  AppArmor.d",
+              "keyColor": "90",
+              "text": "aa-status 2>/dev/null | grep -q 'apparmor module is loaded' && printf '\\u001b[32m✓ Apparmor.d Loaded and Enforced\\u001b[0m' || printf '\\u001b[31m✗ Inactive\\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "  Snapper",
+              "keyColor": "90",
+              "text": "count=$(snapper -c root list 2>/dev/null | tail -n +3 | wc -l); printf '\\u001b[32m✓ %d snapshots\\u001b[0m' \"$count\""
+          },
+          {
+              "type": "command",
+              "key": "  VPN",
+              "keyColor": "90",
+              "text": "ip link show 2>/dev/null | grep -qE 'proton|tun[0-9]+' && printf '\\u001b[32m✓ Connected\\u001b[0m' || printf '\\u001b[31m✗ Down\\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "  UFW",
+              "keyColor": "90",
+              "text": "systemctl is-active --quiet ufw && printf '\\u001b[32m✓ Active\\u001b[0m' || printf '\\u001b[31m✗ Inactive\\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "  DNS",
+              "keyColor": "90",
+              "text": "systemctl is-active dnscrypt-proxy 2>/dev/null | grep -q '^active' && printf '\\u001b[32m✓ dnscrypt-proxy\\u001b[0m' || printf '\\u001b[31m✗ Down\\u001b[0m'"
+          },
+          {
+              "type": "command",
+              "key": "󰏗  Reproducible",
+              "keyColor": "90",
+              "text": "cache=\"$HOME/.cache/repro_score\"; [ -s \"$cache\" ] && cat \"$cache\" || echo '\u001b[90mRun update script...\u001b[0m'"
+          },
+          {
+              "type": "colors",
+              "paddingLeft": 2,
+              "symbol": "block"
+          }
+      ]
+  }
   ```
 - Use eww 
   ```bash
