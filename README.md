@@ -7090,32 +7090,28 @@
   ---
   
   # Create the slideshow XML
-  nano ~/bin/generate-slideshow.sh
+  nano ~/.local/bin/generate-slideshow.sh
 
   #!/usr/bin/env bash
   # =============================================================================
   # generate-slideshow.sh — GNOME Native Wallpaper Rotation
-  # Place at : ~/bin/generate-slideshow.sh
-  # Install  : chmod +x ~/bin/generate-slideshow.sh
+  # Place at : ~/.local/bin/generate-slideshow.sh
   # Auto-run : systemd path unit watches the folder via inotify
   # =============================================================================
   set -euo pipefail
 
-  # ── Config (edit these) ───────────────────────────────────────────────────────
   WALLPAPER_DIR="$HOME/Pictures/Wallpapers/Rotation"
   XML_PATH="$HOME/.local/share/backgrounds/wallpaper-slideshow.xml"
   HASH_FILE="$HOME/.cache/wallpaper-slideshow.hash"
-  DURATION=300.0          # seconds each wallpaper is displayed
-  TRANSITION=5.0          # seconds for cross-fade
-  RANDOMIZE_ORDER=false   # true = different random order every run
+  DURATION=300.0
+  TRANSITION=5.0
+  RANDOMIZE_ORDER=false
 
-  # ── Guard: directory must exist ───────────────────────────────────────────────
   if [[ ! -d "$WALLPAPER_DIR" ]]; then
     echo "❌  Directory not found: ${WALLPAPER_DIR}" >&2
     exit 1
   fi
 
-  # ── Collect images safely (null-delimited; handles spaces & unicode) ──────────
   if [[ "$RANDOMIZE_ORDER" == true ]]; then
     SORT_CMD="shuf -z"
   else
@@ -7135,7 +7131,6 @@
     exit 1
   fi
 
-  # ── Guard: skip if image set hasn't changed ───────────────────────────────────
   mkdir -p "$(dirname "$HASH_FILE")"
   NEW_HASH=$(printf '%s\0' "${IMAGES[@]}" | sha256sum)
 
@@ -7147,11 +7142,9 @@
   echo "$NEW_HASH" > "$HASH_FILE"
   echo "✔  Found ${COUNT} images — regenerating slideshow."
 
-  # ── Create output directories ─────────────────────────────────────────────────
   mkdir -p "$(dirname "$XML_PATH")"
   mkdir -p "$HOME/.local/share/gnome-background-properties"
 
-  # ── Generate slideshow XML ────────────────────────────────────────────────────
   {
     cat <<'XMLHEAD'
   <?xml version="1.0" encoding="UTF-8"?>
@@ -7175,13 +7168,11 @@
 
   echo "✔  XML written → ${XML_PATH}"
 
-  # ── Apply to GNOME (light + dark + display mode) ──────────────────────────────
   FILE_URI="file://${XML_PATH}"
   gsettings set org.gnome.desktop.background picture-uri      "$FILE_URI"
   gsettings set org.gnome.desktop.background picture-uri-dark "$FILE_URI"
   gsettings set org.gnome.desktop.background picture-options  'zoom'
 
-  # Verify
   APPLIED=$(gsettings get org.gnome.desktop.background picture-uri)
   if [[ "$APPLIED" == *"wallpaper-slideshow.xml"* ]]; then
     echo "✔  Applied: ${APPLIED}"
@@ -7189,7 +7180,6 @@
     echo "⚠  Unexpected gsettings value: ${APPLIED}" >&2
   fi
 
-  # ── Register in GNOME Settings UI ────────────────────────────────────────────
   cat > "$HOME/.local/share/gnome-background-properties/rotation-slideshow.xml" <<PROPS
   <?xml version="1.0" encoding="UTF-8"?>
   <!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
@@ -7207,104 +7197,105 @@
 
   echo "✔  Registered in GNOME Settings UI."
   echo "   Drop new images into ${WALLPAPER_DIR} — systemd handles the rest."
+  
+- Deploy the wallpaper rotation:  
+  sudo chown zureta:zureta ~/.local/bin/generate-slideshow.sh
+  chmod +x ~/.local/bin/generate-slideshow.sh
+  ~/.local/bin/generate-slideshow.sh
+
+  ~/.config/systemd/user/wallpaper-refresh.service:
+    [Unit]
+    Description=Regenerate GNOME wallpaper slideshow
+    [Service]
+    ExecStart=%h/.local/bin/generate-slideshow.sh
+
+  ~/.config/systemd/user/wallpaper-refresh.path:
+    [Unit]
+    Description=Watch for changes in wallpaper rotation directory
+    [Path]
+    PathChanged=%h/Pictures/Wallpapers/Rotation
+    PathModified=%h/Pictures/Wallpapers/Rotation
+    [Install]
+    WantedBy=default.target
+
+   #Enable:
+    systemctl --user enable --now wallpaper-refresh.path
+
+   #Verify:
+    gsettings get org.gnome.desktop.background picture-uri
+    #'file:///home/zureta/.local/share/backgrounds/wallpaper-slideshow.xml' 
   ```
 - Install a custom theme for GNOME:
   ```bash
-  nano ~/bin/setup-white-folders.sh
+  nano ~/.local/bin/setup-white-folders-v3.sh
   #!/usr/bin/env bash
   # =============================================================================
-  # setup-white-folders.sh — Rose Pine White Folder Child Theme
-  # Creates a derivative theme that inherits from rose-pine-icons.
-  # Only overrides folder/user icons — everything else falls through to parent.
-  # Symlinks to system files: zero disk waste, survives package updates.
+  # setup-white-folders-v3.sh — Sparse Child Theme Implementation
+  # Only contains overrides. Falls back to parent for sidebar/apps/status icons.
   # =============================================================================
   set -euo pipefail
 
-  # ── Config ────────────────────────────────────────────────────────────────────
-  PARENT_THEME="rose-pine-icons"
-  CHILD_THEME="rose-pine-white"
-  SOURCE="/usr/share/icons/${PARENT_THEME}"
-  DEST="$HOME/.local/share/icons/${CHILD_THEME}"
+  SOURCE="/usr/share/icons/rose-pine-icons"
+  DEST="$HOME/.local/share/icons/rose-pine-white"
 
-  # ── Guards ────────────────────────────────────────────────────────────────────
-  if [[ ! -d "$SOURCE" ]]; then
-    echo "❌  Source theme not found: ${SOURCE}" >&2
-    echo "    Is rose-pine-icons installed? (yay -S rose-pine-icon-theme)" >&2
-    exit 1
+  # ── Cleanup ──────────────────────────────────────────────────────────────────
+  echo "🧹 Cleaning old version..."
+  rm -rf "$DEST"
+  mkdir -p "$DEST"
+
+  # ── Create the index.theme ───────────────────────────────────────────────────
+  # This is the most critical part. We copy the original and inject the fallback.
+  echo "📝 Generating child theme index..."
+  cp "$SOURCE/index.theme" "$DEST/index.theme"
+
+  # Change the name so it shows up distinctly in GNOME Tweaks
+  sed -i "s/^Name=.*/Name=Rose Pine (White Folders)/" "$DEST/index.theme"
+
+  # Inject the Inheritance. GNOME looks left-to-right.
+  # We put rose-pine-icons first so it fills in all the gaps (Trash, Apps, etc.)
+  if grep -q "^Inherits=" "$DEST/index.theme"; then
+      sed -i 's/^Inherits=/Inherits=rose-pine-icons,/' "$DEST/index.theme"
+  else
+      # If no Inherits line exists, we add it to the [Icon Theme] section
+      sed -i '/\[Icon Theme\]/a Inherits=rose-pine-icons,hicolor' "$DEST/index.theme"
   fi
 
-  # ── Create child theme index.theme ───────────────────────────────────────────
-  # Inherits= tells GTK: "look here first, fall back to parent for everything else"
-  mkdir -p "$DEST"
-  cat > "${DEST}/index.theme" <<EOF
-  [Icon Theme]
-  Name=Rose Pine (White Folders)
-  Comment=Rose Pine with white folder overrides
-  Inherits=${PARENT_THEME}
-  Example=folder
-  EOF
+  # ── Perform the Surgical Swap ────────────────────────────────────────────────
+  echo "⚪ Creating white folder overrides..."
 
-  echo "✔  Child theme created → Inherits: ${PARENT_THEME}"
-
-  # ── Discover all size/context directories containing white folder icons ────────
-  # Covers both places/ (Nautilus) and symbolic/ (sidebar, shell UI elements)
-  mapfile -t CONTEXT_DIRS < <(
-    find "$SOURCE" -type d \( -name "places" -o -name "symbolic" \) | sort
-  )
-
-  echo "✔  Found ${#CONTEXT_DIRS[@]} context directories to scan."
-
-  LINKED=0
-
-  for CONTEXT_PATH in "${CONTEXT_DIRS[@]}"; do
-    REL="${CONTEXT_PATH#"${SOURCE}/"}"
-    DEST_DIR="${DEST}/${REL}"
-    mkdir -p "$DEST_DIR"
-
-    while IFS= read -r -d '' WHITE_ICON; do
-      FILENAME=$(basename "$WHITE_ICON")
-
-      # folder-white-documents.svg → folder-documents.svg
-      # folder-white.svg           → folder.svg
-      # user-white-home.svg        → user-home.svg
+  # We crawl the SOURCE theme for any "white" icons
+  # We create a matching directory structure in DEST and symlink them
+  find "$SOURCE" -type f \( -name "*white*.svg" \) | while read -r WHITE_ICON; do
+      # Get the relative path (e.g., 64x64/places/folder-white.svg)
+      REL_PATH="${WHITE_ICON#$SOURCE/}"
+      REL_DIR=$(dirname "$REL_PATH")
+      FILENAME=$(basename "$REL_PATH")
+    
+      # Determine the target name (e.g., folder.svg)
       STANDARD_NAME="${FILENAME//-white/}"
-
-      # ln -sf: idempotent — safe to re-run, self-heals broken symlinks
-      ln -sf "$WHITE_ICON" "${DEST_DIR}/${STANDARD_NAME}"
-      (( LINKED++ ))
-
-    done < <(find "$CONTEXT_PATH" \
-      \( -name "folder-white*.svg" -o -name "user-white*.svg" \) \
-      -print0)
+    
+      # Create the local directory and symlink the white icon to the standard name
+      mkdir -p "$DEST/$REL_DIR"
+      ln -sf "$WHITE_ICON" "$DEST/$REL_DIR/$STANDARD_NAME"
   done
 
-  echo "✔  Linked ${LINKED} white folder overrides."
-
-  # ── Update icon cache ─────────────────────────────────────────────────────────
+  # ── Update Icon Cache ────────────────────────────────────────────────────────
+  echo "🔄 Updating icon cache..."
   if command -v gtk-update-icon-cache &>/dev/null; then
-    gtk-update-icon-cache -f -t "$DEST"
-    echo "✔  Icon cache updated."
-  else
-    echo "⚠  gtk-update-icon-cache not found — log out/in to apply changes."
+      gtk-update-icon-cache -f -t "$DEST"
   fi
 
   echo ""
-  echo "✅  Done!"
-  echo "   Apply in GNOME Tweaks → Appearance → Icons → 'Rose Pine (White Folders)'"
-  echo "   or run:"
-  echo "   gsettings set org.gnome.desktop.interface icon-theme '${CHILD_THEME}'"
-  echo ""
-  echo "   If icons don't refresh immediately: Alt+F2 → type 'r' → Enter"
-  echo ""
-  echo "   To revert:"
-  echo "   gsettings set org.gnome.desktop.interface icon-theme '${PARENT_THEME}'"
-  echo "   rm -rf \"${DEST}\""
+  echo "✅ Success!"
+  echo "1. Open GNOME Tweaks -> Appearance"
+  echo "2. Select 'Rose Pine (White Folders)' in the Icons dropdown."
+  echo "3. Restart Nautilus: 'nautilus -q' or log out/in."
   ```
 - Deploy the theme:
   ```bash
   # One-time setup
-  chmod +x ~/bin/setup-white-folders.sh
-  ~/bin/setup-white-folders.sh
+  chmod +x ~/.local/bin/setup-white-folders-v3.sh
+  ~/.local/bin/setup-white-folders-v3.sh
 
   # Apply
   gsettings set org.gnome.desktop.interface icon-theme 'rose-pine-white'
@@ -7315,7 +7306,6 @@
 
   # Revert anytime
   gsettings set org.gnome.desktop.interface icon-theme 'rose-pine-icons'
-  rm -rf ~/.local/share/icons/rose-pine-white
   ```
 - Use eww 
   ```bash
