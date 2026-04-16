@@ -7197,8 +7197,9 @@
 
   echo "✔  Registered in GNOME Settings UI."
   echo "   Drop new images into ${WALLPAPER_DIR} — systemd handles the rest."
-  
+  ```  
 - Deploy the wallpaper rotation:  
+  ```bash
   sudo chown zureta:zureta ~/.local/bin/generate-slideshow.sh
   chmod +x ~/.local/bin/generate-slideshow.sh
   ~/.local/bin/generate-slideshow.sh
@@ -7218,10 +7219,10 @@
     [Install]
     WantedBy=default.target
 
-   #Enable:
+  # Enable:
     systemctl --user enable --now wallpaper-refresh.path
 
-   #Verify:
+  # Verify:
     gsettings get org.gnome.desktop.background picture-uri
     #'file:///home/zureta/.local/share/backgrounds/wallpaper-slideshow.xml' 
   ```
