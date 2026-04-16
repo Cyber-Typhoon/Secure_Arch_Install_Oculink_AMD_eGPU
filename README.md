@@ -1630,7 +1630,7 @@
   \
   # GNOME Extras
   gnome-bluetooth-3.0 gnome-tweaks gnome-shell-extensions gnome-firmware gnome-browser-connector gnome-shell-extension-appindicator gnome-font-viewer gnome-menus \
-  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf qt6-wayland qt5-wayland nautilus-share gst-thumbnailers evolution-data-server
+  gvfs gvfs-afc gvfs-smb gvfs-mtp gvfs-gphoto2 gvfs-wsdd libgsf qt6-wayland qt5-wayland nautilus-share gst-thumbnailers evolution-data-server gnome-software
   ```
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
@@ -1879,17 +1879,16 @@
   #  Right-click on start-mullvad-browser.
   #  Click on Run as a Program.  
   ```
-- Install Bazaar, Flatseal and the Flatpak applications via GUI
+- Install Flatseal and the Flatpak applications via GUI
   ```bash
-  # Install Bazaar (Flatpak-focused app store) and Flatseal
+  # Install Flatseal
   flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-  flatpak install --user -y flathub io.github.kolunmi.Bazaar com.github.tchx84.Flatseal
+  flatpak install --user -y flathub com.github.tchx84.Flatseal
+  sudo flatpak remote-delete flathub
 
-  # Launch once to initialize
-  flatpak run io.github.kolunmi.Bazaar
-
-  # Open Bazaar (search in GNOME overview or via flatpak run io.github.kolunmi.Bazaar)
-  echo "Open Bazaar (via GNOME overview or 'flatpak run io.github.kolunmi.Bazaar') and install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), Passwords and Keys (org.gnome.seahorse.Application), Protonmail-Bridge (ch.protonmail.protonmail-bridge), Resources (net.nokyan.Resources) and Video Player (org.gnome.Showtime). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
+  # Launch Gnome Software once to initialize
+  # Open Gnome Software (search in GNOME overview)
+  echo "Install: GIMP (org.gimp.GIMP), GDM Settings (io.github.realmazharhussain.GdmSettings), Lollypop (org.gnome.Lollypop), Mixx (org.mixxx.Mixxx), Logseq (com.logseq.Logseq), Calculator (org.gnome.Calculator), Camera (org.gnome.Snapshot), Characters (org.gnome.Characters), Disk Usage Analyzer (org.gnome.baobab), Document Scanner (org.gnome.SimpleScan), Document Viewer (org.gnome.Papers), Fonts (org.gnome.font-viewer), Image Viewer (org.gnome.Loupe), Logs (org.gnome.Logs), Dconf Editor (ca.desrt.dconf-editor), Bustle (org.freedesktop.Bustle), Eyedropper (com.github.finefindus.eyedropper), Obfuscate (com.belmoussaoui.Obfuscate), Extension Manager (com.mattjakeman.ExtensionManager), File Roller (org.gnome.FileRoller), LibreOffice (org.libreoffice.LibreOffice), Scopebuddy GUI (io.github.rfrench3.scopebuddy-gui), Passwords and Keys (org.gnome.seahorse.Application), Protonmail-Bridge (ch.protonmail.protonmail-bridge), Resources (net.nokyan.Resources) and Video Player (org.gnome.Showtime). Use Flatseal (com.github.tchx84.Flatseal) to fine-tune per-app permissions (e.g., add --filesystem=home:rw for Lollypop if needed)."
   ```
 - Configure Flatpak sandboxing (via Flatseal or CLI):
   ```bash
@@ -1902,7 +1901,6 @@
   # This grants /dev/dri/* access inside the sandbox
   # Rely on Flatpak's bubblewrap sandbox for application isolation instead.
   # Flatpak GUI - Test
-  flatpak run io.github.kolunmi.Bazaar  # Should launch without "display" errors
   ```
 - Install Theme Extensions for Flatpak via stylepak
   ```bash
