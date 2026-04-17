@@ -5771,7 +5771,7 @@
   > 2. Pull the repo (does not apply yet)
   > chezmoi init https://github.com/yourusername/dotfiles.git  
   >
-  > # 3. Apply — run_once package script installs paru, then everything else
+  > 3. Apply — run_once package script installs paru, then everything else
   > chezmoi apply 
   >
   > 4. Install Open Bar manually (no AUR package exists)
