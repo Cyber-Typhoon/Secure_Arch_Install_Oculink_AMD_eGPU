@@ -5782,6 +5782,7 @@
   > # 6. Restore GNOME state
   > dconf load /org/gnome/desktop/interface/ < ~/.config/dconf/interface.dconf
   > dconf load /org/gnome/shell/extensions/  < ~/.config/dconf/extensions.dconf
+  ```
   
   | Component | Restore Command / Note |
   |:----------|:-----------------------|
@@ -5826,7 +5827,6 @@
   > The `.chezmoiignore` explicitly blocks `*.key`, `*.pem`, `.ssh/id_*`, and
   > related patterns. Track only file *locations* and *configs*; keep secrets on
   > your encrypted USB from Step 9.
-  ```
 ## Step 15: Test the Setup
 
 - Reboot to test the full system:
