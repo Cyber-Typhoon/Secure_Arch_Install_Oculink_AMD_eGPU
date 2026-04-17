@@ -5760,26 +5760,26 @@
   sudo umount /mnt/usb
   echo "⚠️  Keep this USB physically secure and offline. It contains Secure Boot keys."
   ```
-  # Recovery Reference (Store in a Safe Place)
+  **Recovery Reference (Store in a Safe Place)**
 
   > **On a completely fresh Arch install**, bootstrap in this order to avoid
   > `paru`-not-found failures inside chezmoi hook scripts:
   >
-  > # 1. Install base tools
+  > 1. Install base tools
   > sudo pacman -S --needed git chezmoi base-devel 
   >
-  > # 2. Pull the repo (does not apply yet)
+  > 2. Pull the repo (does not apply yet)
   > chezmoi init https://github.com/yourusername/dotfiles.git  
   >
   > # 3. Apply — run_once package script installs paru, then everything else
   > chezmoi apply 
   >
-  > # 4. Install Open Bar manually (no AUR package exists)
-  > #    https://extensions.gnome.org/extension/6580/open-bar/
+  > 4. Install Open Bar manually (no AUR package exists)
+  >    https://extensions.gnome.org/extension/6580/open-bar/
   >
-  > # 5. Log out and back in (Wayland requires full session restart for extensions)
+  > 5. Log out and back in (Wayland requires full session restart for extensions)
   >
-  > # 6. Restore GNOME state
+  > 6. Restore GNOME state
   > dconf load /org/gnome/desktop/interface/ < ~/.config/dconf/interface.dconf
   > dconf load /org/gnome/shell/extensions/  < ~/.config/dconf/extensions.dconf
   
