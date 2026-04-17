@@ -5759,8 +5759,8 @@
   sudo cp /var/lib/tpm-pcr-initial.txt /mnt/usb/
   sudo umount /mnt/usb
   echo "⚠️  Keep this USB physically secure and offline. It contains Secure Boot keys."
-  
-  # Recovery Reference (Store in Bitwarden)
+  ```
+  # Recovery Reference (Store in a Safe Place)
 
   > **On a completely fresh Arch install**, bootstrap in this order to avoid
   > `paru`-not-found failures inside chezmoi hook scripts:
@@ -5782,7 +5782,6 @@
   > # 6. Restore GNOME state
   > dconf load /org/gnome/desktop/interface/ < ~/.config/dconf/interface.dconf
   > dconf load /org/gnome/shell/extensions/  < ~/.config/dconf/extensions.dconf
-  ```
   
   | Component | Restore Command / Note |
   |:----------|:-----------------------|
