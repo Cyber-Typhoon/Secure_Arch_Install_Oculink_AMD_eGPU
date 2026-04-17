@@ -5176,167 +5176,656 @@
   ```
 ## Step 14: Configure Dotfiles
 
-- Install `chezmoi` for dotfile management:
+- Production Dotfiles & System State Management
   ```bash
-  # Install chezmoi
-  sudo pacman -S --noconfirm chezmoi
+  > **Goal:** Capture every customization—shell, terminal, editor, event-driven
+  > wallpaper rotation, Rose Pine white-folder icons, GNOME extensions (Just
+  > Perfection, Blur my Shell, Open Bar), audio tuning, system hardening, network
+  > config, and custom scripts—into a single reproducible `chezmoi` repository.
+  > A fresh machine can be restored to this exact state with one command.
   ```
-- Initialize your repo (replace with your actual repo)
+- Pre-Flight: Confirm What Exists
   ```bash
-  # Note: init --apply will attempt to apply the repo immediately.
-  # If you HAVE a repo:
-  # chezmoi init --apply [https://github.com/yourusername/dotfiles.git](https://github.com/yourusername/dotfiles.git)
-  # If starting from zero:
-  if [ ! -d "$HOME/.local/share/chezmoi" ]; then
-      chezmoi init
+  # Run this block. Fix any `❌ Missing` that matters before continuing.
+  # ── Wallpaper (event-driven GNOME XML + inotify .path) ───────────────────────
+  ls ~/Pictures/Wallpapers/Rotation                           || echo "❌ Missing"
+  ls ~/.local/bin/generate-slideshow.sh                       || echo "❌ Missing"
+  ls ~/.config/systemd/user/wallpaper-refresh.path            || echo "❌ Missing"
+  ls ~/.config/systemd/user/wallpaper-refresh.service         || echo "❌ Missing"
+
+  # ── Icons & shell ─────────────────────────────────────────────────────────────
+  ls ~/.local/bin/setup-white-folders-v3.sh                   || echo "❌ Missing"
+  ls ~/.zshrc                                                  || echo "❌ Missing"
+
+  # ── Core tool configs ─────────────────────────────────────────────────────────
+  ls ~/.config/wezterm/wezterm.lua                            || echo "❌ Missing"
+  ls ~/.config/helix/config.toml                              || echo "❌ Missing"
+  ls ~/.config/fastfetch/config.jsonc                         || echo "❌ Missing"
+
+  # ── Audio ─────────────────────────────────────────────────────────────────────
+  ls ~/.config/pipewire/pipewire.conf.d/99-latency.conf       || echo "❌ Missing (optional)"
+
+  # ── Git and SSH config ────────────────────────────────────────────────────────
+  ls ~/.gitconfig                                             || echo "❌ Missing (optional)"
+  ls ~/.ssh/config                                            || echo "❌ Missing (optional)"
+
+  # ── System scripts ────────────────────────────────────────────────────────────
+  for script in update-system apparmor-gaming-fix save-kernel-config.sh \
+              fix-tpm tpm-seal dns-help dns-status portal-login portal-restore; do
+    ls "/usr/local/bin/$script" 2>/dev/null || echo "❌ Missing: $script"
+  done
+
+  # ── /etc overrides ────────────────────────────────────────────────────────────
+  for f in \
+    /etc/sysctl.d/99-hardening.conf \
+    /etc/sysctl.d/99-zram-optimize.conf \
+    /etc/fonts/conf.d/99-hide-variants.conf \
+    /etc/modprobe.d/99-local-blacklist.conf \
+    /etc/NetworkManager/conf.d/99-hardened-network.conf \
+    /etc/security/limits.d/99-desktop-limits.conf \
+    /etc/pacman.d/hooks/99-aide-update.hook \
+    /etc/fwupd/fwupd.conf.d/99-secureboot.conf \
+    /etc/apparmor/parser.conf \
+    /etc/gdm/custom.conf \
+    /etc/polkit-1/rules.d/49-run0-cache.rules \
+    /etc/iwd/main.conf \
+    /etc/mkinitcpio.d/linux.preset \
+    /etc/plymouth/plymouthd.conf; do
+    ls "$f" 2>/dev/null || echo "❌ Missing: $f"
+  done
+  ```
+- Bootstrap chezmoi + AUR Helper
+  ```bash
+  sudo pacman -S --needed --noconfirm chezmoi base-devel git flatpak
+
+  # Install paru only if absent
+  if ! command -v paru &>/dev/null; then
+    git clone --depth 1 https://aur.archlinux.org/paru.git /tmp/paru
+    (cd /tmp/paru && makepkg -si --noconfirm)
+    rm -rf /tmp/paru
   fi
+
+  # Initialize chezmoi (safe on re-runs)
+  [ -d "$HOME/.local/share/chezmoi" ] || chezmoi init
   ```
-- Backup existing configurations
+- Master Package Installation Script (Single Source of Truth)
   ```bash
-  cp -r ~/.zshrc ~/.config/gnome ~/.config/wezterm ~/.config/gtk-4.0 ~/.config/gtk-3.0 ~/.local/share/backgrounds # ~/.config/gnome-backup 
-  ```
-- Create a folder in chezmoi to hold system templates
-  ```bash
-  mkdir -p "$(chezmoi source-path)/system-files/etc/sysctl.d/"
-  mkdir -p "$(chezmoi source-path)/system-files/etc/snapper/configs"
   mkdir -p "$(chezmoi source-path)/dot_chezmoscripts"
-  cp /etc/sysctl.d/99-hardening.conf "$(chezmoi source-path)/system-files/etc/sysctl.d/"
-  cp /etc/snapper/configs/* "$(chezmoi source-path)/system-files/etc/snapper/configs/"
-  ```
-- Create a script in chezmoi source
-  ```bash
-  # Create a file named dot_chezmoscripts/run_onchange_after_apply-system-settings.sh.tmpl
-  cat > "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_apply-system-settings.sh.tmpl" <<'EOF'
-  #!/bin/bash
-  # This script runs automatically when files in system-files/ change.
-  # It uses sudo to safely deploy them.
 
-  # Exit on error, undefined vars, or pipe failures
-  set -euo pipefail
-
-  # hardening-hash: {{ include "system-files/etc/sysctl.d/99-hardening.conf" | sha256sum }}
-  # snapper-hash: {{ include "system-files/etc/snapper/configs/root" | sha256sum }}
-
-  echo "Root permissions required to sync system configurations..."
-
-  # a. Sync Hardening Parameters
-  sudo cp {{ .chezmoi.sourceDir }}/system-files/etc/sysctl.d/99-hardening.conf /etc/sysctl.d/
-  sudo sysctl --load=/etc/sysctl.d/99-hardening.conf
-
-  # b. Sync Snapper Configs (and fix permissions)
-  sudo cp {{ .chezmoi.sourceDir }}/system-files/etc/snapper/configs/* /etc/snapper/configs/
-  sudo chmod 640 /etc/snapper/configs/*
-
-  # c. Update UKI entries (if managed via chezmoi)
-  # sudo rsync -a {{ .chezmoi.sourceDir }}/system-files/boot/loader/ /boot/loader/
-
-  EOF
-
-  chmod +x "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_apply-system-settings.sh.tmpl"
-  ```
-- Use a chezmoi script to ensure production packages are always present
-  ```bash
-  # Create dot_chezmoscripts/run_once_after_install-packages.sh
   cat > "$(chezmoi source-path)/dot_chezmoscripts/run_once_after_install-packages.sh" <<'EOF'
   #!/bin/bash
-  # Generate a list of currently missing packages and install them
-  # This makes your dotfiles repo a "one-click" installer for your whole system.
+  set -euo pipefail
 
-  PACKAGES=(
-    "snapper" "snap-pac" "btrfs-assistant" "rsync" "chezmoi" 
-    "gnome-terminal" # Add your critical apps here
+  # Cache sudo once — prevents mid-script password prompts
+  sudo -v
+
+  # ── Pacman packages ────────────────────────────────────────────────────────────
+  PACMAN_PKGS=(
+    zsh wezterm starship
+    helix fastfetch fzf zoxide broot eza bat ripgrep fd
+    snapper snap-pac btrfs-assistant rsync
+    flatpak
+    ttf-jetbrains-mono-nerd
+    ttf-nerd-fonts-symbols-mono
+    ttf-cascadia-code-nerd
   )
 
-  for pkg in "${PACKAGES[@]}"; do
-    if ! pacman -Qi "$pkg" &> /dev/null; then
-        sudo pacman -S --noconfirm "$pkg"
-    fi
+  # ── AUR packages ───────────────────────────────────────────────────────────────
+  # GNOME extensions listed here so dconf settings have JS files to apply to.
+  # Open Bar has no AUR package — see note above.
+  # Verify names with `paru -Ss <n>` before running.
+  AUR_PKGS=(
+    rose-pine-cursor-git
+    rose-pine-gtk-theme-git
+    rose-pine-icon-theme-git
+    gnome-shell-extension-just-perfection-desktop
+    gnome-shell-extension-blur-my-shell
+  )
+
+  # ── Flatpak apps ───────────────────────────────────────────────────────────────
+  FLATPAKS=(
+    org.gimp.GIMP
+    io.github.realmazharhussain.GdmSettings
+    org.gnome.Lollypop
+    org.mixxx.Mixxx
+    com.logseq.Logseq
+    org.gnome.Calculator
+    org.gnome.Snapshot
+    org.gnome.Characters
+    org.gnome.baobab
+    org.gnome.SimpleScan
+    org.gnome.Papers
+    org.gnome.font-viewer
+    org.gnome.Loupe
+    org.gnome.Logs
+    ca.desrt.dconf-editor
+    org.freedesktop.Bustle
+    com.github.finefindus.eyedropper
+    com.belmoussaoui.Obfuscate
+    com.mattjakeman.ExtensionManager
+    org.gnome.FileRoller
+    org.libreoffice.LibreOffice
+    io.github.rfrench3.scopebuddy-gui
+    org.gnome.seahorse.Application
+    ch.protonmail.protonmail-bridge
+    net.nokyan.Resources
+    org.gnome.Showtime
+    )
+
+  echo "→ Installing pacman packages..."
+  sudo pacman -S --needed --noconfirm "${PACMAN_PKGS[@]}"
+
+  echo "→ Installing AUR packages..."
+  if command -v paru &>/dev/null; then
+    paru -S --needed --noconfirm "${AUR_PKGS[@]}"
+  else
+    echo "WARNING: paru not found — skipping AUR packages. Install paru first."
+  fi
+
+  echo "→ Setting up Flatpak..."
+  flatpak remote-add --if-not-exists --user flathub \
+    https://dl.flathub.org/repo/flathub.flatpakrepo
+  for app in "${FLATPAKS[@]}"; do
+    # Failures are visible — not silently swallowed
+    flatpak install -y --noninteractive --user flathub "$app" \
+      || echo "⚠️  WARNING: Failed to install Flatpak app: $app"
   done
+
+  # ── PATH guarantee ─────────────────────────────────────────────────────────────
+  # .local/bin check is intentionally broad — catches any existing PATH entry
+  # that references the directory, preventing duplicate entries on re-runs.
+  if ! grep -q '.local/bin' "$HOME/.zshenv" 2>/dev/null; then
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshenv"
+  fi
+
+  # ── Default shell ──────────────────────────────────────────────────────────────
+  # getent reads /etc/passwd directly — reliable regardless of current session
+  if [ "$(getent passwd "$USER" | cut -d: -f7)" != "/usr/bin/zsh" ]; then
+    chsh -s /usr/bin/zsh "$USER"
+  fi
+
+  echo "✅ Package installation complete."
+  echo "ℹ️  On Wayland: log out and back in before running dconf load."
+  echo "ℹ️  Install Open Bar manually: https://extensions.gnome.org/extension/6580/open-bar/"
   EOF
 
   chmod +x "$(chezmoi source-path)/dot_chezmoscripts/run_once_after_install-packages.sh"
   ```
-- Export GNOME settings and Add user files to chezmoi
+- Track User Dotfiles & Assets
   ```bash
-  dconf dump /org/gnome/ > ~/.config/gnome-settings.dconf
-  dconf dump /org/gnome/shell/extensions/ > ~/.config/gnome-shell-extensions.dconf
-  flatpak override --user --export > ~/.config/flatpak-overrides
-  pacman -Qqe > ~/explicitly-installed-packages.txt
-  pacman -Qqem > ~/aur-packages.txt
-  chezmoi add ~/.zshrc ~/.config/gnome-settings.dconf
+  # ── Shell ─────────────────────────────────────────────────────────────────────
+  chezmoi add ~/.zshrc
+  chezmoi add ~/.zshenv   2>/dev/null || true
+  chezmoi add ~/.zprofile 2>/dev/null || true
+
+  # ── Git configuration ─────────────────────────────────────────────────────────
+  # Track the config (aliases, user, signing preferences) — not keys or credentials.
+  [ -f ~/.gitconfig ] && chezmoi add ~/.gitconfig
+
+  # ── SSH configuration ─────────────────────────────────────────────────────────
+  # Track only ~/.ssh/config (host aliases, identity file paths, options).
+  # NEVER track private keys — those stay on the encrypted USB from Step 9.
+  if [ -f ~/.ssh/config ]; then
+    chezmoi add ~/.ssh/config
+  fi
+
+  # ── Terminal, editor, system banner ───────────────────────────────────────────
+  chezmoi add ~/.config/wezterm
+  chezmoi add ~/.config/helix
+  chezmoi add ~/.config/fastfetch
+
+  # ── GTK theme settings ────────────────────────────────────────────────────────
+  chezmoi add ~/.config/gtk-3.0
+  chezmoi add ~/.config/gtk-4.0
+
+  # ── Audio latency tuning (conditional) ───────────────────────────────────────
+  [ -f ~/.config/pipewire/pipewire.conf.d/99-latency.conf ] && \
+    chezmoi add ~/.config/pipewire/pipewire.conf.d/99-latency.conf
+
+  # ── Wallpaper rotation ────────────────────────────────────────────────────────
+  # generate-slideshow.sh writes a GNOME XML playlist.
+  # wallpaper-refresh.path watches the Rotation folder via inotify.
+  # No swww, no timers, no polling — already running.
+  chezmoi add ~/Pictures/Wallpapers/Rotation      # see .chezmoiignore in Step 6
+                                                  # to exclude images if collection grows
+  chezmoi add ~/.local/bin/generate-slideshow.sh
+  chezmoi add ~/.config/systemd/user/wallpaper-refresh.path
+  chezmoi add ~/.config/systemd/user/wallpaper-refresh.service
+
+  # ── Rose Pine white-folder icon script ────────────────────────────────────────
+  # Track the script only — NOT ~/.local/share/icons or ~/.local/share/themes.
+  # AUR packages restore those. Hook B re-applies the white-folder layer.
+  chmod +x ~/.local/bin/setup-white-folders-v3.sh
+  chezmoi add ~/.local/bin/setup-white-folders-v3.sh
+
+  # ── GNOME desktop state ───────────────────────────────────────────────────────
+  # One dump captures all extension settings: Just Perfection, Blur my Shell,
+  # Open Bar, and any other active extension — everything in one shot.
+  # Extensions must be installed first (Step 2) for these settings to take effect.
+  mkdir -p ~/.config/dconf
+  dconf dump /org/gnome/desktop/interface/ > ~/.config/dconf/interface.dconf
+  dconf dump /org/gnome/shell/extensions/  > ~/.config/dconf/extensions.dconf
+  chezmoi add ~/.config/dconf/interface.dconf
+  chezmoi add ~/.config/dconf/extensions.dconf
+
+  # ── Flatpak overrides ─────────────────────────────────────────────────────────
+  # Track the actual overrides directory — not a text export.
+  # Flatpak reads override files directly from this directory at runtime.
+  if [ -d ~/.local/share/flatpak/overrides ]; then
+    chezmoi add ~/.local/share/flatpak/overrides
+  fi
+
+  # ── Steam (partial — library and controller config only) ─────────────────────
+  # Full Steam dirs are gigabytes. Only config.vdf is meaningful to track.
+  # Brave, Thunderbird, Mullvad Browser: use their built-in sync — profiles are
+  # too large and cache-heavy for git.
+  if [ -f ~/.steam/steam/config/config.vdf ]; then
+    chezmoi add ~/.steam/steam/config/config.vdf
+  fi
+
+  # ── Reproducibility lists ─────────────────────────────────────────────────────
+  pacman -Qqe  > ~/explicitly-installed-packages.txt
+  pacman -Qqm  > ~/aur-packages.txt
+  flatpak list --app --columns=application > ~/flatpak-packages.txt
+  chezmoi add ~/explicitly-installed-packages.txt
+  chezmoi add ~/aur-packages.txt
+  chezmoi add ~/flatpak-packages.txt
   ```
-- Version control with chezmoi
+- Track System-Level Files
+  ```bash
+  DEST="$(chezmoi source-path)/system-files"
+
+  mkdir -p "$DEST/etc/sysctl.d"
+  mkdir -p "$DEST/etc/fonts/conf.d"
+  mkdir -p "$DEST/etc/modprobe.d"
+  mkdir -p "$DEST/etc/NetworkManager/conf.d"
+  mkdir -p "$DEST/etc/security/limits.d"
+  mkdir -p "$DEST/etc/pacman.d/hooks"
+  mkdir -p "$DEST/etc/fwupd/fwupd.conf.d"
+  mkdir -p "$DEST/etc/apparmor"
+  mkdir -p "$DEST/etc/gdm"
+  mkdir -p "$DEST/etc/polkit-1/rules.d"
+  mkdir -p "$DEST/etc/iwd"
+  mkdir -p "$DEST/etc/mkinitcpio.d"
+  mkdir -p "$DEST/etc/plymouth"
+  mkdir -p "$DEST/etc/snapper/configs"
+  mkdir -p "$DEST/usr/local/bin"
+
+  # ── Kernel parameters ─────────────────────────────────────────────────────────
+  cp /etc/sysctl.d/99-hardening.conf      "$DEST/etc/sysctl.d/"
+  cp /etc/sysctl.d/99-zram-optimize.conf  "$DEST/etc/sysctl.d/"
+
+  # ── Font suppression ──────────────────────────────────────────────────────────
+  cp /etc/fonts/conf.d/99-hide-variants.conf "$DEST/etc/fonts/conf.d/"
+
+  # ── Kernel module blacklist ───────────────────────────────────────────────────
+  cp /etc/modprobe.d/99-local-blacklist.conf "$DEST/etc/modprobe.d/"
+
+  # ── Network hardening ─────────────────────────────────────────────────────────
+  cp /etc/NetworkManager/conf.d/99-hardened-network.conf "$DEST/etc/NetworkManager/conf.d/"
+  cp /etc/iwd/main.conf "$DEST/etc/iwd/"
+
+  # ── Desktop resource limits ───────────────────────────────────────────────────
+  cp /etc/security/limits.d/99-desktop-limits.conf "$DEST/etc/security/limits.d/"
+
+  # ── Pacman hooks (90-uki-sign.hook confirmed missing — not tracked) ───────────
+  cp /etc/pacman.d/hooks/99-aide-update.hook "$DEST/etc/pacman.d/hooks/"
+
+  # ── Firmware update / Secure Boot ─────────────────────────────────────────────
+  cp /etc/fwupd/fwupd.conf.d/99-secureboot.conf "$DEST/etc/fwupd/fwupd.conf.d/"
+
+  # ── AppArmor ──────────────────────────────────────────────────────────────────
+  cp /etc/apparmor/parser.conf "$DEST/etc/apparmor/"
+
+  # ── GDM ───────────────────────────────────────────────────────────────────────
+  cp /etc/gdm/custom.conf "$DEST/etc/gdm/"
+
+  # ── Polkit (root-only readable — requires sudo) ───────────────────────────────
+  sudo cp /etc/polkit-1/rules.d/49-run0-cache.rules "$DEST/etc/polkit-1/rules.d/"
+
+  # ── UKI build preset + Plymouth boot splash ───────────────────────────────────
+  cp /etc/mkinitcpio.d/linux.preset "$DEST/etc/mkinitcpio.d/"
+  cp /etc/plymouth/plymouthd.conf   "$DEST/etc/plymouth/"
+
+  # ── Snapper snapshot configs (nullglob — safe on empty directory) ─────────────
+  shopt -s nullglob
+  files=(/etc/snapper/configs/*)
+  if [ "${#files[@]}" -gt 0 ]; then
+    cp "${files[@]}" "$DEST/etc/snapper/configs/"
+  fi
+  shopt -u nullglob
+
+  # ── Custom system scripts (only confirmed-present) ────────────────────────────
+  # pre-reboot-check.sh and archive-system-config.sh confirmed missing — not tracked.
+  for script in \
+    update-system \
+    apparmor-gaming-fix \
+    save-kernel-config.sh \
+    fix-tpm \
+    tpm-seal \
+    dns-help \
+    dns-status \
+    portal-login \
+    portal-restore; do
+    cp "/usr/local/bin/$script" "$DEST/usr/local/bin/"
+  done
+  ```
+- Post-Apply Hooks
+  ```bash
+  ### Hook A — System file deployment (10-)
+  cat > "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_10-system-files.sh.tmpl" <<'TMPL'
+  #!/bin/bash
+  set -euo pipefail
+
+  sudo -v
+
+  echo "→ Deploying system-level configurations..."
+
+  SRC="{{ .chezmoi.sourceDir }}/system-files"
+
+  # ── safe_deploy: nullglob-safe directory copy ─────────────────────────────────
+  # Handles two failure modes:
+  #   1. Empty source directory — nullglob prevents `cp *` literal-star crash.
+  #   2. Missing destination directory — `sudo mkdir -p` ensures it exists on
+  #      fresh hardware where /etc/iwd/, /etc/snapper/configs/, etc. may not
+  #      have been created yet by the relevant service.
+  safe_deploy() {
+    local src_dir="$1"
+    local dest_dir="$2"
+    shopt -s nullglob
+    local files=("$src_dir"/*)
+    if [ "${#files[@]}" -gt 0 ]; then
+      sudo mkdir -p "$dest_dir"
+      sudo cp "${files[@]}" "$dest_dir"
+    fi
+    shopt -u nullglob
+  }
+
+  # ── Dynamic glob triggers (future-proof — survive file renames and deletions) ──
+  # Trigger sysctl:  {{ range (glob "system-files/etc/sysctl.d/*") }}{{ include . | sha256sum }}{{ end }}
+  # Trigger fonts:   {{ range (glob "system-files/etc/fonts/conf.d/*") }}{{ include . | sha256sum }}{{ end }}
+  # Trigger scripts: {{ range (glob "system-files/usr/local/bin/*") }}{{ include . | sha256sum }}{{ end }}
+  # Trigger snapper: {{ range (glob "system-files/etc/snapper/configs/*") }}{{ include . | sha256sum }}{{ end }}
+
+  # ── Kernel parameters ─────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/sysctl.d"              /etc/sysctl.d/
+  sudo sysctl --system
+
+  # ── Font suppression ──────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/fonts/conf.d"          /etc/fonts/conf.d/
+  sudo fc-cache -fv
+
+  # ── Module blacklist ──────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/modprobe.d"            /etc/modprobe.d/
+
+  # ── Network hardening ─────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/NetworkManager/conf.d" /etc/NetworkManager/conf.d/
+  safe_deploy "$SRC/etc/iwd"                   /etc/iwd/
+
+  # ── Desktop limits ────────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/security/limits.d"     /etc/security/limits.d/
+
+  # ── Pacman hooks ──────────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/pacman.d/hooks"        /etc/pacman.d/hooks/
+
+  # ── fwupd Secure Boot ─────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/fwupd/fwupd.conf.d"   /etc/fwupd/fwupd.conf.d/
+
+  # ── AppArmor ──────────────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/apparmor"              /etc/apparmor/
+
+  # ── GDM ───────────────────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/gdm"                   /etc/gdm/
+
+  # ── Polkit ────────────────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/polkit-1/rules.d"      /etc/polkit-1/rules.d/
+
+  # ── UKI preset + Plymouth ─────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/mkinitcpio.d"          /etc/mkinitcpio.d/
+  safe_deploy "$SRC/etc/plymouth"              /etc/plymouth/
+
+  # ── Snapper configs ───────────────────────────────────────────────────────────
+  safe_deploy "$SRC/etc/snapper/configs"       /etc/snapper/configs/
+  shopt -s nullglob
+  for conf in /etc/snapper/configs/*; do sudo chmod 640 "$conf"; done
+  shopt -u nullglob
+
+  # ── Custom system scripts ─────────────────────────────────────────────────────
+  # `sudo install -m 755` is atomic — no partial writes.
+  shopt -s nullglob
+  for script in "$SRC/usr/local/bin/"*; do
+    sudo install -m 755 "$script" "/usr/local/bin/$(basename "$script")"
+  done
+  shopt -u nullglob
+
+  echo "✅ System files deployed."
+  TMPL
+
+  chmod +x "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_10-system-files.sh.tmpl"
+  
+  ### Hook B — GTK + icon cache + Flatpak overrides (`20-`)
+  cat > "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_20-gtk-icons.sh" <<'EOF'
+  #!/bin/bash
+  set -euo pipefail
+
+  echo "→ Refreshing GTK, icon caches, and Flatpak overrides..."
+
+  # Rebuild per-user icon theme caches
+  for dir in ~/.local/share/icons/*/; do
+    gtk-update-icon-cache -f -t "$dir" 2>/dev/null || true
+  done
+
+  # System-wide hicolor fallback
+  sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor/ 2>/dev/null || true
+
+  # Re-apply Rose Pine white-folder layer on top of base AUR theme
+  if [ -x "$HOME/.local/bin/setup-white-folders-v3.sh" ]; then
+    "$HOME/.local/bin/setup-white-folders-v3.sh"
+  fi
+
+  # Nudge GTK to reload without a session restart.
+  # `tr -d "'"` strips gsettings single-quote wrapping.
+  # `xargs` strips any trailing whitespace that can break theme names.
+  if command -v gsettings &>/dev/null; then
+    CURRENT=$(gsettings get org.gnome.desktop.interface gtk-theme | tr -d "'" | xargs)
+    gsettings set org.gnome.desktop.interface gtk-theme "" 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface gtk-theme "$CURRENT" 2>/dev/null || true
+  fi
+
+  # Flatpak overrides are read directly from the tracked directory at runtime.
+  # chezmoi restoring the directory is sufficient — no extra commands needed.
+  if [ -d "$HOME/.local/share/flatpak/overrides" ]; then
+    echo "  ✓ Flatpak overrides directory in place."
+  fi
+
+  echo "✅ GTK, icon caches, and Flatpak overrides refreshed."
+  EOF
+
+  chmod +x "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_20-gtk-icons.sh"
+
+  ### Hook C — User services reload (`30-`)
+  cat > "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_30-user-services.sh" <<'EOF'
+  #!/bin/bash
+  set -euo pipefail
+
+  # Guard: only run in a live user D-Bus session.
+  # Exits silently in TTY-only, chroot, or headless contexts.
+  if ! systemctl --user show-environment &>/dev/null; then
+    echo "INFO: No user systemd session — skipping service reload."
+    exit 0
+  fi
+
+  echo "→ Reloading user services..."
+
+  systemctl --user daemon-reload
+
+  # Wallpaper: inotify .path watcher — no timer, no polling
+  systemctl --user enable --now wallpaper-refresh.path || true
+
+  echo "✅ User services active."
+  EOF
+
+  chmod +x "$(chezmoi source-path)/dot_chezmoscripts/run_onchange_after_30-user-services.sh"
+  ```
+- Add `.chezmoiignore`
+  ```bash
+  cat > "$(chezmoi source-path)/.chezmoiignore" <<'EOF'
+  # Generated caches and temporary data
+  .cache/
+  *.log
+  *.tmp
+
+  # Secrets — NEVER track in any repository
+  *.key
+  *.pem
+  *.auth
+  *.pub        # SSH public keys are low-risk but keep them off git too
+  .ssh/id_*    # Block all SSH key variants explicitly
+  luks-*
+  tpm-*
+
+  # Uncomment if wallpaper collection grows large.
+  # Folder structure and scripts are still tracked; only images are excluded.
+  # Pictures/Wallpapers/Rotation/*
+  EOF
+  ```
+- Take a Snapper Snapshot Before Applying
+  ```bash
+  # Create a snapshot before applying any changes
+  sudo snapper -c root create --description "pre-chezmoi-apply $(date +%Y-%m-%d)"
+
+  # Apply all tracked files (hooks run in numbered order automatically)
+  chezmoi apply --backup -v
+
+  # Restore exact GNOME state.
+  # Extensions must be installed (Step 2) for settings to take effect.
+  # On Wayland: log out and back in FIRST — GNOME Wayland cannot restart
+  # the shell inline. Extensions will not activate until after a full login.
+  dconf load /org/gnome/desktop/interface/ < ~/.config/dconf/interface.dconf
+  dconf load /org/gnome/shell/extensions/  < ~/.config/dconf/extensions.dconf
+
+  # ── Health checks ─────────────────────────────────────────────────────────────
+  chezmoi doctor || echo "chezmoi OK"
+  chezmoi status                       # should report no differences
+
+  fastfetch                            # verify system banner
+  wezterm --version
+  helix --health                          # Helix LSP status
+
+  systemctl --user status wallpaper-refresh.path --no-pager
+  systemctl list-timers --all          # verify lynis-audit, btrfs-balance, etc.
+  systemctl status maintain.service --no-pager
+
+  ls -l /etc/snapper/configs/          # all files should show 640
+  ls    /etc/fonts/conf.d/99-hide-variants.conf
+  ls    /etc/sysctl.d/99-hardening.conf
+  ls    /etc/sysctl.d/99-zram-optimize.conf
+  ls    /usr/local/bin/update-system   # confirm scripts deployed
+  fc-list | head -10                   # spot-check font cache
+
+  echo "✅ All checks passed."
+  ```
+- Export Reproducibility Lists
+  ```bash
+  # Run this now and repeat after any major package change.
+  pacman -Qqe  > ~/explicitly-installed-packages.txt
+  pacman -Qqm  > ~/aur-packages.txt
+  flatpak list --app --columns=application > ~/flatpak-packages.txt
+
+  chezmoi re-add ~/explicitly-installed-packages.txt
+  chezmoi re-add ~/aur-packages.txt
+  chezmoi re-add ~/flatpak-packages.txt
+  ```
+- Commit to Git
   ```bash
   chezmoi cd
+
   git init
-  git remote add origin # Skip if not using a remote repository
   git add .
-  git commit -m "Add user and system configurations for Lenovo ThinkBook Arch setup"
-  git push origin main # Skip if not using a remote repository
+  git commit -m "Initial production dotfiles — Lenovo ThinkBook 2025 Arch setup"
+
+  # Optional: push to a private remote
+  # git remote add origin git@github.com:yourusername/dotfiles.git
+  # git push -u origin main
+
+  cd ~
   ```
-- Export package lists for reproducibility
+- Backup Secure Boot + TPM Data to Encrypted USB
   ```bash
-  pacman -Qqe > ~/explicitly-installed-packages.txt
-  pacman -Qqm > ~/aur-packages.txt
-  flatpak list --app > ~/flatpak-packages.txt
-  ```
-- Backup Secure Boot and TPM data to USB (replace /dev/sdX1 with your USB partition, confirm via lsblk)
-  ```bash
+  # Replace `/dev/sdX1` with your actual USB partition (`lsblk` to confirm).
   lsblk
   sudo mount /dev/sdX1 /mnt/usb
   sudo cp -r /etc/sbctl /mnt/usb/sbctl-keys
   sudo cp /var/lib/tpm-pcr-initial.txt /mnt/usb/
   sudo umount /mnt/usb
-  echo "WARNING: Store /mnt/usb/sbctl-keys, /mnt/usb/tpm-pcr-initial.txt, and /mnt/usb/tpm-pcr-post-secureboot.txt in Bitwarden or an encrypted cloud."
-  ```
-- Apply configurations and set permissions
-  ```bash
-  chezmoi apply -v
-  sudo chmod 640 /etc/snapper/configs/*
-  ```
-- Run doctor as user
-  ```bash
-  chezmoi doctor || echo "chezmoi OK"
-  ```
-- Verify dotfile application:
-  ```bash
-  chezmoi status
-  ```
-- Test and validate
-  ```bash
-  chezmoi diff # Should show no differences if applied successfully
-  dconf load /org/gnome/ < ~/.config/gnome-settings.dconf
-  dconf load /org/gnome/shell/extensions/ < ~/.config/gnome-shell-extensions.dconf
-  zsh -i # Ensure no errors in ~/.zshrc
-  systemctl list-timers --all # Verify lynis-audit.timer, btrfs-balance.timer, etc.
-  systemctl status maintain.service
-  cat ~/explicitly-installed-packages.txt # Check for expected packages
-  cat ~/aur-packages.txt # Check for AUR packages
-  cat ~/flatpak-packages.txt # Check for Flatpak apps
-  ls -l /etc/snapper/configs/ # Verify 640 permissions
-  ```
-- Document recovery steps in Bitwarden (store UEFI password, LUKS passphrase, keyfile location, MOK password):
-  ```bash
-  a. Boot from Arch Linux Rescue USB.
-  b. Mount root: cryptsetup luksOpen /dev/nvme1n1p2 cryptroot
-  c. Mount subvolumes: mount -o subvol=@ /dev/mapper/cryptroot /mnt
-  d. Chroot: arch-chroot /mnt
-  e. Use /mnt/usb/luks-keyfile, /mnt/usb/luks-header-backup, or Bitwarden-stored header/passphrase for recovery.
-  ```
-- Troubleshooting
-  ```bash
-  If chezmoi apply fails: chezmoi doctor; journalctl -xe
-  If a file is missing: verify path, create if needed (e.g., touch /etc/modprobe.d/amdgpu.conf)
-  If git push fails: check remote setup (git remote -v)
+  echo "⚠️  Keep this USB physically secure and offline. It contains Secure Boot keys."
+  
+  # Recovery Reference (Store in Bitwarden)
 
-  # Check AppArmor logs
-  journalctl -u apparmor | grep -i chezmoi || echo "No AppArmor denials for chezmoi"
-  ```
-- Warning
-  ```bash
-  Crucial Security Warning: NEVER upload your LUKS headers or Secure Boot .auth/.key files to a public GitHub repo, even if "private."
+  > **On a completely fresh Arch install**, bootstrap in this order to avoid
+  > `paru`-not-found failures inside chezmoi hook scripts:
+  >
+  > # 1. Install base tools
+  > sudo pacman -S --needed git chezmoi base-devel 
+  >
+  > # 2. Pull the repo (does not apply yet)
+  > chezmoi init https://github.com/yourusername/dotfiles.git  
+  >
+  > # 3. Apply — run_once package script installs paru, then everything else
+  > chezmoi apply 
+  >
+  > # 4. Install Open Bar manually (no AUR package exists)
+  > #    https://extensions.gnome.org/extension/6580/open-bar/
+  >
+  > # 5. Log out and back in (Wayland requires full session restart for extensions)
+  >
+  > # 6. Restore GNOME state
+  > dconf load /org/gnome/desktop/interface/ < ~/.config/dconf/interface.dconf
+  > dconf load /org/gnome/shell/extensions/  < ~/.config/dconf/extensions.dconf
+  
+  | Component | Restore Command / Note |
+  |:----------|:-----------------------|
+  | LUKS | `cryptsetup luksOpen /dev/nvme1n1p2 cryptroot` |
+  | Mount | `mount -o subvol=@ /dev/mapper/cryptroot /mnt` |
+  | Chroot | `arch-chroot /mnt` |
+  | Dotfiles | See bootstrap order above |
+  | GNOME UI | `dconf load /org/gnome/desktop/interface/ < ~/.config/dconf/interface.dconf` |
+  | Extensions (Just Perfection, Blur my Shell, Open Bar) | `dconf load /org/gnome/shell/extensions/ < ~/.config/dconf/extensions.dconf` |
+  | White-folder icons | `~/.local/bin/setup-white-folders-v3.sh` |
+  | System scripts | `chezmoi apply` — Hook A redeploys all `/usr/local/bin/` |
+  | Flatpak overrides | Hook B confirms; Flatpak reads directory at runtime |
+  | Snapper permissions | `sudo chmod 640 /etc/snapper/configs/*` |
+  | Font cache | `sudo fc-cache -fv` |
+  | Open Bar | Install from GNOME Extensions site — no AUR package |
+  | SSH keys | On encrypted USB from Step 9 — never in this repo |
+  | Brave, Thunderbird, Mullvad Browser | Use their built-in sync — profiles too large for git |
+  | Steam | `config.vdf` restored by chezmoi; game saves via Steam Cloud |
+  | Rollback if something breaks | `sudo snapper -c root list` then `sudo snapper -c root undochange <N>..0` |
 
-   The Production approach: Use chezmoi to track the location of these backups on your USB drive, but keep the actual data on the encrypted USB you created in Step 9.
+  # Troubleshooting
+
+  | Problem | Fix |
+  |---------|-----|
+  | `chezmoi apply` fails on Hook A | `safe_deploy` prevents empty-dir crashes; check `journalctl -xe` |
+  | Extension settings not applied | Log out/in first (Wayland), confirm extensions installed, then `dconf load` |
+  | Open Bar not restoring | Install from GNOME Extensions site, then `dconf load /org/gnome/shell/extensions/` |
+  | Wallpaper not changing | `systemctl --user status wallpaper-refresh.path` — confirm inotify watcher active |
+  | White-folder icons reset | Hook B re-applies automatically on next `chezmoi apply` |
+  | Fonts not suppressed | `sudo fc-cache -fv`; verify `/etc/fonts/conf.d/99-hide-variants.conf` |
+  | System script missing after rebuild | Hook A uses `sudo install -m 755` — run `chezmoi apply` |
+  | Flatpak install warning shown | Check the `⚠️ WARNING` line — failures are now visible, not swallowed |
+  | Trigger hash crash on deleted file | Glob triggers handle this — `range glob` outputs nothing for missing files |
+  | PATH duplicates in `.zshenv` | `grep -q` on exact string prevents duplicates; inspect with `cat ~/.zshenv` |
+  | Need to roll back a bad apply | `sudo snapper -c root list` — find the pre-apply snapshot, then undo |
+  | AppArmor denials | `journalctl -u apparmor \| grep -i chezmoi` |
+
+  > **🔒 Security Warning**
+  >
+  > Never commit LUKS headers, TPM keys, SSH private keys, or Secure Boot
+  > `.auth`/`.key` files to any Git repository — even a private one.
+  > The `.chezmoiignore` explicitly blocks `*.key`, `*.pem`, `.ssh/id_*`, and
+  > related patterns. Track only file *locations* and *configs*; keep secrets on
+  > your encrypted USB from Step 9.
   ```
 ## Step 15: Test the Setup
 
