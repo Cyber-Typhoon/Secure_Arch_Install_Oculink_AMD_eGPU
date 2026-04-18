@@ -5433,7 +5433,15 @@
           usage
           ;;
   esac
-  ``` 
+  ```
+- Access to the snapshot script
+  ```bash
+  sudo chmod 755 /usr/local/bin/btrfs-rollback.sh
+  ls -ln /usr/local/bin/btrfs-rollback.sh
+  sudo bash /usr/local/bin/btrfs-rollback.sh
+  sudo sed -i 's/\r//' /usr/local/bin/btrfs-rollback.sh
+  sudo /usr/local/bin/btrfs-rollback.sh
+  ```
 ## Step 14: Configure Dotfiles
 
 - Production Dotfiles & System State Management
@@ -5494,7 +5502,7 @@
 
   # ── System scripts ────────────────────────────────────────────────────────────
   for script in update-system apparmor-gaming-fix save-kernel-config.sh \
-              fix-tpm tpm-seal dns-help dns-status portal-login portal-restore; do
+              fix-tpm tpm-seal dns-help dns-status portal-login portal-restore btrfs-rollback.sh; do
     ls "/usr/local/bin/$script" 2>/dev/null || echo "❌ Missing: $script"
   done
 
@@ -5793,7 +5801,8 @@
     dns-help \
     dns-status \
     portal-login \
-    portal-restore; do
+    portal-restore \
+    btrfs-rollback.sh; do
     cp "/usr/local/bin/$script" "$DEST/usr/local/bin/"
   done
   ```
@@ -6090,6 +6099,9 @@
   | Brave, Thunderbird, Mullvad Browser | Use their built-in sync — profiles too large for git |
   | Steam | `config.vdf` restored by chezmoi; game saves via Steam Cloud |
   | Rollback if something breaks | `sudo snapper -c root list` then `sudo snapper -c root undochange <N>..0` |
+  | Rollback (soft) | `sudo btrfs-rollback.sh --soft <PRE> <POST>` |
+  | Rollback (hard, live USB) | `sudo btrfs-rollback.sh --hard <SNAP_NUM>` |
+  | Need to roll back a bad apply | `sudo btrfs-rollback.sh --soft <PRE> 0` — use snapshot created in Step 7 |
 
   # Troubleshooting
 
