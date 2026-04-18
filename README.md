@@ -5209,6 +5209,29 @@
   ls ~/.gitconfig                                             || echo "❌ Missing (optional)"
   ls ~/.ssh/config                                            || echo "❌ Missing (optional)"
 
+  # ── Paru config ───────────────────────────────────────────────────────────────
+  ls ~/.config/paru/paru.conf                                 || echo "❌ Missing (optional)"
+
+  # ── Custom fonts (manually installed, not from packages) ─────────────────────
+  ls ~/.local/share/fonts/ 2>/dev/null && \
+    echo "ℹ️  Custom fonts found — will be tracked below" || \
+    echo "ℹ️  No custom fonts dir (package fonts covered by PACMAN_PKGS)"
+
+  # ── Verify all scripts in /usr/local/bin are root-owned ──────────────────────
+  ls -ln /usr/local/bin/ | awk '/^[-d]/ && ($3 != 0 || $4 != 0) {print "⚠️ Non-root owner:", $0}'
+
+  # ── etckeeper: verify /etc is version-controlled ─────────────────────────────
+  # etckeeper runs as a pacman hook — NOT a systemd daemon.
+  # `systemctl status etckeeper` always shows "inactive (dead)" even when working.
+  echo "--- etckeeper git log (last 2 months) ---"
+  sudo git -C /etc log --oneline --since="2 months ago" 2>/dev/null \
+    && echo "✅ etckeeper active — pacman transactions are auto-committed" \
+    || echo "ℹ️  etckeeper not initialized — run: sudo etckeeper init && sudo etckeeper commit 'initial'"
+
+  # ── Scripts added in the last 2 months ───────────────────────────────────────
+  echo "--- /usr/local/bin scripts modified in last 60 days ---"
+  find /usr/local/bin -type f -mtime -60 -ls
+
   # ── System scripts ────────────────────────────────────────────────────────────
   for script in update-system apparmor-gaming-fix save-kernel-config.sh \
               fix-tpm tpm-seal dns-help dns-status portal-login portal-restore; do
@@ -5357,7 +5380,7 @@
   chezmoi add ~/.zshrc
   chezmoi add ~/.zshenv   2>/dev/null || true
   chezmoi add ~/.zprofile 2>/dev/null || true
-  chezmoi add ~/.config/paru/paru.conf
+  [ -f ~/.config/paru/paru.conf ] && chezmoi add ~/.config/paru/paru.conf
 
   # ── Custom Fonts (Conditional) ───────────────────────────────────────────────
   [ -d ~/.local/share/fonts ] && [ "$(ls -A ~/.local/share/fonts)" ] && chezmoi add ~/.local/share/fonts
@@ -5796,6 +5819,8 @@
   | GNOME UI | `dconf load /org/gnome/desktop/interface/ < ~/.config/dconf/interface.dconf` |
   | Extensions (Just Perfection, Blur my Shell, Open Bar) | `dconf load /org/gnome/shell/extensions/ < ~/.config/dconf/extensions.dconf` |
   | White-folder icons | `~/.local/bin/setup-white-folders-v3.sh` |
+  | paru config | Restored by chezmoi (`~/.config/paru/paru.conf`) |
+  | Custom fonts | Restored by chezmoi from `~/.local/share/fonts/` |
   | System scripts | `chezmoi apply` — Hook A redeploys all `/usr/local/bin/` |
   | Flatpak overrides | Hook B confirms; Flatpak reads directory at runtime |
   | Snapper permissions | `sudo chmod 640 /etc/snapper/configs/*` |
@@ -5822,6 +5847,8 @@
   | PATH duplicates in `.zshenv` | `grep -q` on exact string prevents duplicates; inspect with `cat ~/.zshenv` |
   | Need to roll back a bad apply | `sudo snapper -c root list` — find the pre-apply snapshot, then undo |
   | AppArmor denials | `journalctl -u apparmor \| grep -i chezmoi` |
+  | Custom fonts missing after rebuild | Tracked in `~/.local/share/fonts/`; run `fc-cache -fv` after chezmoi apply |
+  | etckeeper shows "inactive (dead)" | Normal — it runs as a pacman hook, not a daemon. Verify with `sudo git -C /etc log --oneline` |
 
   > **🔒 Security Warning**
   >
