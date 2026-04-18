@@ -4784,12 +4784,13 @@
     ```
 ## Step 13: Configure Snapper and Snapshots
 
-```bash
 - Instal Packages
+  ```bash
   # rsync is required by the boot backup hook (called explicitly in hook Exec=)
   sudo pacman -S --needed snapper snap-pac rsync btrfs-assistant
-
+  ```
 - Diff Filter File
+  ```bash
   # IMPORTANT: This filter only affects `snapper diff` / `snapper status` output.
   # It does NOT exclude paths from snapshots. Btrfs snapshots are atomic at the
   # subvolume level — to truly exclude a path (e.g. /home/.cache) from snapshots
@@ -4797,8 +4798,9 @@
   sudo mkdir -p /etc/snapper/filters
   printf '/home/*/.cache\n/tmp\n/run\n/.snapshots\n/var/cache\n/var/tmp\n.nobackup\n' \
     | sudo tee /etc/snapper/filters/global-filter.txt > /dev/null
-
+  ```
 - Root Config — @snapshots Subvolume Dance 
+  ```bash
   # snapper create-config creates a /.snapshots Btrfs subvolume inside @.
   # Since fstab mounts a dedicated @snapshots subvolume at /.snapshots, we must:
   #   1) unmount the existing mount (if any)
@@ -4819,8 +4821,9 @@
 
   sudo chmod 750 /.snapshots
   sudo chown root:wheel /.snapshots
-
+  ```
 - Home and Data Configs
+  ```bash
   sudo snapper -c home create-config /home
 
   # Guard in case /data is not yet mounted
@@ -4837,8 +4840,9 @@
 
   sudo chown root:wheel /home/.snapshots /data/.snapshots 2>/dev/null
   sudo chmod 750 /home/.snapshots /data/.snapshots 2>/dev/null
-
+  ```
 - Configure All Three Configs
+  ```bash
   for CONF in root home data; do
       sudo snapper -c "$CONF" set-config \
           ALLOW_GROUPS="wheel" \
@@ -4870,11 +4874,13 @@
   # EXCEPTION FOR HOME: Disable timeline creation for /home to prevent Btrfs 
   # metadata locking caused by constant browser cache and config churn.
   sudo snapper -c home set-config TIMELINE_CREATE="no"
-
+  ```
 - Secure Config Files
+  ```bash
   sudo chmod 640 /etc/snapper/configs/*
-
+  ```
 - Configure SNAP-PAC
+  ```bash
   # Without this file snap-pac snapshots every config it finds automatically.
   # Explicit is safer as your config count grows (e.g. if you add a cache or
   # VM subvolume later that you do NOT want tied to pacman transactions).
@@ -4891,8 +4897,9 @@
   snapshot = True
   cleanup_algorithm = number
   EOF
-
+  ```
 - Boot Backup Pacman Hook
+  ```bash
   # /boot (FAT32 ESP) is outside all Btrfs subvolumes — invisible to Snapper.
   # This hook rsyncs /boot into /etc/reproducible-boot, which lives inside @
   # (the root subvolume). Every root snapshot therefore captures the matching
@@ -4928,13 +4935,15 @@
   EOF
 
   sudo chmod 644 /etc/pacman.d/hooks/95-bootbackup.hook
-
+  ```
 - Enable Timers
+  ```bash
   sudo systemctl enable --now snapper-timeline.timer   # periodic timeline snapshots
   sudo systemctl enable --now snapper-cleanup.timer    # periodic cleanup of old snapshots
   sudo systemctl enable --now snapper-boot.timer       # snapshot on every boot
-
+  ```
 - Optimize File Indexing (mlocate/plocate)
+  ```bash
   # Prevent updatedb from crawling Btrfs snapshots, which causes CPU/IO spikes.
   # Edit /etc/updatedb.conf
   PRUNE_BIND_MOUNTS = "yes"
@@ -4958,8 +4967,9 @@
   # Automate Prune
   snapper -c root list | awk '$1 ~ /^[1-9][0-9]*$/ {print $1}' | head -n -15 | xargs -r sudo snapper -c root delete
   snapper -c home list | awk '$1 ~ /^[1-9][0-9]*$/ {print $1}' | head -n -15 | xargs -r sudo snapper -c home delete
-
+  ```
 - Verify Configuration
+  ```bash
   echo "════ Snapshot coverage — what IS included in root snapshots ════"
   echo "  /etc, /usr, /opt, /root, /etc/reproducible-boot (boot mirror)"
 
@@ -4986,8 +4996,9 @@
 
   echo "════ Mountpoint permissions ════"
   ls -ld /.snapshots /home/.snapshots /data/.snapshots 2>/dev/null
-
+  ```
 - Initial Baseline Snapshots
+  ```bash
   for CONF in root home data; do
       sudo snapper -c "$CONF" create \
           --description "Baseline — post-snapper-install, pre-normal-use" \
@@ -5000,15 +5011,17 @@
       echo "── $CONF ──"
       snapper -c "$CONF" list
   done
-
+  ```
 - Apparmor Check
+  ```bash
   if systemctl is-active --quiet apparmor; then
       echo "Checking AppArmor for Snapper denials..."
       journalctl -u apparmor --no-pager | grep -i "snapper" \
           && echo ">>> Denials found. Run: sudo aa-genprof snapper" \
           || echo "OK — no AppArmor denials for Snapper."
   fi
-
+  ```
+  ```bash
   # ════════════════════════════════════════════════════════════════════════════════
   # STEP 13 — APPENDIX: Rollback Procedure
   # Arch Linux · systemd-boot · Btrfs · LUKS2
@@ -5174,6 +5187,253 @@
   #    sudo btrfs subvolume delete /mnt/@.broken
   #    sudo umount /mnt
   ```
+- Snapshot script
+  ```bash
+  #!/usr/bin/env bash
+  # =============================================================================
+  # btrfs-rollback.sh — Safe Snapper Rollback for Arch Linux
+  # Hardware: nvme0n1p2 (LUKS), nvme0n1p1 (ESP), subvolume layout: @/@home/@data
+  #
+  # Usage:
+  #   From a RUNNING system (soft rollback):
+  #     sudo ./btrfs-rollback.sh --soft <PRE> <POST>
+  #     sudo ./btrfs-rollback.sh --soft <N> 0
+  #
+  #   From a LIVE USB (hard rollback, run as root):
+  #     ./btrfs-rollback.sh --hard <SNAPSHOT_NUMBER>
+  #
+  # =============================================================================
+
+  set -euo pipefail
+
+  # ── Hardware (edit here if your drives ever change) ──────────────────────────
+  LUKS_DEV="/dev/nvme0n1p2"
+  ESP_DEV="/dev/nvme0n1p1"
+  MAPPER_NAME="cryptroot"
+  MAPPER_DEV="/dev/mapper/${MAPPER_NAME}"
+  BTRFS_MNT="/mnt"
+  SNAPPER_CONFIG="root"
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  RED='\033[0;31m'
+  YEL='\033[1;33m'
+  GRN='\033[0;32m'
+  CYN='\033[0;36m'
+  BOLD='\033[1m'
+  NC='\033[0m'
+
+  die()  { echo -e "${RED}[ABORT]${NC} $*" >&2; exit 1; }
+  warn() { echo -e "${YEL}[WARN]${NC}  $*"; }
+  info() { echo -e "${CYN}[INFO]${NC}  $*"; }
+  ok()   { echo -e "${GRN}[OK]${NC}    $*"; }
+  step() { echo -e "\n${BOLD}──────────────────────────────────────────${NC}"; \
+         echo -e "${BOLD}  $*${NC}"; \
+         echo -e "${BOLD}──────────────────────────────────────────${NC}"; }
+
+  # ── Guards ────────────────────────────────────────────────────────────────────
+
+  require_root() {
+      [[ $EUID -eq 0 ]] || die "This script must be run as root."
+  }
+
+  require_command() {
+      command -v "$1" &>/dev/null || die "Required command not found: $1"
+  }
+
+  check_reproducible_boot() {
+      local boot_mirror="${1:-/etc/reproducible-boot}"
+      if [[ ! -d "$boot_mirror" ]] || [[ -z "$(ls -A "$boot_mirror" 2>/dev/null)" ]]; then
+          die "Boot mirror is empty or missing: $boot_mirror
+         The rollback would wipe your ESP with an empty directory via rsync --delete.
+         Fix on a running system first:
+           sudo rsync -a --delete /boot/ /etc/reproducible-boot/"
+      fi
+      ok "Boot mirror is populated: $boot_mirror"
+  }
+
+  confirm() {
+      local prompt="$1"
+      echo -e "\n${YEL}${prompt}${NC}"
+      read -rp "  Type YES to continue, anything else to abort: " ans
+      [[ "$ans" == "YES" ]] || die "Aborted by user."
+  }
+
+  # ── Soft Rollback (running system) ────────────────────────────────────────────
+
+  soft_rollback() {
+      local pre="$1"
+      local post="$2"
+
+      step "SOFT ROLLBACK: snapper undochange ${pre}..${post}"
+
+      require_command snapper
+      require_command rsync
+
+      info "Checking boot mirror..."
+      check_reproducible_boot "/etc/reproducible-boot"
+
+      info "Snapshot diff preview (files that will be reverted):"
+      echo "──────────────────────────────────────────────────────"
+      snapper -c "$SNAPPER_CONFIG" status "${pre}..${post}" || true
+      echo "──────────────────────────────────────────────────────"
+
+      confirm "The files above will be restored to their state at snapshot ${pre}. Proceed?"
+
+      info "Applying undochange ${pre}..${post}..."
+      snapper -c "$SNAPPER_CONFIG" undochange "${pre}..${post}"
+      ok "Filesystem changes reverted."
+
+      info "Syncing /boot from boot mirror..."
+      rsync -a --delete /etc/reproducible-boot/ /boot/
+      ok "/boot is now in sync with the restored snapshot."
+
+      echo ""
+      ok "Soft rollback complete. Reboot now to apply."
+      echo -e "   ${CYN}sudo reboot${NC}"
+  }
+
+  # ── Hard Rollback (live USB, raw subvolume swap) ───────────────────────────────
+
+  hard_rollback() {
+      local snap_num="$1"
+
+      step "HARD ROLLBACK: restoring snapshot ${snap_num} from live USB"
+
+      require_command cryptsetup
+      require_command btrfs
+      require_command rsync
+      require_command lsblk
+
+      # ── B1. Verify we can see the right devices ──────────────────────────────
+      info "Verifying block devices..."
+      lsblk -f
+      echo ""
+
+      [[ -b "$LUKS_DEV" ]] || die "LUKS device not found: ${LUKS_DEV} — check lsblk output above."
+      [[ -b "$ESP_DEV" ]]  || die "ESP device not found: ${ESP_DEV} — check lsblk output above."
+      ok "Devices verified: ${LUKS_DEV} (LUKS), ${ESP_DEV} (ESP)"
+
+      # ── B2. Open LUKS if not already open ────────────────────────────────────
+      if [[ ! -b "$MAPPER_DEV" ]]; then
+          info "Opening LUKS container ${LUKS_DEV}..."
+          cryptsetup luksOpen "$LUKS_DEV" "$MAPPER_NAME"
+          ok "LUKS opened → ${MAPPER_DEV}"
+      else
+          ok "LUKS already open: ${MAPPER_DEV}"
+      fi
+
+      # ── B3. Mount Btrfs top-level ─────────────────────────────────────────────
+      if ! mountpoint -q "$BTRFS_MNT"; then
+          info "Mounting Btrfs top-level (subvolid=5) at ${BTRFS_MNT}..."
+          mount -o subvolid=5 "$MAPPER_DEV" "$BTRFS_MNT"
+      else
+          warn "${BTRFS_MNT} is already mounted. Using it as-is."
+      fi
+
+      info "Top-level subvolumes:"
+      ls "$BTRFS_MNT"
+      echo ""
+
+      # ── B4. Validate snapshot exists and boot mirror is populated ─────────────
+      local snap_dir="${BTRFS_MNT}/@snapshots/${snap_num}/snapshot"
+      [[ -d "$snap_dir" ]] || die "Snapshot not found: ${snap_dir}"
+      ok "Snapshot directory found: ${snap_dir}"
+
+      info "Snapshot metadata:"
+      cat "${BTRFS_MNT}/@snapshots/${snap_num}/info.xml" 2>/dev/null || warn "info.xml not readable."
+      echo ""
+
+      check_reproducible_boot "${snap_dir}/etc/reproducible-boot"
+
+      # ── B5. Final confirmation before destructive steps ───────────────────────
+      echo -e "\n${RED}${BOLD}  !! DESTRUCTIVE OPERATION AHEAD !!${NC}"
+      echo "  Current @  →  will be renamed to @.broken-$(date +%Y%m%d)"
+      echo "  Snapshot ${snap_num}  →  will become the new @"
+      echo "  ESP /boot  →  will be restored from snapshot's boot mirror"
+      confirm "This is irreversible until you manually delete @.broken. Proceed?"
+
+      # ── B6. Rename broken @ and restore snapshot ──────────────────────────────
+      local broken_name="@.broken-$(date +%Y%m%d-%H%M%S)"
+      info "Renaming ${BTRFS_MNT}/@ → ${BTRFS_MNT}/${broken_name}..."
+      mv "${BTRFS_MNT}/@" "${BTRFS_MNT}/${broken_name}"
+      ok "Broken root renamed. It can be deleted after you confirm recovery."
+
+      info "Creating writable snapshot from ${snap_dir}..."
+      btrfs subvolume snapshot "$snap_dir" "${BTRFS_MNT}/@"
+      ok "New @ created from snapshot ${snap_num}."
+
+      # ── B7. Restore /boot from snapshot's boot mirror ─────────────────────────
+      info "Mounting ESP at ${BTRFS_MNT}/@/boot..."
+      mount "$ESP_DEV" "${BTRFS_MNT}/@/boot"
+
+      info "Restoring /boot from snapshot's boot mirror..."
+      rsync -a --delete "${snap_dir}/etc/reproducible-boot/" "${BTRFS_MNT}/@/boot/"
+      ok "/boot restored from snapshot's reproducible-boot mirror."
+
+      # ── B8. Verify bootloader entries ─────────────────────────────────────────
+      info "Bootloader entries in restored /boot:"
+      ls "${BTRFS_MNT}/@/boot/loader/entries/" 2>/dev/null \
+          || warn "No loader/entries found — you may need to chroot and run: bootctl install"
+      echo ""
+
+      # ── B9. Unmount and close ─────────────────────────────────────────────────
+      info "Unmounting..."
+      umount "${BTRFS_MNT}/@/boot"
+      umount "$BTRFS_MNT"
+      cryptsetup luksClose "$MAPPER_NAME"
+      ok "All devices closed cleanly."
+
+      echo ""
+      ok "Hard rollback complete."
+      echo ""
+      echo -e "  ${GRN}${BOLD}Next steps:${NC}"
+      echo "  1. reboot — your system should now boot into snapshot ${snap_num}"
+      echo "  2. After confirming everything works, delete the broken subvolume:"
+      echo ""
+      echo -e "     ${CYN}sudo mount -o subvolid=5 ${MAPPER_DEV} /mnt${NC}"
+      echo -e "     ${CYN}sudo btrfs subvolume delete /mnt/${broken_name}${NC}"
+      echo -e "     ${CYN}sudo umount /mnt${NC}"
+      echo ""
+      echo -e "  ${YEL}Note:${NC} After booting, run 'sudo pacman -Syy' to resync the pacman"
+      echo "  database — /var/lib/pacman will be newer than the restored @."
+  }
+
+  # ── Usage ─────────────────────────────────────────────────────────────────────
+
+  usage() {
+      echo ""
+      echo -e "${BOLD}Usage:${NC}"
+      echo "  Soft rollback (undo pacman transaction, system is running):"
+      echo "    sudo $0 --soft <PRE_NUM> <POST_NUM>"
+      echo "    sudo $0 --soft <SNAP_NUM> 0        # revert to snapshot vs current"
+      echo ""
+      echo "  Hard rollback (full subvolume swap, run from live USB as root):"
+      echo "    $0 --hard <SNAPSHOT_NUMBER>"
+      echo ""
+      echo "  List available snapshots:"
+      echo "    snapper -c root list"
+      echo ""
+      exit 1
+  }
+
+  # ── Entry point ───────────────────────────────────────────────────────────────
+
+  require_root
+
+  case "${1:-}" in
+      --soft)
+          [[ $# -eq 3 ]] || { warn "--soft requires PRE and POST snapshot numbers."; usage; }
+          soft_rollback "$2" "$3"
+          ;;
+      --hard)
+          [[ $# -eq 2 ]] || { warn "--hard requires a snapshot number."; usage; }
+          hard_rollback "$2"
+          ;;
+      *)
+          usage
+          ;;
+  esac
+  ``` 
 ## Step 14: Configure Dotfiles
 
 - Production Dotfiles & System State Management
