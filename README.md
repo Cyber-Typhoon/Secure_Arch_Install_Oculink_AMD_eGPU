@@ -5353,10 +5353,14 @@
   ```
 - Track User Dotfiles & Assets
   ```bash
-  # ── Shell ─────────────────────────────────────────────────────────────────────
+  # ── Shell & AUR Wrapper ─────────────────────────────────────────────────────────────────────
   chezmoi add ~/.zshrc
   chezmoi add ~/.zshenv   2>/dev/null || true
   chezmoi add ~/.zprofile 2>/dev/null || true
+  chezmoi add ~/.config/paru/paru.conf
+
+  # ── Custom Fonts (Conditional) ───────────────────────────────────────────────
+  [ -d ~/.local/share/fonts ] && [ "$(ls -A ~/.local/share/fonts)" ] && chezmoi add ~/.local/share/fonts
 
   # ── Git configuration ─────────────────────────────────────────────────────────
   # Track the config (aliases, user, signing preferences) — not keys or credentials.
