@@ -5262,7 +5262,7 @@
   # ── Pacman packages ────────────────────────────────────────────────────────────
   PACMAN_PKGS=(
     zsh wezterm starship
-    helix fastfetch fzf zoxide broot eza bat ripgrep fd
+    helix fastfetch fzf zoxide broot eza bat ripgrep
     snapper snap-pac btrfs-assistant rsync
     flatpak
     ttf-jetbrains-mono-nerd
