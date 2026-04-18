@@ -5991,7 +5991,7 @@
   sudo snapper -c root create --description "pre-chezmoi-apply $(date +%Y-%m-%d)"
 
   # Apply all tracked files (hooks run in numbered order automatically)
-  chezmoi apply --backup -v
+  chezmoi apply -v
 
   # Restore exact GNOME state.
   # Extensions must be installed (Step 2) for settings to take effect.
