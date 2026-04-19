@@ -6023,13 +6023,13 @@
 - Export Reproducibility Lists
   ```bash
   # Run this now and repeat after any major package change.
-  pacman -Qqe  > ~/explicitly-installed-packages.txt
-  pacman -Qqm  > ~/aur-packages.txt
-  flatpak list --app --columns=application > ~/flatpak-packages.txt
+  pacman -Qqe  > ~/Documents/Chezmoi/explicitly-installed-packages.txt
+  pacman -Qqm  > ~/Documents/Chezmoi/aur-packages.txt
+  flatpak list --app --columns=application > ~/Documents/Chezmoi/flatpak-packages.txt
 
-  chezmoi re-add ~/explicitly-installed-packages.txt
-  chezmoi re-add ~/aur-packages.txt
-  chezmoi re-add ~/flatpak-packages.txt
+  chezmoi re-add ~/Documents/Chezmoi/explicitly-installed-packages.txt
+  chezmoi re-add ~/Documents/Chezmoi/aur-packages.txt
+  chezmoi re-add ~/Documents/Chezmoi/flatpak-packages.txt
   ```
 - Commit to Git
   ```bash
@@ -6039,10 +6039,21 @@
   git add .
   git commit -m "Initial production dotfiles — Lenovo ThinkBook 2025 Arch setup"
 
-  # Optional: push to a private remote
-  # git remote add origin git@github.com:yourusername/dotfiles.git
-  # git push -u origin main
+  # Push to Github
+  chezmoi re-add ~/.zshrc          # or whichever file changed
+  chezmoi cd
+  git add .
+  git commit -m "Update: describe what changed"
+  git push
+  cd ~
 
+  # To update system-level files (run after editing /etc files or /usr/local/bin scripts):
+  DEST="$(chezmoi source-path)/system-files"
+  cp /etc/sysctl.d/99-hardening.conf "$DEST/etc/sysctl.d/"   # example
+  chezmoi cd
+  git add .
+  git commit -m "Update: hardening conf"
+  git push
   cd ~
   ```
 - Backup Secure Boot + TPM Data to Encrypted USB
