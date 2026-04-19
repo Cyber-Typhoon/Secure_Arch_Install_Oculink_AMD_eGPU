@@ -5567,8 +5567,7 @@
   # Verify names with `paru -Ss <n>` before running.
   AUR_PKGS=(
     rose-pine-cursor-git
-    rose-pine-gtk-theme-git
-    rose-pine-icon-theme-git
+    rose-pine-gtk-theme-full
     gnome-shell-extension-just-perfection-desktop
     gnome-shell-extension-blur-my-shell
   )
@@ -5665,7 +5664,9 @@
 
   # ── Terminal, editor, system banner ───────────────────────────────────────────
   chezmoi add ~/.config/wezterm
-  chezmoi add ~/.config/helix
+  chezmoi add ~/.config/helix/config.toml
+  chezmoi add ~/.config/helix/languages.toml 2>/dev/null || true
+  chezmoi add ~/.config/helix/themes 2>/dev/null || true
   chezmoi add ~/.config/fastfetch
 
   # ── GTK theme settings ────────────────────────────────────────────────────────
@@ -5709,21 +5710,14 @@
     chezmoi add ~/.local/share/flatpak/overrides
   fi
 
-  # ── Steam (partial — library and controller config only) ─────────────────────
-  # Full Steam dirs are gigabytes. Only config.vdf is meaningful to track.
-  # Brave, Thunderbird, Mullvad Browser: use their built-in sync — profiles are
-  # too large and cache-heavy for git.
-  if [ -f ~/.steam/steam/config/config.vdf ]; then
-    chezmoi add ~/.steam/steam/config/config.vdf
-  fi
-
   # ── Reproducibility lists ─────────────────────────────────────────────────────
-  pacman -Qqe  > ~/explicitly-installed-packages.txt
-  pacman -Qqm  > ~/aur-packages.txt
-  flatpak list --app --columns=application > ~/flatpak-packages.txt
-  chezmoi add ~/explicitly-installed-packages.txt
-  chezmoi add ~/aur-packages.txt
-  chezmoi add ~/flatpak-packages.txt
+  mkdir -p ~/Documents/Chezmoi
+  pacman -Qqe  > ~/Documents/Chezmoi/explicitly-installed-packages.txt
+  pacman -Qqm  > ~/Documents/Chezmoi/aur-packages.txt
+  flatpak list --app --columns=application > ~/Documents/Chezmoi/flatpak-packages.txt
+  chezmoi add ~/Documents/Chezmoi/explicitly-installed-packages.txt
+  chezmoi add ~/Documents/Chezmoi/aur-packages.txt
+  chezmoi add ~/Documents/Chezmoi/flatpak-packages.txt
   ```
 - Track System-Level Files
   ```bash
@@ -5781,13 +5775,16 @@
   cp /etc/mkinitcpio.d/linux.preset "$DEST/etc/mkinitcpio.d/"
   cp /etc/plymouth/plymouthd.conf   "$DEST/etc/plymouth/"
 
+  # ── mkinitcpio main config ────────────────────────────────────────────────────
+  cp /etc/mkinitcpio.conf "$DEST/etc/"
+
   # ── Snapper snapshot configs (nullglob — safe on empty directory) ─────────────
-  shopt -s nullglob
-  files=(/etc/snapper/configs/*)
-  if [ "${#files[@]}" -gt 0 ]; then
-    cp "${files[@]}" "$DEST/etc/snapper/configs/"
-  fi
-  shopt -u nullglob
+  CHEZMOI_SRC="$(chezmoi source-path)"
+  sudo cp /etc/snapper/configs/root \
+        /etc/snapper/configs/home \
+        /etc/snapper/configs/data \
+        "$CHEZMOI_SRC/system-files/etc/snapper/configs/"
+  sudo chown "$USER:$USER" "$CHEZMOI_SRC/system-files/etc/snapper/configs/"*
 
   # ── Custom system scripts (only confirmed-present) ────────────────────────────
   # pre-reboot-check.sh and archive-system-config.sh confirmed missing — not tracked.
@@ -5804,6 +5801,7 @@
     btrfs-rollback.sh; do
     cp "/usr/local/bin/$script" "$DEST/usr/local/bin/"
   done
+  sudo chown "$USER:$USER" "$DEST/etc/polkit-1/rules.d/"*
   ```
 - Post-Apply Hooks
   ```bash
@@ -5978,6 +5976,7 @@
   .ssh/id_*    # Block all SSH key variants explicitly
   luks-*
   tpm-*
+  system-files
 
   # Uncomment if wallpaper collection grows large.
   # Folder structure and scripts are still tracked; only images are excluded.
@@ -6038,7 +6037,11 @@
   git init
   git add .
   git commit -m "Initial production dotfiles — Lenovo ThinkBook 2025 Arch setup"
-
+  git branch -M main
+  git remote add origin git@github.com:yourusername/dotfiles.git
+  git push -u origin main
+  cd ~
+  
   # Push to Github
   chezmoi re-add ~/.zshrc          # or whichever file changed
   chezmoi cd
@@ -6107,7 +6110,6 @@
   | Open Bar | Install from GNOME Extensions site — no AUR package |
   | SSH keys | On encrypted USB from Step 9 — never in this repo |
   | Brave, Thunderbird, Mullvad Browser | Use their built-in sync — profiles too large for git |
-  | Steam | `config.vdf` restored by chezmoi; game saves via Steam Cloud |
   | Rollback if something breaks | `sudo snapper -c root list` then `sudo snapper -c root undochange <N>..0` |
   | Rollback (soft) | `sudo btrfs-rollback.sh --soft <PRE> <POST>` |
   | Rollback (hard, live USB) | `sudo btrfs-rollback.sh --hard <SNAP_NUM>` |
