@@ -1662,7 +1662,6 @@
     apparmor.d-git \
     wezterm-git \
     fresh-editor-bin \
-    folder-color-nautilus \
     libva-vdpau-driver \
     gst-plugins-rs-git \
     brave-bin \
