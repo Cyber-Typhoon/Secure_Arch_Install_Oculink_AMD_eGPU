@@ -1601,7 +1601,7 @@
   dnscrypt-proxy dnsutils opensnitch wireguard-tools proton-vpn-gtk-app reflector dnsmasq \
   \
   # CLI Tools
-  atuin bat bandwhich bottom broot cmake extra-cmake-modules git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
+  wezterm atuin bat bandwhich bottom broot cmake extra-cmake-modules git-delta dog dua-cli eza fd fzf gcc gdb gitui glow gping \
   helix httpie fastfetch macchina linux-docs nasm procs python-gobject rage ripgrep rustup starship systeroid tealdeer \
   yazi zoxide zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search wl-clipboard \
   \
@@ -1660,13 +1660,14 @@
     aide \
     amdgpu_top-tui-bin \
     apparmor.d-git \
-    wezterm-git \
     fresh-editor-bin \
     libva-vdpau-driver \
+    lib32-gstreamer \
+    lib32-gst-plugins-base \
+    lib32-gst-plugins-base-libs \
     gst-plugins-rs-git \
     brave-bin \
-    kanagawa-icon-theme-git \
-    kanagawa-gtk-theme-git \
+    kotofetch \
     nautilus-open-any-terminal \
     nautilus-copy-path \
     nautilus-admin-gtk4 \
@@ -1674,9 +1675,12 @@
     rose-pine-cursor \
     rose-pine-gtk-theme-full \
     stylepak-git \
+    smem \
+    vvdec \
     run0-sudo-shim-git \
     wluma \
-    xdg-ninja
+    xdg-ninja \
+    xdg-terminal-exec
   # Update linker cache (Requires Sudo)
   sudo ldconfig
   ```
