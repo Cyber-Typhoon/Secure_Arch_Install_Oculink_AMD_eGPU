@@ -4062,7 +4062,67 @@
   ```
 - Verification Results
   ```bash
-  
+  sudo reboot
+  # ── 1. PCI enumeration (stop here if AMD device is absent) ─────────────────
+  lspci -nn | grep -Ei '1002:'
+  # No output = physical problem (cable/power). No point debugging software yet.
+
+  lspci | grep -i vga
+  # Expected: Intel Arc AND AMD Radeon both listed
+
+  # ── 2. Driver initialization ────────────────────────────────────────────────
+  dmesg | grep -i amdgpu | tail -20
+  # Expected: clean init, no "failed -19" or "firmware failed to load"
+
+  # ── 3. PCIe link speed (CRITICAL for OCuLink performance) ──────────────────
+  # Your PCI topology has TWO places to check:
+  # - 04:00.0 = GPU itself (reports its internal dock connection, typically 32GT/s x16)
+  # - 02:00.0 = Navi 10 XL Upstream Port = the OCuLink CABLE speed (target: 16GT/s x4)
+  # The bottleneck is at the UPSTREAM BRIDGE, not the GPU itself.
+  AMD_PCI=$(lspci | awk '/VGA.*AMD|VGA.*Radeon/{print $1}' | head -1)
+  sudo lspci -vv -s "$AMD_PCI" | grep -E "LnkCap|LnkSta"
+  # The GPU (04:00.0) reports its internal link to the dock switch — 32GT/s x16 is correct/normal.
+  # The OCuLink CABLE speed shows at the upstream bridge. Also check this:
+  BRIDGE_PCI=$(lspci | awk '/Navi 10 XL Upstream/{print $1}')
+  sudo lspci -vv -s "$BRIDGE_PCI" | grep -E "LnkCap|LnkSta"
+  # Target for upstream bridge: Speed 16GT/s, Width x4 = Gen4 x4 over OCuLink cable.
+  # If 8GT/s or x1 on the bridge: reseat cable first, then see Phase 12.
+
+  # ── 4. Driver assignment ─────────────────────────────────────────────────────
+  cat /sys/class/drm/card*/device/uevent | grep DRIVER
+  # Expected: DRIVER=xe (iGPU) and DRIVER=amdgpu (eGPU)
+
+  # ── 5. OpenGL / PRIME offload ────────────────────────────────────────────────
+  echo "--- iGPU (Intel Arc — default) ---"
+  DRI_PRIME=0 glxinfo | grep "OpenGL renderer"
+
+  echo "--- eGPU (AMD RX 9070 XT — offload) ---"
+  DRI_PRIME=1 glxinfo | grep "OpenGL renderer"
+
+  # ── 6. Vulkan ────────────────────────────────────────────────────────────────
+  DRI_PRIME=1 vulkaninfo --summary | grep -E "deviceName|driverName"
+  # Expected: AMD Radeon RX 9070 XT (RADV)
+
+  # ── 7. Video decode VA-API (correct modern check for RDNA4) ─────────────────
+  DRI_PRIME=1 vainfo | grep -E "VAProfile|driver"
+  # Expected: AMD VAAPI Driver, H264/H265/AV1 profiles listed
+
+  # ── 8. VRR state ─────────────────────────────────────────────────────────────
+  gsettings get org.gnome.mutter experimental-features
+  # Expected: includes 'variable-refresh-rate'
+
+  # ── 9. Power state ───────────────────────────────────────────────────────────
+  command -v tlp-stat >/dev/null 2>&1 && tlp-stat -s | grep -i governor || true
+  { cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value \
+  || cat /sys/firmware/acpi/platform_profile; } 2>/dev/null
+
+  # ── 10. LACT daemon ──────────────────────────────────────────────────────────
+  systemctl is-active --quiet lactd \
+    && echo "LACT daemon: running — launch 'lact' for GUI" \
+    || echo "LACT daemon: not active — check: systemctl status lactd"
+
+  # ── 11. AppArmor (informational — enforcement comes in Step 18) ──────────────
+  journalctl -u apparmor | grep -i "amdgpu\|qemu\|libvirtd" | tail -10
   ```
 - Gamescope templates (for Steam launch options)
   ```bash
