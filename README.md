@@ -3942,845 +3942,173 @@
   ```
 ## Step 12: Configure eGPU (AMD)
 
-- Install AMD drivers and microcode:
+- Safety Checkpoint
   ```bash
-  pacman -S --noconfirm amd-ucode rocm-opencl rocm-hip
+  sudo snapper -c root create --description "pre-egpu-step12-final"
+  uname -r                         # 7.0.11-arch1-1
+  pacman -Q linux-firmware mesa vulkan-radeon
+  sbctl status                     # Secure Boot enabled, sbctl installed
+  # GPU PCI detection gate:
+  lspci -nn | grep -Ei '1002:'     # Confirmed: 04:00.0 [1002:7550] Navi 48
+  # Correct firmware check for RDNA4:
+  ls /usr/lib/firmware/amdgpu/gc_12_0_1_*.bin.zst | wc -l   # Returned: 11 files ✅
   ```
-- amdgpu Module configuration and early KMS
+- Firmware & Packages
   ```bash
-  # === AMD eGPU: Full recommended amdgpu module configuration ===
-  sudo tee /etc/modprobe.d/amdgpu.conf <<'EOF'
-  # Enable ALL PowerPlay features (fan curves, overclocking, power limits, zero-RPM, etc.)
-  options amdgpu ppfeaturemask=0xffffffff
+  sudo pacman -Syu linux-firmware amd-ucode
 
-  # Force PCIe Gen4 max capability (most Thunderbolt 4/5 enclosures are Gen4 x4)
-  # 0x80000 = advertise Gen4 support up to Gen4, driver will negotiate down if needed
-  options amdgpu pcie_gen_cap=0x80000
+  sudo pacman -S --needed \
+    mesa lib32-mesa \
+    vulkan-radeon lib32-vulkan-radeon \
+    vulkan-icd-loader lib32-vulkan-icd-loader \
+    lib32-vulkan-mesa-layers \
+    switcheroo-control \
+    lact \
+    gamemode lib32-gamemode \
+    mangohud lib32-mangohud \
+    gamescope \
+    mesa-utils vulkan-tools \
+    libva-utils lib32-libva libva-mesa-driver lib32-libva-mesa-driver
 
-  # (OPTIONAL - START WITHOUT) Better hot-plug handling on Thunderbolt/USB4 (fixes black screen on plug-in for many)
-  # options amdgpu dcdebugmask=0x4
+  # Additional packages added during execution:
+  sudo pacman -S evolution-data-server   # Fixed GNOME calendar library error
+  sudo pacman -S --needed tlp-pd         # GNOME battery icon integration via TLP
+  ```
+- Kernel Command Line
+  ```bash
+  # Confirmed pci=realloc not yet present, added safely:
+  if [ -s /etc/kernel/cmdline ]; then
+    sudo sed -i 's/$/ pci=realloc/' /etc/kernel/cmdline
+  fi
+  tmpfile=$(mktemp)
+  tr -d '\n' < /etc/kernel/cmdline > "$tmpfile"
+  sudo cp "$tmpfile" /etc/kernel/cmdline
+  rm "$tmpfile"
 
-  # (OPTIONAL - START WITHOUT) Recommended for stability with most eGPU enclosures
-  # options amdgpu vm_update_mode=3
-
-  # Optional: enable RAS (error correction/reporting) on RDNA2/RDNA3 — harmless if unsupported
-  options amdgpu ras_enable=1
-  EOF
-
-  # If experiencing AMD eGPU reset issues (black screen after suspend/hotplug):
-  # Uncomment and test reset methods (kernel 7.0+ has improved reset handling):
-  # options amdgpu reset_method=2    # BACO (Bus Alive, Chip Off) - most stable
-  # options amdgpu reset_method=3    # Mode1 (display reset only)
-  # See: https://wiki.archlinux.org/title/AMDGPU#Reset_methods
-
-  # === Early KMS: load xe (iGPU), i915 (fallback), and amdgpu at boot ===
-  sudo sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
-  echo 'MODULES=(xe i915 amdgpu)' | sudo tee -a /etc/mkinitcpio.conf
-
-  # Regenerate initramfs so everything loads early (critical for eGPU at login screen)
   sudo mkinitcpio -P
-
-  # Optional but very useful: add these kernel parameters
-  # Especially important if you still don’t get full 16 GT/s ×4 after the above
-  # Example line to add to your bootloader entry:
-  # options rd.luks.uuid=$LUKS_UUID root=UUID=$ROOT_UUID ... amdgpu.pcie_gen_cap=0x80000 pcie_ports=native pciehp.pciehp_force=1.
-  # Alternatively, for module options: echo 'options amdgpu pcie_gen_cap=0x80000' | sudo tee -a /etc/modprobe.d/amdgpu.conf
-  # Essential for reliable PCIe hotplug on Lenovo/OCuLink
-  # pcie_ports=native          # Use native PCIe port driver (bypasses BIOS quirks)
-  # pciehp.pciehp_force=1      # Force-enable hotplug polling on all slots
-  # pcie_aspm=off              # Disable ASPM (power saving) to prevent link drops
-  # pci=nomsi                  # Fallback if MSI interrupts fail on hot-add
+  # sbctl post-hook automatically signed all three UKIs
   ```
-- Sign kernel modules for Secure Boot
+- Early KMS
   ```bash
-  sbctl sign --all
-  find /lib/modules/$(uname -r)/kernel/drivers/gpu -name "*.ko" -exec sbctl verify {} \;
-  reboot
-
-  # After Reboot
-  # Validate AMD GPU once connected (Should output "AMD Radeon ...")
-  DRI_PRIME=1 glxinfo | grep renderer
-
-  # After setup, verify with (should show "Speed 16GT/s (ok), Width x4"). If stuck at lower, tweak pcie_gen_cap to 0x40000
-  lspci -vv -s $(lspci | awk '/VGA.*AMD/{print $1}') | grep LnkSta
+  sudo sed -i '/^MODULES=/d' /etc/mkinitcpio.conf
+  echo 'MODULES=(xe amdgpu)' | sudo tee -a /etc/mkinitcpio.conf
+  sudo mkinitcpio -P
+  # sbctl post-hook automatically signed all UKIs
   ```
-- Configure TLP to avoid GPU power management conflicts and add parameters for Geek-like Lenovo Vantage Windows Power Mode
+- amdgpu Module Configuration
   ```bash
-  # === AUTOMATION: Performance Profile Switching (AC vs. Battery) ===
-  # Disable tlp-rdw,it can fight with manual governor settings
-  sudo systemctl mask tlp-rdw
+  sudo tee /etc/modprobe.d/amdgpu.conf <<'EOF'
+  # runpm=0: disables BACO runtime PM to prevent idle hang on OCuLink
+  # (GPU would enter BACO, OCuLink bridge fails to retrain on wake → hard hang)
+  options amdgpu runpm=0
 
-  # Create the shell script to toggle the performance mode (run as root by udev)
-  sudo tee /usr/local/bin/thinklmi-power-switcher << 'EOF'
-  #!/bin/bash
-
-  # Without this, fast AC plug/unplug storms can run the script multiple times
-  LOCKFILE="/var/run/thinklmi-switcher.lock"
-  # Simple flock to prevent overlapping runs
-  exec 200>"$LOCKFILE"
-  flock -n 200 || exit 0
-    
-  # Path to the ThinkLMI file
-  PERF_MODE_PATH="/sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value"
-
-  # Check if the path exists (ensure kernel module is loaded)
-  if [ ! -f "$PERF_MODE_PATH" ]; then
-    echo "ThinkLMI performance_mode path not found: $PERF_MODE_PATH" >&2
-    exit 1
-  fi
-
-  case "$1" in
-    ac)
-        # Max performance (Geek Mode) when plugged in (docked)
-        echo "Setting ThinkLMI to extreme_performance (AC Power)"
-        echo "extreme_performance" > "$PERF_MODE_PATH"
-        if [ "$(cat "$PERF_MODE_PATH")" != "extreme_performance" ]; then
-           echo "Failed to set extreme_performance: Check dmesg or valid_values." >&2
-           logger -t thinklmi-switcher "Failed to set extreme_performance ($(date))"
-           exit 1
-        fi
-        logger -t thinklmi-switcher "Set to extreme_performance ($(date))"
-        ;;
-    battery)
-        # Quiet Mode for maximum battery life when unplugged
-        echo "Setting ThinkLMI to quiet_mode (Battery Power)"
-        echo "quiet_mode" > "$PERF_MODE_PATH"
-        if [ "$(cat "$PERF_MODE_PATH")" != "quiet_mode" ]; then
-           echo "Failed to set quiet_mode: Check dmesg or valid_values." >&2
-           logger -t thinklmi-switcher "Failed to set quiet_mode ($(date))"
-           exit 1
-        fi
-        logger -t thinklmi-switcher "Set to quiet_mode ($(date))"
-        ;;
-    *)
-        echo "Usage: $0 {ac|battery}" >&2
-        exit 1
-        ;;
-  esac
+  # Uncomment one at a time after confirming stable baseline:
+  # options amdgpu ppfeaturemask=0xfffd7fff   # enables LACT OverDrive
+  # options amdgpu pcie_gen_cap=0x80000       # force Gen4 (not needed, link is already Gen4)
+  # options amdgpu dcdebugmask=0x4            # hotplug black screen fix
+  # options amdgpu reset_method=2             # BACO reset (different from runpm)
+  # options amdgpu ras_enable=1               # RAS noise on consumer RDNA4
   EOF
 
-  # Make the script executable
-  sudo chmod +x /usr/local/bin/thinklmi-power-switcher
+  sudo mkinitcpio -P
+  ```
+- Secure Boot
+  ```bash
+  # Verification commands that actually work:
+  sbctl sign-all                              # signs all enrolled files (usually done by hook)
+  sudo sbctl verify                           # verify all enrolled files
+  sudo sbctl verify /boot/EFI/Linux/arch.efi  # verify specific UKI
+  modinfo amdgpu | grep -E "sig_hashalgo|signer"  # confirm in-tree module is signed by kernel
+  ```
+- Power Management
+  ```bash
+  sudo systemctl mask tlp-rdw  # Note: "Unit does not exist" is harmless — masks pre-emptively
 
-  # Create the udev rule to trigger the script on AC status change
-  sudo tee /etc/udev/rules.d/99-thinklmi-power.rules << 'EOF'
-  # When AC adapter status changes to 'online' (1)
-  SUBSYSTEM=="power_supply", KERNEL=="AC*", ATTR{online}=="1", ACTION=="change", RUN+="/bin/sh -c 'sleep 0.5; /usr/local/bin/thinklmi-power-switcher ac'"
-
-  # When AC adapter status changes to 'offline' (0)
-  SUBSYSTEM=="power_supply", KERNEL=="AC*", ATTR{online}=="0", ACTION=="change", RUN+="/usr/local/bin/thinklmi-power-switcher battery"
-  EOF
-
-  # Reload udev rules to make the change active immediately
-  sudo udevadm control --reload-rules
-
-  # Execute the script once to set the initial state (based on current power status)
-  # This will find the current power state and apply the corresponding profile.
-  AC_STATUS=""
-  if [ -f /sys/class/power_supply/AC*/online ]; then
-    AC_STATUS=$(cat /sys/class/power_supply/AC*/online 2>/dev/null | head -1)
-  elif command -v upower >/dev/null 2>&1; then
-    AC_STATUS=$(upower -i /org/freedesktop/UPower/devices/line_power_AC*/online 2>/dev/null | grep -q "yes" && echo "1" || echo "0")
-  else
-    echo "Warning: No reliable AC probe available; skipping initial set." >&2
-    exit 0
-  fi
-
-  if [ "$AC_STATUS" = "1" ]; then
-    sudo /usr/local/bin/thinklmi-power-switcher ac
-  else
-    sudo /usr/local/bin/thinklmi-power-switcher battery
-  fi
-
-  # === Configure TLP for auto-switching and eGPU compatibility ===
-  
-  # Create the proper drop-in directory (once)
   sudo mkdir -p /etc/tlp.d
+  sudo tee /etc/tlp.d/99-thinkbook-egpu.conf <<'EOF'
+  # Uses PCI device addresses (RUNTIME_PM_BLACKLIST takes addresses, not driver names)
+  RUNTIME_PM_BLACKLIST="02:00.0 03:00.0 04:00.0 04:00.1"
 
-  # Write your custom overrides safely (this will never be overwritten by pacman updates)
-  sudo tee /etc/tlp.d/99-thinkbook-egpu.conf << 'EOF'
-  # === GPU: Prevent TLP from touching runtime PM (critical for OCuLink eGPU hotplug) ===
-  RUNTIME_PM_BLACKLIST="amdgpu xe i915"     # xe = Intel Arc iGPU (Core Ultra), amdgpu = eGPU
-
-  # === Maximum performance on AC (mimics Lenovo Vantage "Extreme Performance") ===
   CPU_SCALING_GOVERNOR_ON_AC=performance
   CPU_ENERGY_PERF_POLICY_ON_AC=performance
-
-  # Quieter/Slower on Battery (Consistent with ThinkLMI 'quiet_mode')
   CPU_SCALING_GOVERNOR_ON_BAT=powersave
   CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power
 
-  # === Do not fight with Lenovo's native battery charge control ===
-  # (TLP has ignored vendor-specific thresholds by default since 2023, but being explicit is fine)
+  # TLP writes to /sys/firmware/acpi/platform_profile directly (not power-profiles-daemon)
+  PLATFORM_PROFILE_ON_AC=performance
+  PLATFORM_PROFILE_ON_BAT=balanced
+
   START_CHARGE_THRESH_BAT0=""
   STOP_CHARGE_THRESH_BAT0=""
-  
   EOF
 
-  # Apply
   sudo systemctl restart tlp
+  sudo systemctl enable --now tlp-pd   # GNOME battery icon integration via TLP
 
-  # === Performance Mode: Auto-Switching via UDEV ===
-
-  # LIST available modes on your specific hardware (e.g., quiet_mode, balanced, extreme_performance)
-  echo "Available Lenovo Power Modes:"
-  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/valid_values
-
-  # If want to set manually one time the "Extreme Performance" profile
-  # This is the Linux equivalent of Lenovo Vantage's "Geek Power Mode"
-  # echo extreme_performance | sudo tee /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
-
-  # VERIFY the change
-  echo "Current Active Mode:"
-  tlp-stat -s            # Should show "performance" governor
-  tlp-stat -p            # PL1/PL2 should be high (60–120 W depending on cooling)
-  tlp-stat -g            # Confirm runtime PM blacklist applied
-  cat /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value
-
-  # Manual Option in case don't want to automate with UDEV
-  # Manual GUI button to toggle the mode on demand, create a desktop entry or a simple custom GNOME extension that runs the following commands:
-  # Extreme Performance:
-  # pkexec /bin/sh -c 'echo extreme_performance > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
-  # Quiet Mode:
-  # pkexec /bin/sh -c 'echo quiet_mode > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
-  # [Desktop Entry]
-  # Name=ThinkLMI Extreme Performance
-  # Exec=pkexec /bin/sh -c 'echo extreme_performance > /sys/class/firmware-attributes/thinklmi/attributes/performance_mode/current_value'
-  # Icon=performance-high
-  # Type=Application
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
   ```
-- Install switcheroo-control for GPU integration
+- GPU Integration Services
   ```bash
-  pacman -S --needed switcheroo-control
-  systemctl enable --now switcheroo-control
-  ```
-- Explicit IOMMU group check for eGPU isolation
-  ```bash
-  for d in /sys/kernel/iommu_groups/*/devices/*; do
-    n=${d#*/iommu_groups/*}; n=${n%%/*}
-    printf 'IOMMU Group %s ' "$n"
-    lspci -nns "${d##*/}"
-  done | grep -i amd
-  ```
-- Configure systemd-logind for reliable GPU switching
-  ```bash
-  # Enable KillUserProcesses for clean eGPU switching
-  # WARNING: This will close background apps (Discord, Spotify) on logout
-  # If you want them to persist, set to 'no' (but may cause eGPU issues)
-  sudo sed -i 's/#KillUserProcesses=no/KillUserProcesses=yes/' /etc/systemd/logind.conf
-  systemctl restart systemd-logind
-  ```
-- Install bolt for Thunderbolt 4 management (OCuLink usually bypasses this)
-  ```bash
-  pacman -S --needed bolt
-  systemctl enable --now bolt
-  # Configure auto-connection for Thunderbolt devices
-  # (Note: OCuLink typically appears as raw PCIe and doesn't use bolt/Thunderbolt security)
-  sudo mkdir -p /etc/boltd
-  echo "always-auto-connect = true" | sudo tee -a /etc/boltd/boltd.conf
-  
-  # Check for devices (Use this only if connecting via USB4/TB4 port)
-  boltctl list
-
-  # If a device shows as 'unauthorized', copy its UUID:
-  # grep -i oculink
-  # boltctl authorize <uuid>
+  sudo systemctl enable --now switcheroo-control  # PRIME offload for GNOME
+  sudo systemctl enable --now lactd               # AMD GPU control daemon
+  systemctl --user enable --now gamemoded         # process scheduler for games
   ```
 - Enable VRR for 4K OLED
   ```bash
-  # === Enable VRR in GNOME Mutter (Wayland) ===
-  # VRR Configuration (GNOME 50+ - March 2026)
-  # VRR is now stable and enabled by default in Settings > Displays > Refresh Rate
-  # Verify VRR capability:
-  gnome-randr | grep -i variable || xrandr --prop | grep -i vrr
+  # Current gsettings state: ['scale-monitor-framebuffer', 'xwayland-native-scaling']
 
-  # If VRR doesn't auto-enable, force with:
-  # gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate']"
-
-  # NOTE: Actual VRR range configuration is handled via GNOME Control Center
-  # (Settings -> Displays) after this flag is enabled.
-
-  # === Verify PRIME Offload (iGPU vs. eGPU) ===
-  echo "--- OpenGL (glxinfo) Verification ---"
-  # Verify iGPU (Intel Arc) is the default:
-  DRI_PRIME=0 glxinfo | grep "OpenGL renderer" #Should show Intel Arc
-  # Verify eGPU (AMD) is selected for offload:
-  DRI_PRIME=1 glxinfo | grep "OpenGL renderer" #Should show AMD eGPU
+  # VRR enabled via GNOME Settings → Displays. No gsettings command needed — GNOME 50+ exposes VRR natively in the display configuration UI.
+  ```
+- Verification Results
+  ```bash
   
-  echo "--- Vulkan (vulkaninfo) Verification ---"
-  # Vulkan is the modern standard; ensure it sees the eGPU
-  # Install 'vulkan-tools' package if 'vulkaninfo' is not found.
-  # Output should list your AMD eGPU (e.g., 'AMD Radeon RX 7900 XT')
-  # Verify VRR support on the eGPU:
-  DRI_PRIME=1 vulkaninfo | grep "deviceName"
-
-  # Check video decode capabilities
-  echo "--- Video Acceleration Check (VDPau/Radeonsi) ---"
-  DRI_PRIME=1 vdpauinfo | grep -i radeonsi 
-
-  # If VRR fails, check dmesg for amdgpu errors:
-  dmesg | grep -i amdgpu
-
-  # === Confirm Display Settings (Wayland) ===
-  # The following is a Wayland-native check tool (wlr-randr) often useful,
-  # but configuration must be done in GNOME Control Center for Mutter.
-  echo "--- Wayland Refresh Rate Check ---"
-  # Check if wlr-randr is available and confirm refresh rate range:
-  if command -v wlr-randr &> /dev/null; then
-    wlr-randr
-  else
-    echo "wlr-randr not found. Check display settings in GNOME Control Center."
-  fi
-  # Ensure 4K OLED is set to its maximum refresh rate and VRR range in the GUI:
-  # Launch 'gnome-control-center' (Settings) -> Displays -> Resolution/Refresh Rate
-  # Set the desired resolution and confirm the refresh rate (e.g., 120Hz) is available.
-
-  # === Check AppArmor Denials (Crucial for VFIO/Passthrough) ===
-  echo "--- AppArmor Denial Checks ---"
-  # Check AppArmor denials specifically related to systems that touch PCI/GPU resources
-  journalctl -u apparmor | grep -i "supergfxctl\|qemu\|libvirtd\|amdgpu"
-  
-  # Log denials to a file for review
-  journalctl -u apparmor | grep -i DENIED > /var/log/apparmor-denials.log
-  # echo "NOTE: If AppArmor denials are found, generate profiles with 'aa-genprof qemu-system-x86_64' and customize rules for /dev/dri/*, /dev/vfio/*, and /sys/bus/pci/* access."
-
-  # DO NOT ENFORCE YET — FSP is in COMPLAIN mode
-  # Denials will be logged to /var/log/apparmor-denials.log
-  # Note: Full AppArmor.d policy will be enforced in later Step 18 via 'just fsp-enforce
   ```
-- Enable gamemoded
+- Gamescope templates (for Steam launch options)
   ```bash
-  # Enable GameMode
-  systemctl --user enable --now gamemoded
+  # Native 4K 240Hz:
+  DRI_PRIME=1 LD_BIND_NOW=1 gamemoderun gamescope -W 3840 -H 2160 -w 3840 -h 2160 -r 240 --adaptive-sync --mangoapp -- %command%
 
-  # Usage and Conflicts
-  echo "GameMode enabled. Use 'gamemoderun' prefix for performance uplift."
-  # Launch example for Steam:
-  # Launch Options: gamemoderun %command%
+  # 1440p → 4K via FSR:
+  DRI_PRIME=1 LD_BIND_NOW=1 gamemoderun gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 240 -F fsr --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
 
-  echo "ALERT: GameMode is not recommended alongside advanced schedulers like Ananicy-cpp. Ananicy-cpp is not used in the plan at the momment"
-  echo "Choose one: simple performance via GameMode, or complex system-wide tuning via Ananicy-cpp."
-  echo "If using dual monitors with mixed refresh rates (e.g., 144Hz + 60Hz), GameMode can help AMD eGPU power management by running scripts to toggle rates (reduces idle VRAM clock/power draw). You would need to create a script for this."
+  # 1080p → 4K via FSR:
+  DRI_PRIME=1 LD_BIND_NOW=1 gamemoderun gamescope -w 1920 -h 1080 -W 3840 -H 2160 -r 240 -F fsr --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
+
+  # Competitive / low-latency 1080p:
+  DRI_PRIME=1 LD_BIND_NOW=1 gamemoderun gamescope -w 1920 -h 1080 -W 1920 -H 1080 -r 240 --adaptive-sync --immediate-flips --mangoapp -- %command%
+
+  # Non-gamescope (light games):
+  LD_BIND_NOW=1 DRI_PRIME=1 gamemoderun mangohud %command%
   ```
-- Configure LACT for GPU Control
+- PCI Latency Tuning (Optional - Only in case of audio crackling)
   ```bash
-  # Enable LACT daemon
-  sudo systemctl enable --now lactd
+  sudo pacman -S --needed pciutils
 
-  # Open GUI (after reboot into graphical environment)
-  lact
-
-  # Recommended LACT Settings for Gaming:
-
-  # Power Profile: 3dmark or VR (max performance)
-  # Power Limit: Max (depends on dock cooling - monitor temps)
-  # Performance Level: high or manual
-  # Fan Curve: Aggressive (eGPU docks have limited cooling)
-  # Clock Limits: Leave at max unless thermal throttling
-  # VRAM Clock: Max
-  # VRR: Enable (if not auto-detected)
-  ```
-- Create MangoHud Configuration
-  ```bash
-  mkdir -p ~/.config/MangoHud
-  cat > ~/.config/MangoHud/MangoHud.conf << 'EOF'
-  ############
-  # DISPLAY
-  ############
-  # Position: top-left is safest for OLED (avoids bottom burn-in)
-  position=top-left
-  font_size=24
-  no_small_font
-
-  # OLED-friendly colors (avoid pure white, use slight gray)
-  text_color=E0E0E0
-  gpu_color=95E095
-  cpu_color=95E0E0
-  vram_color=95A0E0
-  ram_color=E0E095
-  fps_color=E0E095
-
-  # Background opacity (0-100, lower = less burn-in risk)
-  background_alpha=0.4
-
-  ############
-  # METRICS
-  ############
-  # Core stats
-  fps
-  fps_sampling_period=500
-  fps_color_change
-  fps_value=30,60
-
-  # GPU
-  gpu_stats
-  gpu_temp
-  gpu_core_clock
-  gpu_mem_clock
-  gpu_power
-  gpu_load_change
-  gpu_load_value=50,90
-  vram
-  amdgpu_voltage
-
-  # CPU  
-  cpu_stats
-  cpu_temp
-  cpu_mhz
-  cpu_load_change
-  cpu_load_value=50,90
-  core_load
-
-  # Memory
-  ram
-  swap
-
-  # Frame timing (critical for diagnosing stutters)
-  frame_timing=1
-  frametime
-  histogram
-
-  # 1% and 0.1% lows (critical for smoothness perception)
-  fps_metrics=avg,0.01,0.1
-
-  ############
-  # FPS LIMITING
-  ############
-  # For 240Hz OLED with VRR: limit to 237 fps (240 - 3)
-  # This prevents tearing while staying in VRR range
-  fps_limit=237
-
-  # Use 'early' method for lower latency (recommended for competitive)
-  # Use 'late' for smoother frame pacing (recommended for single-player)
-  fps_limit_method=early
-
-  # Toggle FPS limit on/off with Shift_R+F1
-  toggle_fps_limit=Shift_R+F1
-
-  ############
-  # LOGGING
-  ############
-  # Benchmark logging
-  output_folder=/home/$USER/Documents/mangohud_logs
-  log_duration=30
-  toggle_logging=Shift_R+F2
-  upload_log=F5
-
-  ############
-  # OTHER
-  ############
-  # Show MangoHud version
-  version
-
-  # Vsync indicator (shows when vsync is forced)
-  vsync=0
-
-  # Engine version (useful for debugging)
-  engine_version
-  wine
-
-  # Hotkeys
-  toggle_hud=Shift_R+F12
-  reload_cfg=Shift_R+F4
+  sudo tee /usr/local/bin/pci-latency-tune.sh <<'EOF'
+  #!/usr/bin/env sh
+  [ "$(id -u)" -ne 0 ] && { echo "Error: run as root" >&2; exit 1; }
+  setpci -v -s '*:*' latency_timer=20   # reset all to low
+  setpci -v -s '0:0' latency_timer=0    # root bridge gets zero
+  setpci -v -d "*:*:04xx" latency_timer=80  # sound cards get budget
   EOF
-  ```
-- Configure gaming environment variables:
-  ```bash
-  mkdir -p ~/.config/environment.d
-  cat > ~/.config/environment.d/50-gaming.conf <<'EOF'
-  # AMD Mesa shader cache (centralized location)
-  # Note: ACO is the default RADV compiler on modern Mesa;
-  # no explicit RADV_PERFTEST flags are required.
-  MESA_SHADER_CACHE_DIR=$HOME/.cache/mesa_shader_cache
-  MESA_SHADER_CACHE_MAX_SIZE=10G
-  EOF
-  
-  echo "✓ Gaming environment variables configured (session-wide)"
-  echo "  Shader cache: ~/.cache/mesa_shader_cache (10GB max)"
-  echo "  ACO: default RADV compiler on modern Mesa (no forcing needed)"
-  ```
-- Performance optimization template (for Gamesopce add to Steam)
-  ```bash
-  # Template: For regular gaming (without gamescope, light games or native desktop resolution)
-  # MANGOHUD_CONFIG="cpu_stats,cpu_temp,gpu_stats,gpu_temp,vram,ram,fps_limit=117,frame_timing" LD_BIND_NOW=1 MESA_VK_DEVICE_SELECT=amd gamemoderun mangohud %command%
+  sudo chmod +x /usr/local/bin/pci-latency-tune.sh
 
-  # Templates for gamescope gaming (with eGPU)
-  # Template 1: Native 4K 240Hz (for games that can hit >100 fps)
-  # Steam Launch Options:
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -W 3840 -H 2160 -w 3840 -h 2160 -r 240 --adaptive-sync --mangoapp -- %command%
-  
-  # Template 2: 1440p → 4K Upscale (for demanding games)
-  # Uses FSR to upscale 1440p to 4K (better performance)
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -w 2560 -h 1440 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
-
-  # Template 3: 1080p → 4K Upscale (for very demanding games)
-  # Uses FSR to upscale 1080p to 4K (best performance)
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -w 1920 -h 1080 -W 3840 -H 2160 -r 240 --fsr-sharpness 3 --adaptive-sync --mangoapp -- %command%
-
-  # Template 4: High Refresh Priority (for competitive games)
-  # 1080p native, max refresh, low latency
-  # MESA_VK_DEVICE_SELECT=amd LD_BIND_NOW=1 gamemoderun gamescope -w 1920 -h 1080 -W 1920 -H 1080 -r 240 --adaptive-sync --immediate-flips --mangoapp -- %command%
-  
-  # Verify Gaming Settings
-  sysctl -a | grep vm.swappiness # (should be 10)
-  cat /sys/kernel/mm/transparent_hugepage/enabled # (madvise)
-  DRI_PRIME=1 glxgears # (eGPU: uncapped FPS → vblank disabled)
-  # Games: Add vblank_mode=0 to Steam launch options if needed (overrides drirc).
-  # Revert if tearing bothers you: rm ~/.drirc && chezmoi forget ~/.drirc.
-
-  # Gamescope Flags Explained:
-  # -w/-h: Game internal resolution
-  # -W/-H: Display output resolution
-  # -r: Refresh rate cap (use 240 for max)
-  # --adaptive-sync: Enable VRR (better than -r for variable fps)
-  # --fsr-sharpness: 0-20, higher = sharper (3-5 recommended for upscaling)
-  # --mangoapp: MangoHud overlay (don't use mangohud wrapper with gamescope)
-  # --immediate-flips: Lower latency (may cause tearing without VRR)
-  ```
-- Configure FPS Limiting Strategy
-  ```bash
-  For 240Hz OLED with VRR:
-  Option A: Let VRR Handle It (Recommended for most games)
-
-  Don't set FPS limit
-  Let game run uncapped within VRR range
-  Smoother experience with variable frame times
-
-  Option B: Cap at 237 FPS (For consistency)
-
-  Prevents exceeding VRR max (240Hz)
-  Avoids VSync fallback and tearing
-  Use MangoHud: fps_limit=237 + fps_limit_method=early
-
-  Option C: Cap at Half Refresh (For demanding games)
-
-  Cap at 120 fps for 240Hz display
-  Guarantees smooth frame pacing
-  Use MangoHud: fps_limit=120 + fps_limit_method=late
-
-  In-Game vs MangoHud vs Gamescope:
-
-  In-game FPS limit (best): Use if available, lowest latency
-  MangoHud (fps_limit_method=early): Good latency, works everywhere
-  Gamescope (-r flag): Adds latency, use only for VRR ceiling
-  ```
-- (OPTIONAL - FALLBACK IF HOT PLUG DOES NOT WORK) Install and configure `supergfxctl` for GPU switching:
-  ```bash
-  # TEST FIRST HOT-PLUG THE eGPU - IF IT WORKS SKIP THIS OPTIONAL ITEM.
-  paru -S supergfxctl
-  # Enable the service FIRST (it will auto-generate a working default config)
-  sudo systemctl enable --now supergfxd
-  # Override only the options we need
-  sudo mkdir -p /etc/supergfxd.conf.d
-  sudo tee /etc/supergfxd.conf.d/99-egpu.conf <<'EOF'
-  {
-  "mode": "Hybrid",
-  "vfio_enable": false,  # CRITICAL: Must be false for AMD eGPU Hybrid mode
-  "vfio_save": false,
-  "always_reboot": false,
-  "no_logind": false,
-  "logout_timeout_s": 180,
-  "hotplug_type": "Std"  # Standard hotplug works well for OCuLink/TB4/5
-  }
-  EOF
-
-  # Install the profile script for desktop environment compatibility (Wayland/Gnome)
-  sudo supergfxctl --install-profile-script
-
-  # Fallback to iGPU if eGPU fails
-  supergfxctl -m Integrated  
-
-  # Secure Boot signing for the binaries
-  # Note: sbctl can sign multiple files in one call.
-  sbctl sign -s /usr/bin/supergfxctl /usr/lib/supergfxd
-
-  # Reboot to apply all changes (KMS, modprobe, and supergfxd)
-  sudo reboot
-
-  # If probe error -22: Try kernel param 'amdgpu.noretry=0' in /etc/mkinitcpio.d/linux.preset, then mkinitcpio -P
-  # hotplug_type use Std for OCuLink; if doesn't work change to "Asus". Requires restart.
-  ```
-- (OPTIONAL - FALLBACK IF HOT PLUG DOES NOT WORK) Install supergfxctl-gex for GUI switching
-  ```bash
-  # GUI Installation of supergfxctl-gex
-  echo "NOTE: supergfxctl-gex is installed via the GNOME Extensions website, not the AUR."
-  # GUI installation
-  echo "--------------------------------------------------------------------------------"
-  echo "MANUAL STEP REQUIRED:"
-  echo "1. Log into your GNOME desktop session."
-  echo "2. Open your web browser and navigate to: https://extensions.gnome.org/extension/5344/supergfxctl-gex/"
-  echo "3. Toggle the switch to 'ON' to install and enable the extension."
-  echo "4. After installation, log out and log back in (or press Alt+F2, then 'r', then Enter) to see the GUI icon."
-  echo "--------------------------------------------------------------------------------"
-  ```
-- (DEPRECATED - Fallback Only) Create a udev rule for eGPU hotplug support:
-  ```bash
-  # Modern GNOME and Mesa have excellent hot-plugging support. Start without any custom udev rules.
-  # Only add this udev in case hotplug doesn't work. udev rule is a fallback if dmesg | grep -i "oculink\|pcieport" shows no detection or if lspci | grep -i amd fails after connecting the eGPU.
-  cat << 'EOF' > /etc/udev/rules.d/99-oculink-hotplug.rules
-  SUBSYSTEM=="pci", ACTION=="add", ATTRS{vendor}=="0x1002", RUN+="/usr/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'"
-  EOF
-  udevadm control --reload-rules && udevadm trigger
-  ```
-- (DEPRECATED - Fallback Only) Install all-ways-egpu if eGPU isn’t primary
-  ```bash
-  # If supergfxctl do not handle the hotplug try to install all-ways-egpu to set AMD eGPU as primary for GNOME Wayland -- this is a plan b, should not be used at first. First test the setup without, in other words skip to the switcheroo-control
-  if ! DRI_PRIME=1 glxinfo | grep -i radeon; then
-    cd ~; curl -L https://github.com/ewagner12/all-ways-egpu/releases/latest/download/all-ways-egpu.zip -o all-ways-egpu.zip; unzip all-ways-egpu.zip; cd all-ways-egpu-main; chmod +x install.sh; sudo ./install.sh; cd ../; rm -rf all-ways-egpu.zip all-ways-egpu-main
-    sbctl sign -s /usr/bin/all-ways-egpu # Ensure binary is signed for Secure Boot
-    all-ways-egpu setup
-    all-ways-egpu set-boot-vga egpu
-    all-ways-egpu set-compositor-primary egpu
-    systemctl restart gdm
-  fi
-  #Note: If Plymouth splash screen fails (e.g., blank screen), remove 'splash' from kernel parameters in /boot/loader/entries/arch.conf and regenerate UKI with `mkinitcpio -P` 
-  ```
-- (OPTIONAL NOT RECOMMENDED) VFIO for eGPU passthrough
-  ```bash
-  > **99.9 % of people reading this guide should SKIP this entire section.**
-  >
-  > If you just want to game on Linux with your AMD OCuLink eGPU → **you already have the best possible setup** with `chgpu` in hybrid/dedicated/egpu mode + ThinkLMI automation.
-  >
-  > VFIO passthrough on AMD in 2025 still means:
-  > - You lose **all** native Linux use of the eGPU
-  > - No hot-plug (must cold-plug + reboot every time)
-  > - AMD reset bug is only ~90 % solved (still needs vendor-reset or bleeding-edge patches)
-  > - You will spend 10–40 hours debugging instead of gaming
-  >
-  > Only do this if you absolutely need near-native Windows performance in a VM and accept the above trade-offs.
-
-  # If you still want to proceed → follow the official Arch Wiki page exactly:  
-  # https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF
-
-  # Do **not** follow any random script that blacklists `amdgpu` globally — it will break your daily driver.
-
-  # VFIO for eGPU passthrough (AMD OCuLink focus)
-  pacman -S --needed qemu virt-manager 
-  systemctl enable --now libvirtd
-
-  # Load VFIO modules
-  echo "vfio-pci vfio_iommu_type1 vfio_virqfd vfio" | sudo tee /etc/modules-load.d/vfio.conf
-
-  # Check IOMMU groups (essential for isolation; script from ArchWiki)
-  cat << 'EOF' | sudo tee /usr/local/bin/check-iommu-groups.sh
-  #!/bin/bash
-  shopt -s nullglob
-  for g in $(find /sys/kernel/iommu_groups/* -maxdepth 0 -type d | sort -V); do
-    echo "IOMMU Group ${g##*/}:"
-    for d in $g/devices/*; do
-        echo -e "\t$(lspci -nns ${d##*/})"
-    done;
-  done
-  EOF
-  sudo chmod +x /usr/local/bin/check-iommu-groups.sh
-  echo "Run: sudo check-iommu-groups.sh to verify eGPU isolation (GPU/audio should be alone)."
-  sudo check-iommu-groups.sh | grep -i amd  # Quick preview
-
-  # Guide for IDs + auto-detect AMD eGPU
-  echo "1. Run: lspci -nn | grep -i amd"
-  echo "2. Example output: 1002:73df [AMD Radeon RX 6700 XT]"
-  echo "3. Edit /etc/modprobe.d/vfio.conf below with real IDs (vendor:device for GPU + audio)."
-  lspci -nn | grep -i amd
-  fwupdmgr get-devices | grep -i "oculink\|redriver" | grep -i version
-
-  # Blacklist AMD driver (prevents host claiming eGPU; OCuLink-specific)
-  echo "blacklist amdgpu" | sudo tee /etc/modprobe.d/blacklist-amdgpu.conf
-  echo "softdep amdgpu pre: vfio-pci" | sudo tee -a /etc/modprobe.d/vfio.conf
-
-  # Auto-generate vfio-pci IDs
-  GPU_IDS=$(lspci -nn | grep -i amd | grep VGA | awk '{print $3}' | sed 's/\://g' | head -1)
-  AUDIO_IDS=$(lspci -nn | grep -i amd | grep Audio | awk '{print $3}' | sed 's/\://g' | head -1)
-  echo "options vfio-pci ids=${GPU_IDS:-1002:xxxx},${AUDIO_IDS:-1002:xxxx}" | sudo tee /etc/modprobe.d/vfio.conf
-  echo "Auto-detected IDs: GPU=${GPU_IDS:-TBD}, Audio=${AUDIO_IDS:-TBD}. Edit if wrong."
-  echo "4. Then: mkinitcpio -P && reboot"
-  mkinitcpio -P
-
-  # Optional: vendor-reset for AMD reset bug
-  echo "For AMD eGPU reset issues: paru -S vendor-reset-dkms-git"
-  echo "Add 'vendor_reset' to MODULES in /etc/mkinitcpio.conf, then mkinitcpio -P."
-
-  # Optional: Resizable BAR udev rule for Code 43
-  cat << 'EOF' | sudo tee /etc/udev/rules.d/01-amd-bar.rules
-  ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{resource0_resize}="14"
-  ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{resource2_resize}="8"
-  EOF
-  echo "For Resizable BAR/Code 43: Unplug/replug eGPU or reboot."
-
-  # Optional: BIOS hangs note
-  echo "If guest hangs: BIOS — disable Re-Size BAR, enable SR-IOV, set Initiate Graphic Adapter=IGD."
-
-  # Sign binaries if unsigned
-  for bin in /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl; do
-    if ! sbctl verify "$bin" | grep -q "signed"; then
-      sbctl sign -s "$bin"
-      echo "Signed $bin."
-    else
-      echo "$bin already signed."
-    fi
-  done
-
-  # Append structured hook
-  if ! grep -q "Target = supergfxctl" /etc/pacman.d/hooks/90-uki-sign.hook 2>/dev/null; then 
-  cat << 'EOF' | sudo tee -a /etc/pacman.d/hooks/90-uki-sign.hook
-
-  [Trigger]
-  Operation = Install
-  Operation = Upgrade
-  Type = Package
-  Target = qemu
-  Target = libvirt
-  Target = supergfxctl
-
-  [Action]
-  Description = Sign VFIO/eGPU binaries with sbctl
-  When = PostTransaction
-  Exec = /usr/bin/sbctl sign -s /usr/bin/qemu-system-x86_64 /usr/lib/libvirt/libvirtd /usr/bin/supergfxctl
-  Depends = sbctl
-  EOF
-    echo "Added structured signing hook."
-  else
-    echo "Signing hook already exists."
-  fi
-  ```
-- Systemd Service Hardening Phase 3 (post eGPU)
-  ```bash
-  echo "=== Phase 3: udisks2 Hardening ==="
-  echo "⚠️  TEST THOROUGHLY after this one!"
-  echo ""
-
-  sudo mkdir -p /etc/systemd/system/udisks2.service.d
-
-  sudo tee /etc/systemd/system/udisks2.service.d/harden.conf > /dev/null <<'EOF'
+  sudo tee /etc/systemd/system/pci-latency.service <<'EOF'
+  [Unit]
+  Description=PCI latency timer tuning for audio performance
+  After=sysinit.target
   [Service]
-  # Disk management needs device access but can be restricted
-  ProtectSystem=strict
-  ProtectHome=read-only
-  PrivateTmp=yes
-  NoNewPrivileges=yes
-  ProtectKernelTunables=yes
-  ProtectControlGroups=yes
-  RestrictSUIDSGID=yes
-  # Note: Needs device access for eGPU/USB mounting
-  # ProtectKernelModules=no (may load filesystem modules)
+  Type=oneshot
+  ExecStart=/usr/local/bin/pci-latency-tune.sh
+  RemainAfterExit=yes
+  [Install]
+  WantedBy=multi-user.target
   EOF
 
   sudo systemctl daemon-reload
-  sudo systemctl restart udisks2.service
-
-  echo ""
-  echo "⚠️  CRITICAL: Test eGPU hotplug NOW!"
-  echo "   1. Unplug OCuLink"
-  echo "   2. Plug back in"
-  echo "   3. Verify eGPU detected"
-  echo ""
-  echo "If broken, rollback:"
-  echo "   sudo rm /etc/systemd/system/udisks2.service.d/harden.conf"
-  echo "   sudo systemctl daemon-reload"
-  echo "   sudo systemctl restart udisks2.service"
+  sudo systemctl enable --now pci-latency.service
   ```
-- Verify eGPU setup
-  ```bash
-  # Verify eGPU detection
-  lspci | grep -i amd
-  dmesg | grep -i amdgpu
-
-  # (DEPRECATED) Verify GPU switching
-  # supergfxctl -s # Show supported modes
-  # supergfxctl -g # Get current mode
-  # supergfxctl -S # Check current power status
-  # supergfxctl -m Hybrid # Set to Hybrid mode
-  glxinfo | grep -i renderer # Should show AMD eGPU (confirming all-ways-egpu sets eGPU as primary)
-
-  **Note:** Switch modes before testing:
-  # Hybrid: `supergfxctl -m Hybrid` → `DRI_PRIME=1 glxinfo | grep renderer`
-  # VFIO: `supergfxctl -m VFIO` → `lspci -k | grep vfio`
-  DRI_PRIME=1 glxinfo | grep -i radeon # Should show AMD
-  DRI_PRIME=0 glxinfo | grep -i arc # Should show Intel
-  DRI_PRIME=1 vdpauinfo | grep -i radeonsi
-  # (DEPRECATED) supergfxctl -m VFIO # Test VFIO mode for VM
-
-  # Verify PCIe bandwidth. Confirm the eGPU is operating at full PCIe x4 bandwidth. Ensures the OCuLink connection is not bottlenecked (e.g., running at x1 or Gen 3 instead of x4 Gen 4):
-  lspci -vv | grep -i "LnkSta.*Speed.*Width" # Should show "Speed 16GT/s, Width x4" for OCuLink4
-  # (DEPRECATED) fio --name=read_test --filename=/dev/dri/card1 --size=1G --rw=read --bs=16k --numjobs=1 --iodepth=1 --runtime=60 --time_based #link status shows “Speed 16GT/s, Width x4” for optimal performance.
-  lspci -vv | grep -i "LnkSta" | grep -i "card1"
-  # If the link is suboptimal (e.g., x1 or Gen 3), suggest adding kernel parameters to force PCIe performance: pcie_ports=native pciehp.pciehp_force=1
-
-  # Verify OCuLink firmware
-  fwupdmgr get-devices | grep -i "oculink\|redriver"
-
-  # Verify VRR
-  wlr-randr --output <output-name>
-
-  # Verify eGPU functionality
-  lspci | grep -i vga
-  lspci | grep -i "serial\|usb\|thunderbolt"
-  lspci -vv | grep -i "LnkSta"
-  # (DEPRECATED) lspci -k | grep -i vfio # Verify VFIO binding
-  dmesg | grep -i "oculink\|pcieport\|amdgpu\|jhl\|redriver"
-
-  # Check for PCIe errors
-  dmesg | grep -i "pcieport\|error\|link"
-  cat /sys/class/drm/card*/device/uevent | grep DRIVER  # Should show xe and amdgpu
-
-  # (Optional) Check OCuLink dock firmware - Firmware Update may be better performed in Step 18
-  fwupdmgr get-devices | grep -i "oculink\|redriver"
-  (DO NOT EXECUTE) fwupdmgr update - echo "fwupd upgrade moved to Step 18 for BIOS/firmware updates."
-  ```
-- **eGPU Troubleshooting Matrix**:
-  | Issue | Possible Cause | Solution |
-  |-------|----------------|----------|
-  | eGPU not detected (`lspci \| grep -i amd` empty) | OCuLink cable not seated properly, dock firmware outdated, or PCIe hotplug failure | Re-seat the OCuLink cable, run `fwupdmgr update`, add `pcie_ports=native` to kernel parameters, trigger `echo 1 > /sys/bus/pci/rescan` |
-  | Black screen on Wayland | eGPU not set as primary display | Run `all-ways-egpu set-boot-vga egpu` and `all-ways-egpu set-compositor-primary egpu`, then restart GDM: `systemctl restart gdm` |
-  | Low performance (e.g., x1 instead of x4) | PCIe link negotiation failure | Check link status: `lspci -vv \| grep LnkSta`, add `amdgpu.pcie_gen_cap=0x4` to kernel parameters |
-  | Flickering | AMD flickering issue | Add: `amdgpu.dcdebugmask=0x10` to kernel parameters |
-  | Hotplug fails | OCuLink hardware limitation or missing udev rule | Apply the udev rule above, reboot if necessary |
-  - Additional troubleshooting commands:
-    ```bash
-    lspci | grep -i amd  # Check eGPU detection
-    dmesg | grep -i amdgpu  # Check driver loading
-    glxinfo | grep -i renderer  # Verify GPU rendering
-    ```
-  - DIAGNOSTIC: Check IOMMU groups after connecting eGPU
-    ```bash
-    find /sys/kernel/iommu_groups/ -type l | sort | grep 1002:
-
-    # CONDITIONAL FIX: If the AMD GPU is not in its own group:
-    # Get the AMD GPU PCI ID (e.g., from 'lspci -nnk'): 1002:xxxx
-    # Add the following to linux.preset default_options:
-    # vfio-pci.ids=1002:xxxx
-    ```
-  - (Optional) If for some reason the Oculink performance has some latency issues consider adding some script for setpci like CachyOS does - https://wiki.cachyos.org/features/cachyos_settings/#helper-scripts
-    ```bash
-    #!/usr/bin/env sh
-    # This script is designed to improve the performance and reduce audio latency
-    # for sound cards by setting the PCI latency timer to an optimal value of 80
-    # cycles. It also resets the default value of the latency timer for other PCI
-    # devices, which can help prevent devices with high default latency timers from
-    # causing gaps in sound.
-
-    # Check if the script is run with root privileges
-    if [ "$(id -u)" -ne 0 ]; then
-    echo "Error: This script must be run with root privileges." >&2
-    exit 1
-    fi
-
-    # Reset the latency timer for all PCI devices
-    setpci -v -s '*:*' latency_timer=20
-    setpci -v -s '0:0' latency_timer=0
-
-    # Set latency timer for all sound cards
-    setpci -v -d "*:*:04xx" latency_timer=80
-
-    # Start the service for this script above
-    sudo systemctl enable --now pci-latency.service
-
-    # Before unplugging eGPU:
-    # 1. Close all GPU-accelerated apps
-    # 2. Switch to integrated graphics
-    # 3. Wait 5 seconds
-    # 4. Physically disconnect
-    # use suspend-before-unplug workflow
-    ```
 ## Step 13: Configure Snapper and Snapshots
 
 - Instal Packages
