@@ -1589,7 +1589,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  audit arch-audit lynis sshguard ufw usbguard \
+  audit arch-audit lynis sshguard ufw usbguard nettle3 \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility tlp upower zram-generator libappindicator smartmontools \
