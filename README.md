@@ -4322,7 +4322,7 @@
   [Action]
   Description = Syncing /boot to /etc/reproducible-boot (Snapper-visible copy)...
   When = PostTransaction
-  Exec = /usr/bin/rsync -a --delete /boot/ /etc/reproducible-boot/ || exit 1
+  Exec = /usr/bin/rsync -a --delete /boot/ /etc/reproducible-boot/
   EOF
 
   sudo chmod 644 /etc/pacman.d/hooks/95-bootbackup.hook
