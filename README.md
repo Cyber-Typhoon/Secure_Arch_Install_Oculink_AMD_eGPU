@@ -4945,7 +4945,6 @@
   # ── /etc overrides ────────────────────────────────────────────────────────────
   for f in \
     /etc/sysctl.d/99-hardening.conf \
-    /etc/sysctl.d/99-zram-optimize.conf \
     /etc/fonts/conf.d/99-hide-variants.conf \
     /etc/modprobe.d/99-local-blacklist.conf \
     /etc/NetworkManager/conf.d/99-hardened-network.conf \
@@ -5177,7 +5176,6 @@
 
   # ── Kernel parameters ─────────────────────────────────────────────────────────
   cp /etc/sysctl.d/99-hardening.conf      "$DEST/etc/sysctl.d/"
-  cp /etc/sysctl.d/99-zram-optimize.conf  "$DEST/etc/sysctl.d/"
 
   # ── Font suppression ──────────────────────────────────────────────────────────
   cp /etc/fonts/conf.d/99-hide-variants.conf "$DEST/etc/fonts/conf.d/"
@@ -5449,7 +5447,6 @@
   ls -l /etc/snapper/configs/          # all files should show 640
   ls    /etc/fonts/conf.d/99-hide-variants.conf
   ls    /etc/sysctl.d/99-hardening.conf
-  ls    /etc/sysctl.d/99-zram-optimize.conf
   ls    /usr/local/bin/update-system   # confirm scripts deployed
   fc-list | head -10                   # spot-check font cache
 
