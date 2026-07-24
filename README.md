@@ -950,7 +950,7 @@
   # This creates the standard file that UKI builders (like ukify) use by default
   mkdir -p /etc/kernel
   cat << EOF > /etc/kernel/cmdline
-  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51 xe.enable_psr=0 split_lock_detect=off systemd.stub_measured_sections=0
+  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51 xe.enable_psr=0 split_lock_detect=off systemd.stub_measured_sections=0 zswap.enabled=1 zswap.max_pool_percent=25 zswap.compressor=zstd zswap.zpool=zsmalloc
   EOF
   # Double check if the $ROOT_UUID and $RESUME_OFFSET are numerical and not variables.
 
@@ -1592,7 +1592,7 @@
   audit arch-audit lynis sshguard ufw usbguard nettle3 \
   \
   # System Monitoring
-  gnome-system-monitor gnome-disk-utility tlp upower zram-generator libappindicator smartmontools \
+  gnome-system-monitor gnome-disk-utility tlp upower libappindicator smartmontools \
   \
   # Hardware
   bluez bluez-utils cups fprintd \
@@ -1662,10 +1662,6 @@
     apparmor.d-git \
     fresh-editor-bin \
     libva-vdpau-driver \
-    lib32-gstreamer \
-    lib32-gst-plugins-base \
-    lib32-gst-plugins-base-libs \
-    gst-plugins-rs-git \
     brave-bin \
     kotofetch \
     nautilus-open-any-terminal \
@@ -3170,77 +3166,113 @@
   # When that happens:
   # sudo cp /var/lib/suid-audit/current.txt /var/lib/suid-audit/baseline.txt 
   ```
-- Configure zram:
+- Configure zswap (compressed cache in front of the physical swapfile):
   ```bash
-  echo "Step: Removing conflicting ZRAM services..."
+  echo "Step: Removing conflicting swap-management services..."
 
-  for svc in zramswap.service zram-config.service tlp-zram.service systemd-swap.service; do
+  for svc in zramswap.service zram-config.service tlp-zram.service systemd-swap.service systemd-zram-setup@zram0.service; do
       sudo systemctl disable --now "$svc" 2>/dev/null || true
       sudo systemctl mask "$svc" 2>/dev/null || true
   done
 
-  echo "Step: Creating ZRAM configuration..."
+  echo "Step: Ensuring zram-generator is not installed..."
+  sudo pacman -Rns --noconfirm zram-generator 2>/dev/null || true
 
-  sudo tee /etc/systemd/zram-generator.conf > /dev/null <<'EOF'
-  [zram0]
-  zram-size = min(ram / 2, 8192)
-  compression-algorithm = zstd
-  swap-priority = 100
-  EOF
+  echo "Step: Appending zswap parameters to the kernel cmdline..."
+  # NOTE: zswap.zpool=zsmalloc is included for portability with older kernels.
+  # On current kernels (zbud/z3fold removed upstream) zsmalloc is the sole
+  # allocator and this parameter is a harmless no-op — confirmed via
+  # `ls /sys/module/zswap/parameters/` showing no `zpool` entry.
+  if ! grep -q "zswap.enabled=1" /etc/kernel/cmdline; then
+      sudo sed -i 's/$/ zswap.enabled=1 zswap.max_pool_percent=25 zswap.compressor=zstd zswap.zpool=zsmalloc/' /etc/kernel/cmdline
+  fi
+  cat /etc/kernel/cmdline
 
-  echo "Step: Configuring kernel memory parameters..."
-
-  sudo tee /etc/sysctl.d/99-zram-optimize.conf > /dev/null <<'EOF'
-  # === ZRAM Memory Optimization ===
-  # Overrides gaming-only values from 99-hardening.conf
-
-  # Swappiness: Aggressive ZRAM use
-  # Tunable: adjust to 60 (conservative) or 100 (maximum) if needed
-  vm.swappiness=80
-
-  # Page clustering: Disable for ZRAM (essential!)
-  vm.page-cluster=0
-  EOF
-
-  echo "Step: Applying configurations..."
-
-  sudo systemctl daemon-reload
-  sudo sysctl --system
-  sudo systemctl enable --now systemd-zram-setup@zram0.service
+  echo "Step: Rebuilding and signing UKIs..."
+  # mkinitcpio's own [sbctl] post-hook signs the UKI automatically on every
+  # build — no separate pacman hook is needed or expected here. See the
+  # note near the pacman hooks section below.
+  sudo mkinitcpio -P
 
   echo ""
-  echo "=== CONFIGURATION COMPLETE ==="
+  echo "=== CONFIGURATION COMPLETE (reboot required to activate) ==="
   echo ""
-
-  echo "ZRAM Status:"
-  zramctl
-  echo ""
-
-  echo "Swap Status:"
-  swapon --show
-  echo ""
-
-  echo "Kernel Settings:"
-  echo "  vm.swappiness = $(sysctl -n vm.swappiness)"
-  echo "  vm.page-cluster = $(sysctl -n vm.page-cluster)"
-  echo ""
-
-  echo "Memory:"
-  free -h
-  echo ""
-
-  echo "Setup Complete! "
+  echo "After reboot, verify with:"
+  echo "  cat /proc/cmdline | grep zswap"
+  echo "  cat /sys/module/zswap/parameters/enabled     # expect: Y"
+  echo "  cat /sys/module/zswap/parameters/max_pool_percent  # expect: 25"
+  echo "  cat /sys/module/zswap/parameters/compressor  # expect: zstd"
+  echo "  swapon --show   # expect: only /swap/swapfile listed"
   echo ""
   echo "Configuration Summary:"
-  echo "  ZRAM: min(50% RAM, 8GB) with zstd compression"
-  echo "  ZRAM Priority: 100 (used before disk swap)"
-  echo "  Swappiness: 80 (tunable in /etc/sysctl.d/99-zram-optimize.conf)"
-  echo "  Page Cluster: 0 (optimized for ZRAM)"
-  echo "  THP: Left at system default (stable baseline)"
-  echo ""
-  echo "Reboot recommended for full effect"
+  echo "  zswap: dynamic compressed cache, max 25% of RAM, zstd"
+  echo "  Backing store: existing 32GB Btrfs swapfile (/swap/swapfile)"
+  echo "  Sysctl: no separate zswap sysctl file — vm.swappiness=10 and"
+  echo "          vm.page-cluster=3 from 99-hardening.conf apply unmodified."
+  echo "          (Do NOT create a 99-zram-optimize.conf-style override —"
+  echo "          a prior version of this setup had one, and because it"
+  echo "          sorted after 99-hardening.conf alphabetically, it silently"
+  echo "          won on every boot. Confirmed via live sysctl testing.)"
   echo ""
   ```
+  **Why zswap instead of zram+swapfile:** zram, when prioritized above a
+  physical swapfile (the natural default), can suffer from "inverse LRU" —
+  once zram fills, newly-evicted *hot* pages get forced onto the slow
+  swapfile while older *cold* pages stay parked in fast zram, backwards from
+  what you want. zswap avoids this because it isn't a fixed-capacity block
+  device at a swap priority slot — it's a cache layer in front of the real
+  swap device, so the kernel can push genuinely cold pages out to disk as
+  pressure continues. This matters most for workloads with large, sustained
+  memory spikes (heavy AUR/source builds, VMs) — see "Known memory-heavy AUR
+  builds" below. For a machine with only light, bursty memory use and no
+  large disk-backed swap need, zram-only (Fedora Workstation's default) is a
+  simpler, also-valid alternative — it fails faster under real pressure but
+  avoids any disk I/O in the process. Choose based on workload, not by
+  default.
+  
+  **Known memory-heavy AUR builds** (learned the hard way — read before
+  building large multilib or Rust-based AUR packages):
+  - `MAKEFLAGS` in `/etc/makepkg.conf` only limits **make/ninja-based** job
+    parallelism (C/C++ builds). It does **not** apply to Rust/cargo builds
+    (e.g. `*-git` packages built via cargo, like `gst-plugins-rs-git`).
+    Cargo defaults to `nproc` parallel codegen units regardless of
+    `MAKEFLAGS`. To constrain cargo separately:
+    ```bash
+    mkdir -p ~/.cargo
+    cat >> ~/.cargo/config.toml << 'EOF'
+    [build]
+    jobs = 2
+    EOF
+    ```
+  - Check `/etc/makepkg.conf`'s global `OPTIONS` line for `debug` and `lto`.
+    Both are legitimate quality/performance choices, but both meaningfully
+    increase peak memory during compilation and especially during linking —
+    `lto` in particular is a well-known cause of single-link-step memory
+    spikes that no amount of `-j` tuning fixes, because the problem isn't
+    job *count*, it's one job being too large. For a large multilib package
+    (e.g. `lib32-gstreamer`, `lib32-gst-plugins-base`), a single LTO+debug
+    link step can require 10-20GB+ on its own.
+  - Real data point from this machine: building
+    `lib32-gstreamer lib32-gst-plugins-base lib32-gst-plugins-base-libs`
+    together, with `debug` and `lto` enabled in `OPTIONS`, peaked at
+    ~30.8GB RAM (100%) + ~28.9GB swap (90%) before `systemd-oomd` killed the
+    build's cgroup. Reducing `MAKEFLAGS` from `-j16` to `-j4` did **not**
+    meaningfully change the outcome — reinforcing that this was a
+    single-large-job memory ceiling, not a parallelism problem, for this
+    particular package set.
+  - Before a large/unfamiliar AUR build, it's worth monitoring in a spare
+    pane, ideally isolated from any GUI app's cgroup so a GPU/driver crash
+    or an oomd kill of your terminal doesn't also kill your visibility:
+    ```bash
+    systemd-run --user --scope --unit=memlogger bash -c '
+    while true; do
+      date "+%H:%M:%S" >> ~/memory_stress_test.log
+      free -h >> ~/memory_stress_test.log
+      swapon --show >> ~/memory_stress_test.log
+      grep -iE "zswap|swapcached" /proc/meminfo >> ~/memory_stress_test.log
+      sleep 2
+    done'
+    ```
 - Configure systemd-oomd for desktop responsiveness
   ```bash
   echo "Step: Enabling systemd-oomd..."
@@ -3279,8 +3311,21 @@
   DefaultMemoryPressureDurationSec=10s
 
   # Swap usage limit (secondary safety net)
-  # With ZRAM, keep this HIGH (90%) to avoid premature kills
-  # ZRAM compresses data, so swap % is misleading
+  # Backed by zswap (RAM-side compressed cache) in front of a physical
+  # swapfile — unlike ZRAM, filling the physical swapfile means real disk
+  # I/O, not cheap compressed RAM, so this number is a genuine tradeoff
+  # between "fail fast" and "degrade gracefully but slower":
+  #   - Lower (e.g. 20-30%) kills sooner, before heavy disk thrashing sets in
+  #   - Higher (90%, current) tolerates more swap use before intervening,
+  #     which lets long builds/VMs finish but risks a sluggish desktop
+  #     during the run-up to the eventual kill
+  # TESTED: kept at 90% after a real memory-pressure event (heavy AUR/cargo
+  # build) reached ~100% RAM + ~90% swap before oomd correctly killed the
+  # offending cgroup — no kernel OOM, no full desktop crash, clean recovery.
+  # The underlying cause was excessive build parallelism/LTO memory use, not
+  # this threshold — see "Known memory-heavy AUR builds" below. Revisit this
+  # value only if sluggishness before a kill becomes a recurring problem in
+  # practice, not preemptively.
   SwapUsedLimit=90%
   EOF
 
@@ -3317,7 +3362,7 @@
   echo ""
   echo "Configuration Summary:"
   echo "  systemd-oomd: Active and monitoring"
-  echo "  Primary trigger: PSI (memory pressure) - ZRAM-aware"
+  echo "  Primary trigger: PSI (memory pressure)"
   echo "  user.slice: Kill enabled at 80% pressure"
   echo "  Duration: 10 seconds (prevents false kills)"
   echo "  Swap limit: 90% (secondary safety net)"
