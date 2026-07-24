@@ -5144,6 +5144,16 @@
   cp /etc/security/limits.d/99-desktop-limits.conf "$DEST/etc/security/limits.d/"
 
   # ── Pacman hooks (90-uki-sign.hook confirmed missing — not tracked) ───────────
+  # This is intentional, not an oversight: the hook was removed deliberately
+  # (to speed up routine pacman transactions — sbctl signing on every package
+  # install was slow). Signing still happens automatically: mkinitcpio's own
+  # built-in [sbctl] post-hook signs every UKI it builds, whether triggered
+  # by `mkinitcpio -P` manually or by a pacman kernel-package hook elsewhere.
+  # Confirmed via `mkinitcpio -P` output showing "Running post hook: [sbctl]"
+  # → "✓ Signed" for all three images, with `sbctl verify` clean before and
+  # after. Do NOT recreate 90-uki-sign.hook — it would just duplicate signing
+  # that already happens, and adds back the transaction slowdown it was
+  # removed to avoid.
   cp /etc/pacman.d/hooks/99-aide-update.hook "$DEST/etc/pacman.d/hooks/"
 
   # ── Firmware update / Secure Boot ─────────────────────────────────────────────
