@@ -6436,7 +6436,6 @@
 - **a) Update System Regularly**:
   - Keep the system up-to-date:
     ```bash
-    # Create File /usr/local/bin/update-system
     #!/bin/bash
     # =============================================
     # Arch Updates
@@ -6452,237 +6451,529 @@
     CYAN='\033[0;36m'
     NC='\033[0m'
 
+    # --- Status helper functions (Change 1) ---
+    msg_ok()   { echo -e "${GREEN}✔ $1${NC}"; }
+    msg_warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
+    msg_err()  { echo -e "${RED}⚠ $1${NC}"; }
+    msg_info() { echo -e "${CYAN}$1${NC}"; }
+    msg_skip() { echo -e "${YELLOW}⊘ $1${NC}"; }
+  
     # --- Logging ---
     LOG_DIR="$HOME/Documents/System/Updates"
     mkdir -p "$LOG_DIR"
     LOGFILE="$LOG_DIR/update-log-$(date +%Y%m%d-%H%M).txt"
     exec > >(tee /dev/tty | sed 's/\x1b\[[0-9;]*m//g' >> "$LOGFILE") 2>&1
-
+  
     echo -e "${CYAN}=== Arch Maintenance: $(date) ===${NC}"
     echo -e "${CYAN}Log: $LOGFILE${NC}\n"
-
+  
+    # --- Sudo Keep-Alive ---
+    # Ask for the password upfront, then keep updating the timestamp in the background
+    sudo -v
+    while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
+  
     # --- Dependency Check ---
     if ! command -v paru &> /dev/null; then
-        echo -e "${RED}Error: paru not installed.${NC}"
+        msg_err "Error: paru not installed."
         exit 1
     fi
-
+  
+    CRITICAL_ERRORS=0
+  
+    # --- Action item tracking (Change 4) ---
+    declare -a ACTION_ITEMS=()
+    NEED_REBOOT=0
+  
+    # --- Security-relevant service watchlist ---
+    # Services worth naming explicitly if they're running stale code, because they
+    # sit on an auth/network/privilege boundary — unlike cosmetic desktop daemons.
+    SECURITY_WATCHLIST='sshd|sshguard|polkit|dbus-broker|auditd|NetworkManager|opensnitchd|dnscrypt-proxy|smbd|samba|openvpn|wg-quick|wireguard'
+  
     # =============================================
     # 1. SYSTEM UPDATE
     # =============================================
     echo -e "${YELLOW}--- 1. Updating System & AUR ---${NC}"
-
-     if ! paru -Syu; then
-        echo -e "${RED}âš  System update failed or was interrupted.${NC}"
-         read -p "Continue with remaining maintenance? (y/N) " -n 1 -r || true
-         echo
-         if [[ ! "${REPLY:-N}" =~ ^[Yy]$ ]]; then
-             echo -e "${RED}Maintenance aborted.${NC}"
-             exit 1
-         fi
-     else
-        echo -e "${GREEN}âś” System and AUR updated.${NC}"
-     fi
-
+  
+    if ! paru -Syu; then
+        msg_warn "System update failed or was interrupted."
+        read -p "Continue with remaining maintenance? (y/N) " -n 1 -r || true
+        echo
+        if [[ ! "${REPLY:-N}" =~ ^[Yy]$ ]]; then
+            msg_err "Maintenance aborted."
+            exit 1
+        fi
+    else
+        msg_ok "System and AUR updated."
+    fi
+  
     echo ""
     echo "AppArmor Post-Update Check"
     sudo /usr/local/bin/apparmor-gaming-fix
-    echo -e "${GREEN}✔  AppArmor gaming profile check complete.${NC}"
-
+    msg_ok " AppArmor gaming profile check complete."
+  
     # =============================================
     # 2. FLATPAK UPDATE
     # =============================================
     echo -e "\n${YELLOW}--- 2. Updating Flatpaks ---${NC}"
-
+  
     if command -v flatpak &> /dev/null; then
-        if flatpak update -y; then
-            echo -e "${GREEN}âś” Flatpaks updated.${NC}"
+        # Run once, capture output, but preserve the exit code
+        if fp_output=$(flatpak update -y --noninteractive 2>&1); then
+            echo "$fp_output"
+            msg_ok "Flatpaks updated."
         else
-            echo -e "${RED}âš  Flatpak update failed.${NC}"
+            echo "$fp_output"
+            msg_warn "Flatpak update failed."
         fi
-    
+      
+        if echo "$fp_output" | grep -iq "end-of-life"; then
+            msg_warn "EOL RUNTIMES DETECTED!"
+            ((CRITICAL_ERRORS++))
+            ACTION_ITEMS+=("EOL Flatpak runtimes detected — review flatpak list")
+        fi
+      
         if flatpak uninstall --unused -y; then
-            echo -e "${GREEN}âś” Unused runtimes removed.${NC}"
+            msg_ok "Unused runtimes removed."
         else
-            echo -e "${RED}âš  Flatpak cleanup failed.${NC}"
+            msg_warn "Flatpak cleanup failed."
         fi
     else
-         echo -e "${YELLOW}âŠ Flatpak not installed. Skipping.${NC}"
+        msg_skip "Flatpak not installed. Skipping."
     fi
-
+  
     # =============================================
     # 3. ORPHAN CLEANUP
     # =============================================
     echo -e "\n${YELLOW}--- 3. Orphan Package Removal ---${NC}"
-
+  
     orphans=$(pacman -Qdtq 2>/dev/null || true)
-
+  
     if [[ -n "$orphans" ]]; then
-        echo -e "${CYAN}Found orphaned packages:${NC}"
+        msg_info "Found orphaned packages:"
         if command -v column &> /dev/null; then
             echo "$orphans" | column
         else
             echo "$orphans"
         fi
-    
-        echo -e "${YELLOW}âš  Note: GPU drivers (mesa, xf86-video-*) may appear as orphans but are needed.${NC}"
-    
+      
+        msg_warn "Note: GPU drivers (mesa, xf86-video-*) may appear as orphans but are needed."
+      
         read -p "Remove these? (y/N) " -n 1 -r || true
         echo
         if [[ "${REPLY:-N}" =~ ^[Yy]$ ]]; then
-            echo "$orphans" | xargs -r paru -Rns
-            echo -e "${GREEN}âś” Orphans removed.${NC}"
+            if echo "$orphans" | xargs -r sudo pacman -Rns --noconfirm; then
+                msg_ok "Orphans successfully removed."        
+            else
+                msg_err "Error: Failed to remove orphan packages."
+            fi
         else
-            echo -e "${YELLOW}âŠ Orphan removal skipped.${NC}"
+            msg_skip "Orphan removal skipped."
         fi
     else
-        echo -e "${GREEN}âś” No orphan packages.${NC}"
+        msg_ok "No orphan packages."
     fi
-
+  
     # =============================================
     # 4. POST-UPDATE CLEANUP
     # =============================================
     echo -e "\n${YELLOW}--- 4. Post-Update Cleanup ---${NC}"
-
+  
     # Clean old maintenance logs
     find "$LOG_DIR" -type f -name "update-log-*.txt" -mtime +30 -delete
-    echo -e "${GREEN}âś” Old logs cleaned (>30 days).${NC}"
-
+    msg_ok "Old logs cleaned (>30 days)."
+  
     # Clean systemd journal
     if sudo journalctl --vacuum-time=30d > /dev/null 2>&1; then
-        echo -e "${GREEN}âś” Journal vacuumed to 30 days.${NC}"
+        msg_ok "Journal vacuumed to 30 days."
     else
-        echo -e "${RED}âš  Journal cleanup failed.${NC}"
+        msg_err "Journal cleanup failed."
     fi
-
+  
     # Clean package cache (verbose output)
     if command -v paccache &> /dev/null; then
-        echo -e "${CYAN}Cleaning package cache (keeping last 3 versions)...${NC}"
-    
+        msg_info "Cleaning package cache (keeping last 3 versions)..."
+      
         # Verbose mode shows what's being removed
-        sudo paccache -rv
-        sudo paccache -ruvk0
-    
-        echo -e "${GREEN}âś” Package cache cleaned.${NC}"
+        sudo paccache -rv | grep -v "no candidate packages found" || true
+        sudo paccache -ruvk0 | grep -v "no candidate packages found" || true
+      
+        msg_ok "Package cache cleaned."
     else
-        echo -e "${YELLOW}âŠ Install pacman-contrib: sudo pacman -S pacman-contrib${NC}"
+        msg_skip "Install pacman-contrib: sudo pacman -S pacman-contrib"
     fi
-
-    echo -e "${CYAN}Rebuilding dynamic linker cache...${NC}"
-    sudo ldconfig && echo -e "${GREEN}✔  ldconfig complete.${NC}"
-
+  
+    msg_info "Rebuilding dynamic linker cache..."
+    sudo ldconfig && msg_ok " ldconfig complete."
+  
     # =============================================
     # 5. DIAGNOSTICS
     # =============================================
     echo -e "\n${YELLOW}--- 5. System Diagnostics ---${NC}"
-
-    # .pacnew check
-    pacnew_list=$(find /etc \( -name "*.pacnew" -o -name "*.pacsave" \) 2>/dev/null || true)
+   
+    # --- AIDE Integrity Check ---
+    if ! command -v aide &> /dev/null; then
+        msg_skip "AIDE not installed. Skipping integrity check."
+    else
+        msg_info "Running single-pass AIDE integrity check and update..."
+   
+        aide_output=$(sudo aide --update 2>&1)
+        aide_exit=$?
+   
+        if [[ $aide_exit -eq 0 ]]; then
+            msg_ok "AIDE: System matches trusted baseline."
+            sudo rm -f /var/lib/aide/aide.db.new.gz 2>/dev/null
+   
+        elif (( aide_exit & 0x07 )); then
+            # -E (ERE) + here-string: extracts only the integer, ignores trailing text like "entries:"
+            added=$(sed -En 's/.*Added entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$aide_output")
+            removed=$(sed -En 's/.*Removed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$aide_output")
+            changed=$(sed -En 's/.*Changed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$aide_output")
+   
+            msg_warn "AIDE found changes — Added: ${added:-0} | Removed: ${removed:-0} | Changed: ${changed:-0}"
+   
+            changed_files=$(echo "$aide_output" | awk '
+                /^Changed entries:[[:space:]]*$/ { state = 1; next }
+                /^-{10}/  { if (state == 1) { state = 2; next }
+              
+                    else if (state == 2) { state = 0; next } }
+                state == 2 { print }
+            ' | head -20)
+   
+            if [[ -n "$changed_files" ]]; then
+                msg_info "Changed files preview:"
+                echo -e "${CYAN}Full list: grep '^AIDE-DETAIL:' \"$LOGFILE\"${NC}"
+                # aide_output's raw text is captured to $LOGFILE below since it's
+                # never otherwise echoed to stdout after this collapse.
+                sed 's/^/AIDE-DETAIL: /' <<< "$aide_output" >> "$LOGFILE"
+            fi
+   
+            echo -e "${YELLOW}\nIf you just updated your system, these changes are expected.${NC}"
+            read -p "Commit new baseline to disk? (y/N) " -n 1 -r || true
+            echo
+            if [[ "${REPLY:-N}" =~ ^[Yy]$ ]]; then
+                if sudo test -f /var/lib/aide/aide.db.new.gz && \
+                   sudo cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz; then
+                    msg_ok "AIDE baseline updated."
+                else
+                    msg_err "Failed to commit AIDE baseline."
+                    ((CRITICAL_ERRORS += 1))
+                    ACTION_ITEMS+=("AIDE baseline failed to commit — check /var/lib/aide permissions")
+                fi
+            else
+                sudo rm -f /var/lib/aide/aide.db.new.gz 2>/dev/null
+                msg_warn "Baseline not committed. Review manually before next run."
+                echo -e "${CYAN}  sudo aide --check | less${NC}"
+                ACTION_ITEMS+=("AIDE baseline not committed — run: sudo aide --check | less")
+            fi
+        else
+            msg_err "AIDE execution error (exit $aide_exit). Check database or config."
+            tail -10 <<< "$aide_output"
+            sudo rm -f /var/lib/aide/aide.db.new.gz 2>/dev/null
+            ((CRITICAL_ERRORS += 1))
+            ACTION_ITEMS+=("AIDE execution error (exit $aide_exit) — check database/config")
+        fi
+    fi
+   
+    # --- .pacnew File Check ---
+    pacnew_list=$(find /etc \( -name "*.pacnew" -o -name "*.pacsave" \) 2>/dev/null | grep -v "mirrorlist.pacnew" || true)
+   
     if [[ -n "$pacnew_list" ]]; then
-        echo -e "${RED}âš  Config files require review:${NC}"
+        msg_err "Config files updated and require a quick review:"
         echo "$pacnew_list"
-        echo -e "${CYAN}Run: sudo pacdiff${NC}"
+        echo -e "${CYAN}Run: DIFFPROG=fresh sudo -E pacdiff   # (R)emove pacdiff ${NC}"
+        ACTION_ITEMS+=("Review .pacnew files — run: DIFFPROG=fresh sudo -E pacdiff")
     else
-        echo -e "${GREEN}âś” No .pacnew files.${NC}"
+        if [[ -f /etc/pacman.d/mirrorlist.pacnew ]]; then
+            msg_ok "No critical .pacnew files (ignoring mirrorlist, update manually with reflector if you need)."
+        else
+            msg_ok "No .pacnew files."
+        fi
     fi
-
-    # Kernel check
+   
+    # --- Kernel Drift Check ---
+    # ls -1 handles empty directories cleanly (exit 0, no output) unlike
+    # 'basename -a /usr/lib/modules/*' which errors with no arguments when nullglob eats the glob.
     current_kernel=$(uname -r)
-    latest_kernel=$(basename -a /usr/lib/modules/* 2>/dev/null | sort -V | tail -1)
-
-    if [[ -n "$latest_kernel" && "$current_kernel" != "$latest_kernel" ]]; then
-        echo -e "${RED}âš  REBOOT REQUIRED: Running $current_kernel â†’ Installed $latest_kernel${NC}"
-    else
-        echo -e "${GREEN}âś” Kernel is current.${NC}"
+    latest_kernel=""
+   
+    if [[ -d /usr/lib/modules ]]; then
+        latest_kernel=$(ls -1 /usr/lib/modules/ 2>/dev/null | sort -V | tail -1)
     fi
-
-    # Failed systemd services check
+   
+    if [[ -n "$latest_kernel" && "$current_kernel" != "$latest_kernel" ]]; then
+        msg_err "REBOOT REQUIRED: Running kernel ($current_kernel) does not match latest installed ($latest_kernel)."
+        ((CRITICAL_ERRORS += 1))
+        NEED_REBOOT=1
+        ACTION_ITEMS+=("Reboot required: kernel $current_kernel -> $latest_kernel")
+     elif [[ -n "$latest_kernel" ]]; then
+        msg_ok "Kernel is current ($current_kernel)."
+    else
+        msg_warn "Unable to determine latest installed kernel (check /usr/lib/modules)."
+    fi
+   
+    # --- Advanced Process & Microcode Analysis ---
+    # Prefer needrestart for thorough service/session/microcode coverage.
+    # Falls back to lsof if needrestart isn't installed.
+    # Install with: sudo pacman -S needrestart
+    if command -v needrestart &>/dev/null; then
+        msg_info "Analyzing running processes and microcode via needrestart..."
+   
+        # -b = batch/machine-readable output (emits NEEDRESTART-* tags)
+        # -q = quiet, -r l = list-only (don't actually restart anything)
+        nr_output=$(sudo needrestart -b -q -r l 2>&1)
+        # Do NOT check exit code: needrestart returns 1 if services need restarting
+        # and 2 if a reboot is needed — both are normal post-update states, not errors.
+        # Validate by content instead: a functioning run always emits NEEDRESTART-* tags.
+   
+        if [[ -z "$nr_output" ]]; then
+            msg_warn "needrestart returned empty output."
+        elif ! grep -q "^NEEDRESTART-" <<< "$nr_output"; then
+            msg_err "Error: needrestart returned unexpected output or crashed."
+            sed 's/^/  /' <<< "$nr_output"
+        else
+            # Kernel status cross-check (secondary confirmation alongside uname -r check above)
+            # KSTA: 1=current, 2=ABI mismatch, 3=version mismatch — both mean reboot needed
+            ksta=$(awk '/^NEEDRESTART-KSTA:/{sub(/^NEEDRESTART-KSTA: /,""); print}' <<< "$nr_output")
+            if [[ "$ksta" == "2" || "$ksta" == "3" ]]; then
+                msg_warn "needrestart confirms: kernel reboot required."
+                NEED_REBOOT=1
+            fi
+   
+            # Microcode audit (0=unknown, 1=current, 2/3=update pending)
+            ucsta=$(awk '/^NEEDRESTART-UCSTA:/{sub(/^NEEDRESTART-UCSTA: /,""); print}' <<< "$nr_output")
+            case "$ucsta" in
+                1)   msg_ok "Processor microcode is current." ;;
+                2|3) msg_warn "Microcode update detected! A reboot is recommended."; NEED_REBOOT=1 ;;
+                0|"") msg_skip "Processor microcode check unsupported or inconclusive." ;;
+                *)   msg_warn "Unexpected microcode status: $ucsta" ;;
+            esac
+   
+            # Change 2: collapse service/session/process lists to counts.
+            # Full detail still lands in $LOGFILE via the tee at the top of the script.
+            svc_list=$(awk '/^NEEDRESTART-SVC:/{sub(/^NEEDRESTART-SVC: /,""); print}' <<< "$nr_output")
+            if [[ -n "$svc_list" ]]; then
+                svc_count=$(wc -l <<< "$svc_list")
+                msg_warn "${svc_count} service(s) running outdated binaries or libraries."
+                echo -e "${CYAN}Advice: Run 'sudo systemctl restart <service>' to refresh them, or reboot.${NC}"
+                echo -e "${CYAN}Full list: grep '^SVC-DETAIL:' \"$LOGFILE\"${NC}"
+                # Write full detail to the log directly (bypasses terminal, since we
+                # no longer print the raw list to stdout).
+                sed 's/^/SVC-DETAIL: /' <<< "$svc_list" >> "$LOGFILE"
+              
+                watchlist_hits=$(grep -Eio "$SECURITY_WATCHLIST" <<< "$svc_list" | sort -u | tr '\n' ',' | sed 's/,$//')
+                if [[ -n "$watchlist_hits" ]]; then
+                    msg_err "Security-relevant service(s) on stale code: $watchlist_hits"
+                    ACTION_ITEMS+=("Restart soon (or reboot) — security-relevant service(s) outdated: $watchlist_hits")
+                fi
+            else
+                msg_ok "All running system services are up-to-date."
+            fi
+   
+            # User session audit (graphical desktops, SSH sessions — often missed by lsof)
+            sess_list=$(awk '/^NEEDRESTART-SESS:/{sub(/^NEEDRESTART-SESS: /,""); print}' <<< "$nr_output")
+            if [[ -n "$sess_list" ]]; then
+               sess_count=$(wc -l <<< "$sess_list")
+                msg_warn "${sess_count} user session(s) running outdated binaries or libraries."
+                echo -e "${CYAN}Advice: Log out and back in, or reboot.${NC}"
+                echo -e "${CYAN}Full list: grep '^SESS-DETAIL:' \"$LOGFILE\"${NC}"
+                sed 's/^/SESS-DETAIL: /' <<< "$sess_list" >> "$LOGFILE"
+            fi
+   
+            # Standalone user-space processes (not tied to systemd or a session)
+            proc_list=$(awk '/^NEEDRESTART-PROC:/{sub(/^NEEDRESTART-PROC: /,""); print}' <<< "$nr_output")
+            if [[ -n "$proc_list" ]]; then
+                proc_count=$(wc -l <<< "$proc_list")
+                msg_warn "${proc_count} user-space process(es) utilizing outdated libraries."
+                echo -e "${CYAN}Full list: grep '^PROC-DETAIL:' \"$LOGFILE\"${NC}"
+                sed 's/^/PROC-DETAIL: /' <<< "$proc_list" >> "$LOGFILE"
+            fi
+        fi
+    else
+        msg_skip "needrestart not installed (sudo pacman -S needrestart). Falling back to basic process check..."
+   
+        if command -v lsof &>/dev/null; then
+            # tail -n +2 strips the lsof header row so it isn't matched as a process name
+            outdated_procs=$(sudo lsof +L1 2>/dev/null | tail -n +2 | grep -E 'rtd|txt' | awk '{print $1}' | sort -u || true)
+            if [[ -n "$outdated_procs" ]]; then
+                msg_err "The following processes are running outdated binaries:"
+                tr '\n' ' ' <<< "$outdated_procs" && echo ""
+                msg_warn "Advice: Restart your user session or reboot."
+                ((CRITICAL_ERRORS += 1))
+                ACTION_ITEMS+=("Processes running outdated binaries — restart session or reboot")
+            else
+                msg_ok "No outdated processes running."
+            fi
+        else
+            msg_skip "lsof not installed. Cannot check for outdated processes."
+        fi
+    fi
+   
+    # --- Failed Systemd Services ---
+    sudo systemctl reset-failed 'systemd-pcrlogin@*.service' 2>/dev/null || true
     failed_services=$(systemctl --failed --no-legend --no-pager 2>/dev/null)
     if [[ -n "$failed_services" ]]; then
-        echo -e "${RED}âš  Failed systemd services detected:${NC}"
+        msg_err "Failed systemd services detected:"
         echo "$failed_services"
         echo -e "${CYAN}Review with: systemctl --failed${NC}"
+        ACTION_ITEMS+=("Failed systemd services — review with: systemctl --failed")
     else
-        echo -e "${GREEN}âś” No failed services.${NC}"
+        msg_ok "No failed services."
     fi
-
-    # Disk usage
+  
+    # --- Lynis Security Audit ---
+    msg_info "Running Lynis security audit (this may take ~1-2 min)..."
+    if sudo systemctl start lynis-audit.service; then
+        hardening_index=$(sudo awk -F= '/hardening_index/{print $2}' /var/log/lynis/lynis-report.dat 2>/dev/null)
+        if [[ -n "$hardening_index" ]]; then
+            msg_ok "Lynis audit complete. Hardening index: ${hardening_index}"
+        else
+            msg_err "Lynis audit ran, but hardening index could not be read."
+        fi
+    else
+        echo -e "${RED}✘ Lynis audit failed. Check with: systemctl status lynis-audit.service${NC}"
+    fi
+   
+    # --- Disk Usage ---
     echo -e "\n${CYAN}Disk Usage:${NC}"
     df -h --output=size,used,pcent,target / 2>/dev/null | awk 'NR==2 {print "  Root: " $2 "/" $1 " (" $3 " used)"}'
-
-    # Disk usage warning
-    disk_use=$(df / --output=pcent | tail -1 | tr -dc '0-9')
-    if (( disk_use > 85 )); then
-        echo -e "${RED}  âš  Warning: Root filesystem is ${disk_use}% full!${NC}"
+   
+    disk_use=$(df / --output=pcent 2>/dev/null | tail -1 | tr -dc '0-9')
+    if [[ -n "$disk_use" ]] && (( disk_use > 85 )); then
+        echo -e "${RED}  ⚠ Warning: Root filesystem is ${disk_use}% full!${NC}"
+        ACTION_ITEMS+=("Root filesystem is ${disk_use}% full — free up space")
     fi
-
-    # Cache size
-    cache_size=$(command du -sh /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}')
+   
+    cache_size=$(du -sh /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}')
     echo -e "  Pacman Cache: ${cache_size:-unknown}"
-
-    # Largest packages (FIXED - using tab delimiter)
+   
     if command -v expac &> /dev/null; then
         echo -e "\n${CYAN}Top 5 Largest Packages:${NC}"
         expac -H M '%m\t%n' | sort -hr | head -5 | awk -F'\t' '{printf "  %-15s  %s\n", $1, $2}'
     fi
-
-    # Font cache rebuild
-    fc-cache -fv > /dev/null && echo -e "${GREEN}âś” Font cache rebuilt.${NC}"
-
-    echo -e "\n${YELLOW}--- Security Audit (arch-audit) ---${NC}"
-
-    # Arch Audit
+   
+    fc-cache -fv > /dev/null && msg_ok "Font cache rebuilt."
+   
+    # --- Arch Audit ---
     if command -v arch-audit &> /dev/null; then
-       audit_output=$(arch-audit | grep High || true)
-
+       audit_output=$(arch-audit 2>/dev/null | grep High || true)
        if [[ -n "$audit_output" ]]; then
-           echo -e "${RED}⚠ High severity vulnerabilities found:${NC}"
+           msg_err "High severity vulnerabilities found:"
            echo "$audit_output"
+           ((CRITICAL_ERRORS += 1))
        else
-           echo -e "${GREEN}✔ No high severity vulnerabilities.${NC}"
+           msg_ok "No high severity vulnerabilities."
        fi
     else
-       echo -e "${YELLOW}⊘ arch-audit not installed.${NC}"
+       msg_skip "arch-audit not installed."
     fi
-
+  
     # =============================================
     # 6. PACKAGE HYGIENE
     # =============================================
     echo -e "\n${YELLOW}--- 6. Package Hygiene Check ---${NC}"
-
-    # Foreign packages count
-    foreign_count=$(pacman -Qm 2>/dev/null | wc -l)
-    if [[ $foreign_count -gt 0 ]]; then
-        echo -e "${CYAN}Foreign/AUR packages installed: ${foreign_count}${NC}"
-    
-        # Check for missing AUR packages
-        echo -e "${CYAN}Checking AUR package availability...${NC}"
+  
+    # Get all foreign packages into an array
+    mapfile -t foreign_pkgs < <(pacman -Qmq)
+  
+    if [[ ${#foreign_pkgs[@]} -gt 0 ]]; then
+        msg_info "Foreign/AUR packages installed: ${#foreign_pkgs[@]}"
+        msg_info "Checking AUR package availability..."
         missing_count=0
-    
-        while read -r pkg _; do
-            if ! pacman -Si "$pkg" &>/dev/null && ! paru -Si "$pkg" &>/dev/null; then
-                echo -e "${RED}  âš  $pkg ${NC}(no longer in AUR)"
+  
+        # Batch check AUR for all packages at once to avoid rate limiting
+        # This captures the names of packages that ARE found in the AUR
+        found_in_aur=$(paru -Si "${foreign_pkgs[@]}" 2>/dev/null | grep "^Name" | awk '{print $3}')
+  
+        for pkg in "${foreign_pkgs[@]}"; do
+            # If NOT in official repos AND NOT in the list of packages found in AUR
+            if ! pacman -Si "$pkg" &>/dev/null && ! echo "$found_in_aur" | grep -qx "$pkg"; then
+                echo -e "${RED}  ⚠ $pkg ${NC}(no longer in AUR)"
                 ((missing_count++))
             fi
-        done < <(pacman -Qm 2>/dev/null)
-    
+        done
+  
         if [[ $missing_count -eq 0 ]]; then
-            echo -e "${GREEN}âś” All AUR packages still available.${NC}"
+            msg_ok "All AUR packages still available."
         else
-            echo -e "${YELLOW}Found $missing_count missing AUR package(s).${NC}"
+            msg_warn "Found $missing_count missing AUR package(s)."
             echo -e "${CYAN}Remove with: sudo pacman -Rns <package_name>${NC}"
+            ACTION_ITEMS+=("$missing_count AUR package(s) no longer available — sudo pacman -Rns <package_name>")
         fi
     else
-        echo -e "${GREEN}âś” No foreign packages installed.${NC}"
+        msg_ok "No foreign packages installed."
     fi
-
+  
+    # =============================================
+    # 7. REPRODUCIBILITY CHECK
+    # =============================================
+    echo -e "\n${YELLOW}--- 7. Updating Reproducibility Score ---${NC}"
+    echo -ne "${CYAN}Analyzing packages... ${NC}"
+  
+    REPRO_CACHE="$HOME/.cache/repro_score"
+  
+    # -v outputs all packages (GOOD/BAD/UNKWN); check exit code to detect API failures
+    # before attempting to parse output (avoids 0.0% false result on 404/network error)
+    if repro_output=$(timeout 60 arch-repro-status -v 2>/dev/null); then
+        total=$(echo "$repro_output" | grep -cE '^\[.\]' || true)
+        good=$(echo "$repro_output"  | grep -cE '^\[\+\].*GOOD' || true)
+  
+        if (( total > 0 && good > 0 )); then
+            score=$(awk "BEGIN {printf \"%.1f%%\", ($good/$total)*100}")
+            formatted=$(echo "$score" | awk '{
+                p=$1; val=p; sub(/%/, "", val);
+                if (val > 85) printf "\033[32m✓ %s\033[0m", p;
+                else if (val > 79) printf "\033[33m⚠ %s\033[0m", p;
+                else printf "\033[31m✗ %s\033[0m", p;
+            }')
+            echo "$formatted" > "$REPRO_CACHE"
+            echo -e "${GREEN}Done (${formatted})${NC}"
+        else
+            # Tool succeeded but returned no verifiable data
+            if [[ -f "$REPRO_CACHE" ]] && [[ -s "$REPRO_CACHE" ]]; then
+                echo -e "${YELLOW}API returned no data — last known score: $(cat "$REPRO_CACHE")${NC}"
+            else
+                echo -e "${RED}Failed (API returned no data, no cached score)${NC}"
+            fi
+        fi
+  
+    elif [[ -f "$REPRO_CACHE" ]] && [[ -s "$REPRO_CACHE" ]]; then
+        echo -e "${YELLOW}Server unreachable — last known score: $(cat "$REPRO_CACHE")${NC}"
+  
+    else
+        echo -e "${RED}Failed (server unreachable, no cached score)${NC}"
+    fi
+  
     # =============================================
     # SUMMARY
     # =============================================
-    echo -e "\n${CYAN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${NC}"
-    echo -e "${CYAN}    âś… Maintenance Complete                  ${NC}"
-    echo -e "${CYAN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${NC}"
+    echo -e "\n${CYAN}════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}    ✅ Maintenance Complete                  ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════${NC}"
     echo -e "${CYAN}Log saved: $LOGFILE${NC}"
+  
+    if [[ $CRITICAL_ERRORS -gt 0 ]]; then
+        echo -e "${RED}════════════════════════════════════════════${NC}"
+        echo -e "${RED}  ⚠ ATTENTION: $CRITICAL_ERRORS Items Require Manual Review   ${NC}"
+        echo -e "${RED}════════════════════════════════════════════${NC}"
+    fi
+  
+    # --- Action Items (Change 4) ---
+    if [[ ${#ACTION_ITEMS[@]} -gt 0 ]]; then
+        echo -e "\n${YELLOW}Next steps:${NC}"
+        if [[ "$NEED_REBOOT" -eq 1 ]]; then
+            echo -e "  ${RED}•${NC} Reboot recommended"
+        fi
+        for item in "${ACTION_ITEMS[@]}"; do
+            echo -e "  ${YELLOW}•${NC} $item"
+        done
+    else
+        if [[ "$NEED_REBOOT" -eq 1 ]]; then
+            echo -e "\n${YELLOW}Next steps:${NC}"
+            echo -e "  ${RED}•${NC} Reboot recommended"
+        else
+            echo -e "\n${GREEN}Nothing else required.${NC}"
+        fi
+    fi
 
     # Save and Valiate
     # Run the alias created in the Step 6 "update"
