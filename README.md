@@ -2569,6 +2569,18 @@
   # are handled natively via the ProtonVPN GUI — not via UFW or DNS scripts.
   # See: ProtonVPN GUI → Settings → Connection → Kill Switch / Split Tunneling
   ```
+- Blacklist flashtools to prevent these drivers from loading on boot (this helps LVFS HSI Score)
+  ```bash
+  # Create/Edit with sudo /etc/modprobe.d/flashtools-blacklist.conf
+  # Add those entries:
+  blacklist spi_nor
+  blacklist mtd
+  blacklist spi_intel_pci
+  blacklist spi_intel
+
+  # Rebuild initramfs
+  sudo mkinitcpio -P
+  ```
 - Check if there is a VPN or DNS leak:
   ```bash
   # Verify (check IP and no leaks)
