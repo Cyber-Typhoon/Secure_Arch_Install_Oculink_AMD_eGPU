@@ -4016,7 +4016,7 @@
   ```
 - Firmware & Packages
   ```bash
-  sudo pacman -Syu linux-firmware amd-ucode
+  sudo pacman -Syu linux-firmware
 
   sudo pacman -S --needed \
     mesa lib32-mesa \
