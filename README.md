@@ -1589,7 +1589,7 @@
   # System packages (CLI + system-level)
   sudo pacman -S --needed \
   # Security & Hardening
-  audit arch-audit lynis sshguard ufw usbguard nettle3 \
+  audit arch-audit lynis ufw usbguard nettle3 \
   \
   # System Monitoring
   gnome-system-monitor gnome-disk-utility tlp upower libappindicator smartmontools \
@@ -1648,7 +1648,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer sshguard systemd-oomd upower.service cups.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer systemd-oomd upower.service cups.service
   sudo systemctl --failed  # Check for failed services
   sudo usermod -aG libvirt $USER
   sudo journalctl -p 3 -xb
@@ -6499,7 +6499,7 @@
     # --- Security-relevant service watchlist ---
     # Services worth naming explicitly if they're running stale code, because they
     # sit on an auth/network/privilege boundary — unlike cosmetic desktop daemons.
-    SECURITY_WATCHLIST='sshd|sshguard|polkit|dbus-broker|auditd|NetworkManager|opensnitchd|dnscrypt-proxy|smbd|samba|openvpn|wg-quick|wireguard'
+    SECURITY_WATCHLIST='sshd|polkit|dbus-broker|auditd|NetworkManager|opensnitchd|dnscrypt-proxy|smbd|samba|openvpn|wg-quick|wireguard'
   
     # =============================================
     # 1. SYSTEM UPDATE
