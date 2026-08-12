@@ -6446,7 +6446,7 @@
 ## Step 18: Post-Installation Maintenance and Verification
 
 - **a) Update System Regularly**:
-  - Keep the system up-to-date:
+  - Keep the system up-to-date (/usr/local/bin/update-system):
     ```bash
     #!/bin/bash
     # =============================================
