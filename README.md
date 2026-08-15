@@ -6692,8 +6692,8 @@
     if [[ -n "$pacnew_list" ]]; then
         msg_err "Config files updated and require a quick review:"
         echo "$pacnew_list"
-        echo -e "${CYAN}Run: DIFFPROG=fresh sudo -E pacdiff   # (R)emove pacdiff ${NC}"
-        ACTION_ITEMS+=("Review .pacnew files — run: DIFFPROG=fresh sudo -E pacdiff")
+        echo -e "${CYAN}Run: DIFFPROG=micro sudo -E pacdiff   # (R)emove pacdiff ${NC}"
+        ACTION_ITEMS+=("Review .pacnew files — run: DIFFPROG=micro sudo -E pacdiff")
     else
         if [[ -f /etc/pacman.d/mirrorlist.pacnew ]]; then
             msg_ok "No critical .pacnew files (ignoring mirrorlist, update manually with reflector if you need)."
