@@ -1595,7 +1595,7 @@
   gnome-system-monitor gnome-disk-utility tlp upower libappindicator smartmontools \
   \
   # Hardware
-  bluez bluez-utils cups fprintd \
+  bluez bluez-utils cups fprintd libratbag piper \
   \
   # Networking & Privacy
   dnscrypt-proxy dnsutils opensnitch wireguard-tools proton-vpn-gtk-app reflector dnsmasq \
@@ -1606,7 +1606,7 @@
   yazi zoxide zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search wl-clipboard \
   \
   # Multimedia (system)
-  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
+  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly easyeffects \
   libva-utils vulkan-tools clinfo wine 7zip exfatprogs \
   \
   # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
@@ -1648,7 +1648,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer systemd-oomd upower.service cups.service
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer systemd-oomd upower.service cups.service ratbagd
   sudo systemctl --failed  # Check for failed services
   sudo usermod -aG libvirt $USER
   sudo journalctl -p 3 -xb
