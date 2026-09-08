@@ -950,7 +950,7 @@
   # This creates the standard file that UKI builders (like ukify) use by default
   mkdir -p /etc/kernel
   cat << EOF > /etc/kernel/cmdline
-  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51 xe.enable_psr=0 split_lock_detect=off systemd.stub_measured_sections=0 zswap.enabled=1 zswap.max_pool_percent=25 zswap.compressor=zstd zswap.zpool=zsmalloc
+  root=UUID=$ROOT_UUID rootflags=subvol=@ resume=UUID=$ROOT_UUID resume_offset=$RESUME_OFFSET rw quiet splash intel_iommu=on amd_iommu=on iommu=pt pci=pcie_bus_perf randomize_kstack_offset=on hash_pointers=always mitigations=auto page_alloc.shuffle=1 vsyscall=none debugfs=off vdso32=0 proc_mem.force_override=never kfence.sample_interval=100 rd.systemd.show_status=auto rd.udev.log_priority=3 lsm=landlock,lockdown,yama,integrity,apparmor,bpf lockdown=integrity i915.force_probe=!7d51 xe.force_probe=7d51 xe.enable_psr=0 systemd.stub_measured_sections=0 zswap.enabled=1 zswap.max_pool_percent=25 zswap.compressor=zstd zswap.zpool=zsmalloc
   EOF
   # Double check if the $ROOT_UUID and $RESUME_OFFSET are numerical and not variables.
 
@@ -3055,7 +3055,7 @@
   vm.page_lock_unfairness=1
   vm.zone_reclaim_mode=0
   # kernel.sched_nr_migrate=128        # Not available on modern kernel
-  kernel.split_lock_mitigate=0         # May improve frametimes in some Proton / DXVK titles. Disable if you experience instability
+  # kernel.split_lock_mitigate=0       # May improve frametimes in some Proton / DXVK titles. Disable if you experience instability
 
   # === I/O SMOOTHNESS (Smoothness/Latency) ===
   vm.dirty_bytes=100000000
