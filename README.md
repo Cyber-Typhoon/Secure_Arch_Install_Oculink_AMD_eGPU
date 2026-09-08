@@ -2919,6 +2919,8 @@
     journal and `gpg: can't connect to the dirmngr` at the command line.
 
   # Verify and fix if needed:
+      find ~/.gnupg -type d -not -perm -u+x -exec chmod u+x {} \;
+      find ~/.gnupg -not -user "$(whoami)" -ls   # confirm no ownership drift too
       stat -c '%A %a %U:%G %n' ~/.gnupg/crls.d
       chmod 700 ~/.gnupg/crls.d
       gpgconf --launch dirmngr
