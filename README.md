@@ -2836,6 +2836,50 @@
   echo "Database initialized"
 
   # Smart service 
+  # First, create the shared AIDE runner (locking + validation + promotion)
+  sudo tee /usr/local/sbin/aide-run > /dev/null <<'EOF'
+  #!/bin/bash
+  set -u
+  INTERACTIVE=0
+  [[ "${1:-}" == "--interactive" ]] && INTERACTIVE=1
+
+  exec 9>/var/lib/aide/.aide.lock
+  flock 9
+
+  if [[ ! -f /var/lib/aide/.update-needed ]]; then
+      echo "No update pending — running integrity check..."
+      /usr/bin/aide --check
+      exit $?
+  fi
+
+  echo "Running AIDE update..."
+  /usr/bin/aide --update
+  RET=$?
+
+  if [[ ! -f /var/lib/aide/aide.db.new.gz ]] || ! gzip -t /var/lib/aide/aide.db.new.gz 2>/dev/null; then
+      echo "AIDE update failed or produced invalid output (code $RET)"
+      rm -f /var/lib/aide/aide.db.new.gz
+      exit 1
+  fi
+
+  if [[ "$INTERACTIVE" -eq 1 ]]; then
+      echo "AIDE found differences. Review below."
+      read -p "Commit new baseline? (y/N) " -n 1 -r REPLY
+      echo
+      if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+          echo "Baseline not committed. Update remains pending."
+          rm -f /var/lib/aide/aide.db.new.gz
+          exit 0
+      fi
+  fi
+
+  mv -f /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+  rm -f /var/lib/aide/.update-needed
+  echo "Baseline updated."
+  EOF
+  sudo chmod 700 /usr/local/sbin/aide-run
+
+  # Smart service — delegates to the shared, lock-protected runner
   sudo tee /etc/systemd/system/aidecheck.service > /dev/null <<'EOF'
   [Unit]
   Description=AIDE File Integrity Check
@@ -2843,8 +2887,8 @@
 
   [Service]
   Type=oneshot
-  ExecStart=/bin/sh -c 'if [ -f /var/lib/aide/.update-needed ]; then echo "Running AIDE Update..."; /usr/bin/aide --update; RET=$?; if [ -f /var/lib/aide/aide.db.new.gz ]; then mv -f /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz; rm -f /var/lib/aide/.update-needed; echo "Baseline updated."; else echo "AIDE update failed with code $RET"; exit $RET; fi; else echo "Running AIDE Integrity Check..."; /usr/bin/aide --check; fi'
-  
+  ExecStart=/usr/local/sbin/aide-run
+
   StandardOutput=journal
   StandardError=journal
   ProtectSystem=full
@@ -2852,8 +2896,37 @@
   PrivateTmp=true
   ReadWritePaths=/var/lib/aide
 
-  SuccessExitStatus=0 4
+  SuccessExitStatus=0 4 5 7
   EOF
+
+  > **Design note — why the lock:** `99-aide-update.hook` fires on *every* pacman
+  > transaction and sets `.update-needed`, which `aidecheck.timer` picks up and
+  > runs unattended. If you also run `aide --update` manually (e.g. from a
+  > maintenance script) around the same time, both processes write to the same
+  > `aide.db.new.gz` with no coordination — this WILL corrupt the gzip stream
+  > and, since the promotion step doesn't validate content, silently poison
+  > your trusted baseline. `aide-run` fixes this with a `flock` around the
+  > whole update+validate+promote sequence, plus a `gzip -t` check before any
+  > promotion. Any other script or hook that touches AIDE's database must go
+  > through `aide-run` — never call `aide --update` directly outside it.
+
+  # GPG/dirmngr for AUR key verification**:
+  > paru`/`makepkg` need a working `dirmngr` in your *user* GPG homedir
+    (`~/.gnupg`) to fetch signing keys for AUR packages (e.g. `lib32-sdl2-compat`
+    needs Sam Lantinga's key). A common failure mode: `~/.gnupg/crls.d`
+    ends up without its execute bit (e.g. after a dotfile-manager restore),
+    which silently breaks dirmngr with `Permission denied` errors in the
+    journal and `gpg: can't connect to the dirmngr` at the command line.
+
+  # Verify and fix if needed:
+      stat -c '%A %a %U:%G %n' ~/.gnupg/crls.d
+      chmod 700 ~/.gnupg/crls.d
+      gpgconf --launch dirmngr
+
+  > Never run GPG/dirmngr commands with `sudo`** — this can create
+    root-owned files inside your user's `~/.gnupg`, breaking the user-level
+    agent for the same reason. If key import ever fails as root, fix it as
+    your normal user instead.
 
   # Daily timer
   sudo tee /etc/systemd/system/aidecheck.timer > /dev/null <<'EOF'
@@ -6626,63 +6699,13 @@
     if ! command -v aide &> /dev/null; then
         msg_skip "AIDE not installed. Skipping integrity check."
     else
-        msg_info "Running single-pass AIDE integrity check and update..."
-   
-        aide_output=$(sudo aide --update 2>&1)
-        aide_exit=$?
-   
-        if [[ $aide_exit -eq 0 ]]; then
-            msg_ok "AIDE: System matches trusted baseline."
-            sudo rm -f /var/lib/aide/aide.db.new.gz 2>/dev/null
-   
-        elif (( aide_exit & 0x07 )); then
-            # -E (ERE) + here-string: extracts only the integer, ignores trailing text like "entries:"
-            added=$(sed -En 's/.*Added entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$aide_output")
-            removed=$(sed -En 's/.*Removed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$aide_output")
-            changed=$(sed -En 's/.*Changed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$aide_output")
-   
-            msg_warn "AIDE found changes — Added: ${added:-0} | Removed: ${removed:-0} | Changed: ${changed:-0}"
-   
-            changed_files=$(echo "$aide_output" | awk '
-                /^Changed entries:[[:space:]]*$/ { state = 1; next }
-                /^-{10}/  { if (state == 1) { state = 2; next }
-              
-                    else if (state == 2) { state = 0; next } }
-                state == 2 { print }
-            ' | head -20)
-   
-            if [[ -n "$changed_files" ]]; then
-                msg_info "Changed files preview:"
-                echo -e "${CYAN}Full list: grep '^AIDE-DETAIL:' \"$LOGFILE\"${NC}"
-                # aide_output's raw text is captured to $LOGFILE below since it's
-                # never otherwise echoed to stdout after this collapse.
-                sed 's/^/AIDE-DETAIL: /' <<< "$aide_output" >> "$LOGFILE"
-            fi
-   
-            echo -e "${YELLOW}\nIf you just updated your system, these changes are expected.${NC}"
-            read -p "Commit new baseline to disk? (y/N) " -n 1 -r || true
-            echo
-            if [[ "${REPLY:-N}" =~ ^[Yy]$ ]]; then
-                if sudo test -f /var/lib/aide/aide.db.new.gz && \
-                   sudo cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz; then
-                    msg_ok "AIDE baseline updated."
-                else
-                    msg_err "Failed to commit AIDE baseline."
-                    ((CRITICAL_ERRORS += 1))
-                    ACTION_ITEMS+=("AIDE baseline failed to commit — check /var/lib/aide permissions")
-                fi
-            else
-                sudo rm -f /var/lib/aide/aide.db.new.gz 2>/dev/null
-                msg_warn "Baseline not committed. Review manually before next run."
-                echo -e "${CYAN}  sudo aide --check | less${NC}"
-                ACTION_ITEMS+=("AIDE baseline not committed — run: sudo aide --check | less")
-            fi
+        msg_info "Running single-pass AIDE integrity check and update (shared with aidecheck.service)..."
+        if sudo /usr/local/sbin/aide-run --interactive; then
+            msg_ok "AIDE handled."
         else
-            msg_err "AIDE execution error (exit $aide_exit). Check database or config."
-            tail -10 <<< "$aide_output"
-            sudo rm -f /var/lib/aide/aide.db.new.gz 2>/dev/null
+            msg_err "AIDE update failed — check: sudo journalctl -u aidecheck.service"
             ((CRITICAL_ERRORS += 1))
-            ACTION_ITEMS+=("AIDE execution error (exit $aide_exit) — check database/config")
+            ACTION_ITEMS+=("AIDE update failed — check: sudo journalctl -u aidecheck.service")
         fi
     fi
    
@@ -6997,6 +7020,10 @@
     #      ◦ Example: docker, wireshark, virtualization tools
     # When that happens:
     # sudo cp /var/lib/suid-audit/current.txt /var/lib/suid-audit/baseline.txt
+
+    # This script's AIDE step calls `/usr/local/sbin/aide-run` (created in
+    # Step 11) rather than invoking `aide` directly — this shares locking and
+    # validation with `aidecheck.service` so the two can never race each other.
 
     # We can remove the UKI sign to gain time in the build:
     sudo rm /etc/pacman.d/hooks/90-uki-sign.hook     
