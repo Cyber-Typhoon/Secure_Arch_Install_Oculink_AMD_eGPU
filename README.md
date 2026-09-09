@@ -4186,9 +4186,14 @@
   ```
 - GPU Integration Services
   ```bash
+  # Required for GameMode's privileged helpers (cpugovctl, procsysctl — governor changes,
+  # split-lock toggling) to be authorized via polkit. Without this, gamemoderun runs the
+  # game fine but silently fails to apply any privileged optimisation — no error surfaces
+  # unless you check `journalctl -b | grep -i pkexec` for "Not authorized".
   sudo systemctl enable --now switcheroo-control  # PRIME offload for GNOME
   sudo systemctl enable --now lactd               # AMD GPU control daemon
   systemctl --user enable --now gamemoded         # process scheduler for games
+  sudo usermod -aG gamemode "$USER"               # takes effect after next login/reboot
   ```
 - Enable VRR for 4K OLED
   ```bash
@@ -7381,6 +7386,9 @@
   # Verify
   sbctl verify /usr/bin/steam /usr/bin/mangohud /usr/bin/mangoapp /usr/bin/gamemoderun /usr/bin/gamescope
   gamemoded -t && echo "GameMode is working! "
+  # Confirm split-lock toggling specifically (no global sysctl override anymore — GameMode owns this now):
+  gamemoderun sleep 10 & sleep 2; sysctl kernel.split_lock_mitigate; wait; sysctl kernel.split_lock_mitigate
+  # expect: 0 while running, 1 after it exits
   ```
 - **l) Audio and Software Enhancements**:
   ```bash
