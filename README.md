@@ -2877,39 +2877,101 @@
   sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
   echo "Database initialized"
 
-  # Smart service 
+  # Smart service
   # First, create the shared AIDE runner (locking + validation + promotion)
   sudo tee /usr/local/sbin/aide-run > /dev/null <<'EOF'
   #!/bin/bash
+  # Shared AIDE update/check logic for aidecheck.service and the maintenance script.
+  # Usage: aide-run [--interactive]
+  #
+  # - Interactive: ALWAYS runs `aide --update` (system drifts even without
+  #   package changes — boot stamps, history files, etc.), prompts before commit.
+  # - Non-interactive (timer): if .update-needed exists (package transaction
+  #   ran), updates and auto-commits when valid; otherwise runs a read-only
+  #   --check and just reports.
+  #
+  # AIDE exit codes 1-7 are a bitmask of "differences found" (1=added,
+  # 2=removed, 4=changed) — NOT an error. Only >=8 is a genuine AIDE failure.
+  # This script normalizes its own exit code so 0 = handled normally
+  # (including "differences found and reported/committed as appropriate"),
+  # nonzero = something actually went wrong.
   set -u
+
   INTERACTIVE=0
   [[ "${1:-}" == "--interactive" ]] && INTERACTIVE=1
+
+  REPORT=/var/lib/aide/last-report.txt
 
   exec 9>/var/lib/aide/.aide.lock
   flock 9
 
-  if [[ ! -f /var/lib/aide/.update-needed ]]; then
-      echo "No update pending — running integrity check..."
-      /usr/bin/aide --check
-      exit $?
+  is_real_error() { (( $1 > 7 )); }
+
+  # --- Check-only path: no update pending, non-interactive ---
+  if [[ $INTERACTIVE -eq 0 && ! -f /var/lib/aide/.update-needed ]]; then
+      output=$(/usr/bin/aide --check 2>&1)
+      RET=$?
+      echo "$output" > "$REPORT"
+
+      if is_real_error "$RET"; then
+          echo "AIDE check failed (code $RET) — see $REPORT"
+          exit 1
+      fi
+
+      if [[ "$RET" -eq 0 ]]; then
+          echo "AIDE: system matches trusted baseline."
+      else
+          added=$(sed -En 's/.*Added entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$output")
+          removed=$(sed -En 's/.*Removed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$output")
+          changed=$(sed -En 's/.*Changed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$output")
+          echo "AIDE check — Added: ${added:-0} | Removed: ${removed:-0} | Changed: ${changed:-0} (informational, not committed). Full report: $REPORT"
+      fi
+      exit 0
   fi
 
-  echo "Running AIDE update..."
-  /usr/bin/aide --update
-  RET=$?
+  # --- Update path: interactive, or a package transaction flagged .update-needed ---
+  if [[ $INTERACTIVE -eq 1 ]]; then
+      echo "Running AIDE update (interactive)..."
+  else
+      echo "Running AIDE update (scheduled, package change detected)..."
+  fi
 
-  if [[ ! -f /var/lib/aide/aide.db.new.gz ]] || ! gzip -t /var/lib/aide/aide.db.new.gz 2>/dev/null; then
-      echo "AIDE update failed or produced invalid output (code $RET)"
+  output=$(/usr/bin/aide --update 2>&1)
+  RET=$?
+  echo "$output" > "$REPORT"
+
+  if is_real_error "$RET"; then
+      echo "AIDE update failed (code $RET) — see $REPORT"
       rm -f /var/lib/aide/aide.db.new.gz
       exit 1
   fi
 
-  if [[ "$INTERACTIVE" -eq 1 ]]; then
-      echo "AIDE found differences. Review below."
+  if [[ ! -f /var/lib/aide/aide.db.new.gz ]] || ! gzip -t /var/lib/aide/aide.db.new.gz 2>/dev/null; then
+      echo "AIDE update produced invalid output (code $RET)"
+      rm -f /var/lib/aide/aide.db.new.gz
+      exit 1
+  fi
+
+  added=$(sed -En 's/.*Added entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$output")
+  removed=$(sed -En 's/.*Removed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$output")
+  changed=$(sed -En 's/.*Changed entries:[[:space:]]*([0-9]+).*/\1/p' <<< "$output")
+
+  if [[ "$RET" -eq 0 ]]; then
+      echo "AIDE: system matches trusted baseline. Nothing to commit."
+      rm -f /var/lib/aide/aide.db.new.gz
+      rm -f /var/lib/aide/.update-needed
+      exit 0
+  fi
+
+  echo "AIDE summary — Added: ${added:-0} | Removed: ${removed:-0} | Changed: ${changed:-0}"
+  echo "Full report: $REPORT"
+
+  if [[ $INTERACTIVE -eq 1 ]]; then
+      REPLY=""
       read -p "Commit new baseline? (y/N) " -n 1 -r REPLY
       echo
       if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-          echo "Baseline not committed. Update remains pending."
+          echo "Baseline not committed. Review available at $REPORT"
           rm -f /var/lib/aide/aide.db.new.gz
           exit 0
       fi
@@ -2918,10 +2980,15 @@
   mv -f /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
   rm -f /var/lib/aide/.update-needed
   echo "Baseline updated."
+  exit 0
   EOF
   sudo chmod 700 /usr/local/sbin/aide-run
 
-  # Smart service — delegates to the shared, lock-protected runner
+  # Smart service — delegates to the shared, lock-protected runner.
+  # No SuccessExitStatus override needed: aide-run normalizes its own exit
+  # code to 0 for every normally-handled outcome (including "differences
+  # found" — AIDE's own 1-7 bitmask is not an error), so systemd's default
+  # "0 = success" is correct as-is.
   sudo tee /etc/systemd/system/aidecheck.service > /dev/null <<'EOF'
   [Unit]
   Description=AIDE File Integrity Check
@@ -2937,20 +3004,20 @@
   ProtectHome=true
   PrivateTmp=true
   ReadWritePaths=/var/lib/aide
-
-  SuccessExitStatus=0 4 5 7
   EOF
 
-  > **Design note — why the lock:** `99-aide-update.hook` fires on *every* pacman
-  > transaction and sets `.update-needed`, which `aidecheck.timer` picks up and
-  > runs unattended. If you also run `aide --update` manually (e.g. from a
-  > maintenance script) around the same time, both processes write to the same
-  > `aide.db.new.gz` with no coordination — this WILL corrupt the gzip stream
-  > and, since the promotion step doesn't validate content, silently poison
-  > your trusted baseline. `aide-run` fixes this with a `flock` around the
-  > whole update+validate+promote sequence, plus a `gzip -t` check before any
-  > promotion. Any other script or hook that touches AIDE's database must go
-  > through `aide-run` — never call `aide --update` directly outside it.
+  > **Design note — why exit-code handling and output capture matter:** AIDE's
+  > own exit code is a bitmask of *differences found* (1=added, 2=removed,
+  > 4=changed — e.g. 6 means "removed + changed"), not a pass/fail signal.
+  > Treating any nonzero AIDE exit as a failure produces false alarms on
+  > completely normal system drift (boot loader random-seed rotation, UPower
+  > history growth, timer stamp updates). `aide-run` only treats codes ≥8 as
+  > genuine errors. Its output is also always captured into a variable rather
+  > than streamed raw — letting AIDE's full per-file diff (hundreds of
+  > thousands of lines on a `--check`) flow straight through a script's
+  > `exec > >(tee ...)` redirection floods both the terminal and, worse, can
+  > interleave/corrupt concurrent direct writes to the same log file from
+  > other parts of a calling script.
 
   # GPG/dirmngr for AUR key verification**:
   > paru`/`makepkg` need a working `dirmngr` in your *user* GPG homedir
