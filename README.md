@@ -1635,6 +1635,48 @@
 - Permanently allow the bandwhich binary its required privileges (Assign capabilities):
   ```bash
   sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep /usr/bin/bandwhich
+  getcap /usr/bin/bandwhich
+
+  # Create the hook reapply-capabilities.sh
+  sudo tee /usr/local/bin/reapply-capabilities.sh > /dev/null <<'EOF'
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  BANDWHICH_BIN="$(command -v bandwhich || true)"
+  if [[ -n "$BANDWHICH_BIN" ]]; then
+      setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep "$BANDWHICH_BIN"
+  fi
+
+  PING_BIN="$(command -v ping || true)"
+  if [[ -n "$PING_BIN" ]]; then
+      chmod u-s "$PING_BIN"
+      setcap cap_net_raw+ep "$PING_BIN"
+  fi
+
+  logger -t reapply-caps "Reapplied capabilities to bandwhich/ping after package transaction"
+  EOF
+
+  sudo chmod 755 /usr/local/bin/reapply-capabilities.sh
+  sudo chown root:root /usr/local/bin/reapply-capabilities.sh
+
+  sudo tee /etc/pacman.d/hooks/reapply-capabilities.hook > /dev/null <<'EOF'
+  [Trigger]
+  Operation = Install
+  Operation = Upgrade
+  Type = Package
+  Target = bandwhich
+  Target = iputils
+
+  [Action]
+  Description = Reapplying setcap capabilities to bandwhich and ping...
+  When = PostTransaction
+  Exec = /usr/local/bin/reapply-capabilities.sh
+  EOF
+
+  # Validate
+  bash -n /usr/local/bin/reapply-capabilities.sh
+  sudo pacman -S bandwhich
+  getcap /usr/bin/bandwhich   # should now show the caps again, no manual intervention
   ```
 - Privacy measure to prevent laptop location identification:
   ```bash
@@ -3009,8 +3051,8 @@
   # net.ipv6.conf.default.accept_ra_rt_info_max_plen=0    # USED IN SERVER ONLY
   # net.ipv6.conf.all.router_solicitations=0              # USED IN SERVER ONLY
   # net.ipv6.conf.default.router_solicitations=0          # USED IN SERVER ONLY
-  # net.ipv6.conf.all.use_tempaddr=2                      # USED IN SERVER ONLY
-  # net.ipv6.conf.default.use_tempaddr=2                  # USED IN SERVER ONLY
+  net.ipv6.conf.all.use_tempaddr=2                      
+  net.ipv6.conf.default.use_tempaddr=2                  
   net.core.netdev_max_backlog=4096
   net.core.bpf_jit_harden=2
 
