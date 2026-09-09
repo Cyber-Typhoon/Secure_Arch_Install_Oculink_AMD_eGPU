@@ -6812,17 +6812,16 @@
     echo -e "\n${YELLOW}--- 5. System Diagnostics ---${NC}"
    
     # --- AIDE Integrity Check ---
-    if ! command -v aide &> /dev/null; then
-        msg_skip "AIDE not installed. Skipping integrity check."
+    if sudo /usr/local/sbin/aide-run --interactive; then
+       msg_ok "AIDE handled."
+       if sudo test -f /var/lib/aide/last-report.txt; then
+          sudo sed 's/^/AIDE-DETAIL: /' /var/lib/aide/last-report.txt >> "$LOGFILE"
+          echo -e "${CYAN}Full list: grep '^AIDE-DETAIL:' \"$LOGFILE\"${NC}"
+       fi
     else
-        msg_info "Running single-pass AIDE integrity check and update (shared with aidecheck.service)..."
-        if sudo /usr/local/sbin/aide-run --interactive; then
-            msg_ok "AIDE handled."
-        else
-            msg_err "AIDE update failed — check: sudo journalctl -u aidecheck.service"
-            ((CRITICAL_ERRORS += 1))
-            ACTION_ITEMS+=("AIDE update failed — check: sudo journalctl -u aidecheck.service")
-        fi
+       msg_err "AIDE update failed — check: sudo journalctl -u aidecheck.service"
+       ((CRITICAL_ERRORS += 1))
+       ACTION_ITEMS+=("AIDE update failed — check: sudo journalctl -u aidecheck.service")
     fi
    
     # --- .pacnew File Check ---
