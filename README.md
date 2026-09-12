@@ -1606,7 +1606,7 @@
   yazi zoxide zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search wl-clipboard \
   \
   # Multimedia (system)
-  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly \
+  ffmpeg gstreamer gst-libav gst-plugins-bad gst-plugins-good gst-plugins-ugly intel-media-driver \
   libva-utils vulkan-tools clinfo wine 7zip exfatprogs \
   \
   # Browsers, Email-Client and Virtual Machine (Make sure to set in the Tor application to perform automatic updates)
@@ -1614,7 +1614,7 @@
   \
   # Games
   steam mangohud gamemode lib32-gamemode gamescope goverlay lib32-alsa-plugins lib32-giflib lib32-gst-plugins-base-libs lib32-gtk3 libjpeg-turbo lib32-libjpeg-turbo \
-  lib32-libva lib32-mpg123 lib32-ocl-icd lib32-openal lib32-libpulse lib32-libxcomposite lib32-libxinerama lib32-vulkan-intel lib32-vulkan-radeon libxslt mpg123 openal protontricks winetricks \
+  lib32-libva lib32-mpg123 lib32-ocl-icd lib32-openal lib32-libpulse lib32-libxcomposite lib32-libxinerama lib32-vulkan-intel lib32-vulkan-radeon libxslt mpg123 openal protontricks winetricks scx-scheds scx-tools \
   \
   # Fonts (Emoji/symbol coverage + CJK support)
   # Core system + fallback
@@ -1690,7 +1690,7 @@
   ```
 - Enable essential services:
   ```bash
-  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer systemd-oomd upower.service cups.service ratbagd
+  sudo systemctl enable gdm.service bluetooth ufw systemd-timesyncd libvirtd.service tlp fprintd fstrim.timer systemd-oomd upower.service cups.service ratbagd scx_loader
   sudo systemctl --failed  # Check for failed services
   sudo usermod -aG libvirt $USER
   sudo journalctl -p 3 -xb
@@ -3957,6 +3957,20 @@
   sudo systemctl daemon-reload
   sudo systemctl enable --now apparmor-gaming-fix.service
   ```
+- Steam video/trailer stutter fix (sched_ext / scx_lavd)
+  ```bash
+  # One-time test before making it persistent:
+  scxctl start --sched scx_lavd
+  scxctl get                          # should report: running Lavd in Auto mode
+
+  # Make it persistent across reboots:
+  sudo tee /etc/scx_loader.toml <<'EOF'
+  default_sched = "scx_lavd"
+  default_mode = "Auto"
+  EOF
+  sudo systemctl restart scx_loader
+  scxctl get
+  ```  
 - Increase Audit Backlog for AppArmor Complain Mode
   ```bash
   echo "Increasing audit backlog for AppArmor learning phase..."
