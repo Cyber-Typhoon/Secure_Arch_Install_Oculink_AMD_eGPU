@@ -3966,7 +3966,7 @@
   # Make it persistent across reboots:
   sudo tee /etc/scx_loader.toml <<'EOF'
   default_sched = "scx_lavd"
-  default_mode = "Auto"
+  default_mode = "auto"
   EOF
   sudo systemctl restart scx_loader
   scxctl get
