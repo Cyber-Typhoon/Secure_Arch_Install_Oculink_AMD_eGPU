@@ -2252,7 +2252,7 @@
   # User paths ($HOME/.local/bin) added in ~/.zshrc
   #The envars below should NOT BE INCLUDED and rely on switcheroo-control to automatic drive the use of the AMD eGPU or the Intel iGPU. DO NOT ADD INITIALLY:
   # LIBVA_DRIVER_NAME=radeonsi
-  # LIBVA_DRIVER_NAME=iHD
+  # LIBVA_DRIVER_NAME=iHD -- Not recommended in setups with hybrid GPUs, like Intel and AMD together.
 
   # Login shell profile
   cat >> ~/.profile <<'EOF'
