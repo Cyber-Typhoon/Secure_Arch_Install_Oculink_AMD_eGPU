@@ -8402,7 +8402,348 @@
   # *If you want a more nuanced view of your system's integrity, these factors are arguably more meaningful:
   # Local Verification Coverage: Instead of just showing the global score, a metric showing "Verified Locally: 85/1912 BAD packages" would tell you how much of the "untrusted" software on your system you have personally audited.
   # Chain of Trust Status: Monitoring how many of your packages are signed by "Master Keys" versus individual developer keys.
-  # The "Delta" Factor: A metric showing the difference between the Global Score and your Personal Reproducibility Score. If the global score is 87% but your local verification of "BAD" packages brings your personal confidence to 92%, that's a significant security win.  
+  # The "Delta" Factor: A metric showing the difference between the Global Score and your Personal Reproducibility Score. If the global score is 87% but your local verification of "BAD" packages brings your personal confidence to 92%, that's a significant security win.
+
+  # Arch post-install fixes and log-health runbook (final)
+
+**Machine:** Lenovo ThinkBook (Intel Meteor Lake), Arch with `linux` 7.2.7 and `linux-lts`, systemd 262, systemd-boot 262 with UKIs signed by sbctl, LUKS2 root with TPM2 (PCR 7) unlock, btrfs subvolumes, AppArmor (apparmor.d-git, complain mode), dnscrypt-proxy plus Proton VPN.
+**Reviewed:** 2026-09-28 to 2026-10-07.
+**Reuse note:** device names (`/dev/nvme0n1`, `<luks-partition>`) and UUIDs are machine-specific. Get the LUKS UUID with `sudo cryptsetup luksUUID <luks-partition>`.
+**Shell note:** zsh refuses inline `#` comments when pasting unless you add `setopt interactivecomments` to `~/.zshrc`. The code blocks below carry no comments for that reason.
+
+Status legend: **Done** = applied and verified, **Watch** = monitor, **Upstream** = waiting on a fix, **Open** = not done yet, **Closed** = reviewed, no action needed.
+
+## Summary
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Self-built test kernel (xe-test) left in `/boot`; ESP at 81% | Done (ESP now ~40%) |
+| 2 | `/etc/ssl/private` was 755, package expects 700 | Done |
+| 3 | `thermald` fails on every boot | Done (disabled) |
+| 4 | Two OOM killers (`systemd-oomd` and `earlyoom`) | Done (earlyoom disabled) |
+| 5 | `/etc/crypttab.initramfs` deprecated | Done (migrated, `discard` kept) |
+| 6 | Unused `/boot/grub` leftovers | Done |
+| 7 | `resume` hook warning in mkinitcpio | Done (hook removed) |
+| 8 | ESP bootloader stuck at 260.1 while systemd is 262 | Done (262, signed; update script now checks) |
+| 9 | Mullvad DNS shutting down | Done (resolver list replaced) |
+| 10 | NVMe `media_errors` = 2,999 | Watch (update script logs the trend) |
+| 11 | systemd 262 NvPCR failed units | Upstream (script filters them) |
+| 12 | Intel xe TLB invalidation timeouts | Upstream |
+| 13 | Wi-Fi card reports country CN | Closed |
+| 14 | One-off DNS fragment loss at boot | Closed |
+| 15 | `gnome-shell-theme.gresource` differs from package | Closed (GDM Settings) |
+| 16 | AppArmor in complain mode, audit events lost | Open (separate plan) |
+| 17 | `suid-audit` skips several btrfs subvolumes | Open |
+| 18 | `/etc/.git` is 4.3 GB | Open |
+
+## 0. Baseline health check (after install and after big updates)
+
+```bash
+systemctl --failed
+systemctl --user --failed
+journalctl -p 3 -b --no-pager
+journalctl -p 3 -b -1 --no-pager
+journalctl -b -p 4 -o cat --no-pager | sed -E 's/[0-9]+/N/g' | sort | uniq -c | sort -rn | head -40
+coredumpctl list --since "-14d"
+sudo sbctl verify
+sudo bootctl status
+sudo btrfs device stats /
+sudo btrfs scrub start -B /
+sudo smartctl -a /dev/nvme0n1
+sudo nvme log smart /dev/nvme0n1 | grep -iE 'media_errors|unsafe|critical|spare|percentage'
+cat /proc/sys/kernel/tainted
+sudo find /etc -name '*.pacnew' -o -name '*.pacsave'
+sudo pacman -Qkk 2>&1 | grep -vE '0 altered files|apparmor|^backup file'
+```
+
+Notes:
+- nvme-cli calls the counter `media_errors`. Grepping for "integrity" only matches smartctl's label.
+- `journalctl -k` implies `-b` (current boot only). To search all boots use `journalctl _TRANSPORT=kernel`.
+- `tainted = 64` is only the "set by userspace request" bit, most likely from `xe.force_probe`. Proprietary, out-of-tree, oops and warning bits should be absent.
+- `bootctl list`, `bootctl status` and `cat /etc/crypttab` need sudo because `/boot` and some `/etc` files are root-only.
+
+## 1. Remove a self-built test kernel completely
+
+Unregister from sbctl before deleting, otherwise sbctl keeps a dangling database entry.
+
+```bash
+ls /usr/lib/modules/
+pacman -Qo /usr/lib/modules/<version>-xetest
+ls -lh /boot /boot/EFI/Linux /boot/loader/entries
+sudo sbctl remove-file /boot/EFI/Linux/arch-test.efi
+sudo sbctl remove-file /boot/vmlinuz-linux-xetest
+sudo rm /boot/EFI/Linux/arch-test.efi /boot/vmlinuz-linux-xetest
+sudo rm -f /boot/loader/entries/arch-test.conf /boot/initramfs-linux-xetest*.img
+sudo rm /etc/mkinitcpio.d/linux-xetest.preset
+sudo rm -rf /usr/lib/modules/<version>-xetest
+sudo pacman -R bc pahole
+rm -rf ~/kernel-build
+```
+
+`pacman -Qo` should report that no package owns the modules directory. Copy the patch and `.config` out of `~/kernel-build` first if upstream may ask for a retest.
+
+Verify:
+```bash
+sudo sbctl verify | grep -iE 'xetest|arch-test'
+sudo sbctl list-files
+sudo bootctl list | grep -iE 'test|xe'
+df -h /boot
+```
+
+Notes:
+- `bootctl list` may keep showing `arch-test.* (reported/absent)` until the next reboot. Those lines come from the `LoaderEntries` EFI variable that systemd-boot rewrites at boot. Do not edit EFI variables to remove them.
+- `/boot` went from 81% to 40%.
+- Leave `/boot/EFI/Microsoft` alone: the Windows entry loads it from the same ESP.
+- `/etc/reproducible-boot` is a mirror of `/boot` maintained by the pacman hook `95-bootbackup.hook`. The stale xetest copy in it disappeared on its own after the next transaction, so nothing needs deleting by hand.
+
+## 2. Fix `/etc/ssl/private` permissions
+
+`pacman -Qkk` reported 755 while the package expects 700.
+
+```bash
+sudo chmod 700 /etc/ssl/private
+stat -c '%a %n' /etc/ssl/private
+```
+
+Other `pacman -Qkk` output that is expected: "backup file" mismatches for configs you edited, the `/boot` permission mismatch (FAT mount masks), `fwupdx64.efi` (re-signed by sbctl), libvirt nwfilter files, `/var/lib/passim` and `/var/log/journal` ownership drift, and `gnome-shell-theme.gresource` (see section 14).
+
+## 3. Disable thermald on this laptop
+
+`thermald` exits with status 2 on this CPU: adaptive mode needs working ACPI thermal tables (broken here) and there is no `/etc/thermald/thermal-conf.xml`. The kernel and firmware already handle thermals.
+
+```bash
+sudo systemctl disable --now thermald
+```
+
+Undo with `sudo systemctl enable --now thermald`.
+
+## 4. Pick one OOM killer
+
+Both daemons were enabled on purpose (`preset: disabled` on Arch). Neither had killed anything. Check what oomd watches before removing earlyoom:
+
+```bash
+oomctl
+systemd-analyze cat-config systemd/oomd.conf | grep -vE '^\s*(#|$)'
+```
+
+Here oomd watches `/user.slice` (pressure limit 80% for 10 s, swap limit 90%), so:
+
+```bash
+sudo systemctl disable --now earlyoom
+```
+
+Undo with `enable --now`. If you keep earlyoom instead, add `gnome-shell` and `Xwayland` to its `--avoid` regex in `/etc/default/earlyoom`. Its default only fires when RAM and swap are both at 10% free.
+
+## 5. Migrate `/etc/crypttab.initramfs` to `/etc/crypttab`
+
+mkinitcpio (sd-encrypt hook) warns that `/etc/crypttab.initramfs` is deprecated in favor of `x-initrd.attach` entries in `/etc/crypttab`.
+
+**Pitfall:** the old file carried `discard` and the kernel command line did not. Deleting the file without migrating it silently disables TRIM through dm-crypt (so `discard=async` and `fstrim` do nothing).
+
+Pre-checks:
+```bash
+sudo cryptsetup status cryptroot | grep -i flags
+sudo cat /etc/crypttab.initramfs /etc/crypttab
+grep '^HOOKS=' /etc/mkinitcpio.conf
+ls /etc/mkinitcpio.d/
+sudo cryptsetup luksDump <luks-partition> | grep -A6 systemd-tpm2
+```
+
+Expect `discards` in the flags, both `systemd` and `sd-encrypt` in `HOOKS`, and a TPM token bound to PCR 7 only (no signed policy, no pcrlock), so rebuilding UKIs does not affect unlock. Keep at least one passphrase keyslot.
+
+Migration (this setup has three presets: `linux`, `linux-fallback`, `linux-lts`):
+```bash
+sudo cp -a /etc/crypttab.initramfs /root/crypttab.initramfs.bak
+printf '%s\n' 'cryptroot UUID=<LUKS-UUID> none tpm2-device=auto,discard,x-initrd.attach' | sudo tee /etc/crypttab
+sudo rm /etc/crypttab.initramfs
+sudo mkinitcpio -p linux
+sudo mkinitcpio -p linux-fallback
+sudo sbctl verify | grep -E 'arch(-fallback|-lts)?\.efi'
+sudo lsinitcpio /boot/EFI/Linux/arch.efi | grep crypttab
+```
+
+Use `tee -a` instead if `/etc/crypttab` already has real entries. The mkinitcpio sbctl post-hook signs the UKIs automatically; still run `sbctl verify`. The deprecation warning disappears from the build output.
+
+After rebooting:
+```bash
+sudo cryptsetup status cryptroot | grep -i flags
+systemctl --failed
+sudo mkinitcpio -p linux-lts
+sudo sbctl verify | grep arch-lts.efi
+```
+
+Rebuild only one preset first so the others stay untouched as a safety net. Rollback: hold Space at boot to open the systemd-boot menu (if its timeout is 0), boot the LTS entry, restore the backup to `/etc/crypttab.initramfs`, remove the line from `/etc/crypttab`, and rebuild. Once all three UKIs are rebuilt and you have rebooted, delete `/root/crypttab.initramfs.bak`.
+
+## 6. Remove leftover `/boot/grub`
+
+Only after confirming GRUB is not in the boot path:
+```bash
+sudo bootctl status | grep -A6 'Available Boot Loaders'
+sudo rm -rf /boot/grub
+sudo sbctl verify | grep -i grub
+```
+
+Both loader entries must say systemd-boot, and the last command should print nothing.
+
+## 7. Remove the unused `resume` hook
+
+With the `systemd` hook, the initramfs already provides a resume mechanism and needs no extra hook. The old `resume` hook is busybox-era and produces "Possibly missing '/usr/bin/ash' for script: /usr/lib/initcpio/hooks/resume" on every build. Here hibernation is off anyway (`lockdown=integrity` blocks it, and suspend is disabled on purpose because of the OCuLink eGPU), so the `resume=` and `resume_offset=` kernel arguments are inert.
+
+```bash
+sudoedit /etc/mkinitcpio.conf
+sudo mkinitcpio -p linux
+sudo mkinitcpio -p linux-fallback
+```
+
+Remove only `resume` from `HOOKS`; the line should end `... sd-encrypt filesystems)`. Reboot, then:
+
+```bash
+sudo mkinitcpio -p linux-lts
+sudo sbctl verify | grep -E 'arch(-fallback|-lts)?\.efi'
+```
+
+The `[resume]` line and the `ash` warning are gone from the build output. The two firmware warnings that remain (`xhci_pci_renesas`, `qat_6xxx`) are harmless.
+
+## 8. Update the ESP bootloader (Secure Boot with sbctl)
+
+pacman never touches the ESP, so the loader there only changes with `bootctl update`. Under Secure Boot an unsigned copy will not boot, which is why it stayed at 260.1. `bootctl update` prefers a `systemd-bootx64.efi.signed` file, so sign the loader under `/usr/lib` and let bootctl copy the signed version:
+
+```bash
+sudo sbctl sign -s -o /usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+sudo bootctl update
+sudo bootctl status | grep -A6 'Available Boot Loaders'
+sudo sbctl verify | grep -iE 'systemd-boot|BOOTX64'
+efibootmgr
+df -h /sys/firmware/efi/efivars
+```
+
+Do not reboot unless every loader line says "signed". Result here: `systemd-bootx64.efi` and `BOOTX64.EFI` now 262.
+
+What `bootctl update` did on its own:
+- Copied the previous loader to `/boot/EFI/systemd/systemd-boot-fallbackx64.efi` (still signed).
+- Created the EFI entry "Fallback Linux Boot Manager" (Boot0003), listed second in `BootOrder` after "Linux Boot Manager". It is a built-in rollback; keep both.
+- EFI variable space went from 34 KB to 31 KB free. Avoid adding more entries.
+
+Future updates: `sudo sbctl sign-all && sudo bootctl update`, then verify. The update script (section 13) checks the version and offers to do exactly that. Do not delete `/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed` or its sbctl entry; without it the next `bootctl update` would install the unsigned loader. Do not enable `systemd-boot-update.service` for the same reason.
+
+Recovery if a bad loader is installed: disable Secure Boot in firmware setup, boot Linux, run `sudo sbctl sign-all`, re-enable Secure Boot.
+
+## 9. Replace a dying DNS resolver in dnscrypt-proxy
+
+Mullvad's DNS entries are deprecated (shutdown listed as 11/02/2026). dnscrypt-proxy only speaks **DNSCrypt and DoH**, not DoT (`tls://`) or DoQ (`quic://`), so each provider has to be mapped to an entry in the public resolver list:
+
+| Provider | Entry | Notes |
+|----------|-------|-------|
+| AdGuard | `adguard-dns` | DNSCrypt, blocks ads/trackers/phishing/malware, DNSSEC + no-log flags |
+| ControlD (p2) | `controld-block-malware-ad` | DoH, needs `doh_servers = true` |
+| NextDNS | `nextdns`, `nextdns-ultralow` | DoH, public entries do not block anything |
+| Quad9 | `quad9-dnscrypt-ip4-filter-pri` | DNSCrypt, malware filtering only |
+| RethinkDNS | `rethinkdns-doh` | DoH, no DNSSEC flag, so excluded by `require_dnssec = true` |
+| Mullvad | `mullvad-*-doh` | renamed, DoH only, deprecated |
+
+Procedure:
+```bash
+sudo dnscrypt-proxy -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml -list
+sudoedit /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+sudo dnscrypt-proxy -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml -check
+sudo dnscrypt-proxy -config /etc/dnscrypt-proxy/dnscrypt-proxy.toml -list
+sudo systemctl restart dnscrypt-proxy
+journalctl -u dnscrypt-proxy -b --no-pager | tail -n 15
+```
+
+Current pool: `adguard-dns`, `controld-block-malware-ad`, `nextdns`, `quad9-dnscrypt-ip4-filter-pri` with `doh_servers = true`.
+
+Lessons:
+- `-list` shows what the config really allows. Before the change it listed only Quad9: the old name `mullvad-adblock` no longer existed and `doh_servers = false` filtered out all DoH-only entries, so Mullvad was never in use.
+- The config flags (`require_dnssec`, `require_nolog`, `doh_servers`, `dnscrypt_servers`) silently exclude entries that do not match.
+- dnscrypt-proxy spreads queries across the whole pool. Mixing blocking resolvers (AdGuard, ControlD) with non-blocking ones (NextDNS, Quad9) applies ad blocking only to the share that lands on a blocker, and the answer is then cached for 40 minutes (`cache_min_ttl = 2400`). For consistent ad blocking use only blocking resolvers.
+- Benign log lines: AdGuard's "non-standard provider name" warning, and "should upgrade to XChaCha20" (the operators' job).
+- Also update the `server_names` line in the setup script so a fresh install does not reference Mullvad.
+
+## 10. NVMe `media_errors` baseline
+
+Findings: `media_errors` 2,999, error log empty, btrfs scrub clean, extended self-test passed, spare 100%, wear 0%, counter unchanged after the scrub and self-test. Media errors without any error-log entries is odd, which leans toward a firmware counter quirk, but the trend is what matters.
+
+```bash
+sudo smartctl -t long /dev/nvme0n1
+sudo smartctl -l selftest /dev/nvme0n1
+```
+
+Baseline (2026-09-28): `media_errors` 2999, `unsafe_shutdowns` 48 (the second drive shows 0 and 40). The baseline file is `~/Documents/System/nvme-baseline.txt`; the update script appends an entry each run and flags any increase, so there is nothing to remember. If `media_errors` starts climbing, back up and use the warranty.
+
+## 11. systemd 262 NvPCR failed units (upstream)
+
+Symptoms: `systemd-tpm2-setup-early`, `systemd-pcrproduct` and `systemd-pcrlogin@*` fail with "Failed to initialize NvPCR index: No such file or directory". `pcrlogin@0` re-fails on every `sudo`.
+
+Cause: systemd 262 changed NvPCR provisioning (definitions and a signed initrd-phase policy must be embedded in the UKI). Tracked in systemd issue #43848 and Arch forum thread 314939. No confirmed fix yet. LUKS unlock is unaffected because the token is bound to PCR 7.
+
+Filter for the update script so only new failures show:
+```bash
+failed_services=$(systemctl --failed --no-legend --no-pager 2>/dev/null | grep -vE 'systemd-(pcrlogin@|pcrproduct|tpm2-setup-early)' || true)
+```
+
+Do not clear TPM NV indices, delete the NvPCR anchor credential, or mask `systemd-tpm2-setup-early` (it owns SRK setup and the LUKS token references the SRK). Optional and untested here: `systemd.tpm2_measured_os=0` on the kernel command line skips these measurement units. Re-test after each systemd update.
+
+## 12. Intel xe TLB invalidation timeouts (upstream)
+
+`xe 0000:00:02.0: [drm] *ERROR* TLB invalidation fence timeout` recurs on Meteor Lake (device `7d51`, `xe.force_probe=7d51`). Tracked in freedesktop gitlab issue 7694. No configuration change is warranted until upstream fixes it. The last boot before the review ended with normal shutdown noise, not a freeze.
+
+## 13. Update script additions
+
+All four live in the personal update script:
+- **Bootloader check:** at the end of Section 1, right after the AppArmor post-update check and before AIDE in Section 5. It compares the loader versions on the ESP (`EFI/systemd/systemd-bootx64.efi` and `EFI/BOOT/BOOTX64.EFI`) with the installed systemd version, and on "yes" runs `sbctl sign-all`, checks the signed copy exists, runs `bootctl update`, then confirms both loaders are signed.
+- **NVMe trend:** after the Disk Usage block. Appends `media_errors` and `unsafe_shutdowns` to the baseline file and flags any increase.
+- **Failed services:** the filter from section 11.
+- **Kernel drift:** the check is now "does `/usr/lib/modules/$(uname -r)` still exist". The old "highest version in `/usr/lib/modules`" comparison gave a false reboot warning when running the LTS kernel.
+
+## 14. Closed after review
+
+- **Wi-Fi card reports country CN:** the card is self-managed, so userspace cannot change its country (`iw reg set` and `WIRELESS_REGDOM` do not apply). The router is dual-band (2.4 and 5 GHz), so the missing 6 GHz band costs nothing; the link runs at the 2x2 80 MHz maximum. Revisit only when buying a 6 GHz router.
+- **One-off DNS fragment loss:** a fragmented UDP datagram sent in the boot window before the VPN tunnel is up. Low frequency, no action.
+- **`gnome-shell-theme.gresource`:** modified by the GDM Settings app (login-screen customization), so the mismatch in `pacman -Qkk` is expected. A gnome-shell update overwrites it, so re-apply from GDM Settings afterwards.
+
+## 15. Open items
+
+**AppArmor.** Baseline: 6 profiles enforcing, 881 in complain mode, 114 processes in complain, audit events lost on some boots (35 on one, 43,000+ on another). Per the hardening plan, swap `apparmor.d-git` for `apparmor.d.enforced`. Do not use per-profile `aa-enforce`: package updates silently undo it.
+
+**`suid-audit` coverage gap.** `find / /home /data -xdev` stops at every btrfs subvolume, so `/var`, `/var/lib`, `/var/log` and `/srv` are never scanned (and are mounted without `nosuid`). Add them to the `find` list in `/usr/local/sbin/suid-audit`, or mount `/var/log` and `/srv` with `nosuid,nodev`.
+
+**`/etc/.git` is 4.3 GB.** The boot mirror in `/etc/reproducible-boot` is probably tracked and recommitted on every update. Diagnose:
+```bash
+sudo git -C /etc ls-files reproducible-boot | wc -l
+sudo git -C /etc check-ignore -v reproducible-boot/EFI
+grep -n 'git' /usr/local/bin/btrfs-rollback.sh /etc/pacman.d/hooks/95-bootbackup.hook
+```
+If the mirror is tracked and the rollback script does not rely on git, stop tracking it going forward (btrfs snapshots already capture it):
+```bash
+echo '/reproducible-boot/' | sudo tee -a /etc/.gitignore
+sudo git -C /etc rm -r -q --cached reproducible-boot
+sudo etckeeper commit "Stop tracking boot mirror (kept in btrfs snapshots)"
+```
+Use `sudo git -C /etc commit -m ...` if etckeeper is not installed. History keeps the old blobs; reclaiming the 4.3 GB needs a history rewrite (git-filter-repo) and rotating old snapshots out.
+
+## 16. Verified harmless (no action)
+
+- debugfs "failed to create" lines (caused by `debugfs=off`).
+- ACPI, Lenovo WMI and thermal-zone errors, `TDX not supported`, hid-generic parse failure, `igen6_edac` BAR warnings, Goodix USB resets: firmware/BIOS issues.
+- Bluetooth `_PRR` message and LE devices failing to load (re-pair if needed).
+- UFW blocks (Steam LAN discovery on 27036, VPN RST packets), Steam split-lock traps, the Wi-Fi 7 wireless-extensions warning.
+- mkinitcpio "possibly missing firmware" for `xhci_pci_renesas` and `qat_6xxx`.
+- GNOME and D-Bus noise: `orca`, `rygel`, `gnome-user-share-webdav`, duplicate `org.gnome.font-viewer`, homed and `/etc/tcb` lookups.
+- sbctl "not signed" for `/boot/EFI/Microsoft/*`.
+- Only about 31 KB free in EFI variable storage: the big variables are Secure Boot `db`/`dbx`/`KEK` and firmware data, and pstore is empty. Nothing to prune.
+
+## 17. Pitfalls learned
+
+- Unregister files from sbctl (`sbctl remove-file`) before deleting them.
+- Do not delete `crypttab.initramfs` without migrating its options (`discard`).
+- Rebuild UKIs one preset at a time (`mkinitcpio -p <preset>`) so one UKI stays untouched, and confirm signing with `sbctl verify`.
+- Never let `bootctl update` install an unsigned loader: sign to `systemd-bootx64.efi.signed` first and verify before rebooting.
+- `grep -v` exits 1 when it filters everything out; add `|| true` in scripts using `set -e`.
+- `journalctl -k` implies `-b`; use `_TRANSPORT=kernel` to search all boots.
+- `fwupdmgr refresh && fwupdmgr get-updates` can skip the second command, because refresh exits non-zero when metadata is current. Run `fwupdmgr get-updates` alone.
+- `dnscrypt-proxy -list` shows what the config really allows; run it after any resolver or protocol change.
+- Confirm a boot loader or package is truly unused (`bootctl status`) before deleting its files. 
 
   # That's 17 checks, all local, all scriptable in a few lines each, all feeding into one dashboard panel with `notify-send` push alerts for the critical ones.
   ```  
