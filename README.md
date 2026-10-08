@@ -8404,7 +8404,7 @@
   # Chain of Trust Status: Monitoring how many of your packages are signed by "Master Keys" versus individual developer keys.
   # The "Delta" Factor: A metric showing the difference between the Global Score and your Personal Reproducibility Score. If the global score is 87% but your local verification of "BAD" packages brings your personal confidence to 92%, that's a significant security win.
 
-  # Arch post-install fixes and log-health runbook (final)
+# Arch post-install fixes and log-health runbook (final)
 
 **Machine:** Lenovo ThinkBook (Intel Meteor Lake), Arch with `linux` 7.2.7 and `linux-lts`, systemd 262, systemd-boot 262 with UKIs signed by sbctl, LUKS2 root with TPM2 (PCR 7) unlock, btrfs subvolumes, AppArmor (apparmor.d-git, complain mode), dnscrypt-proxy plus Proton VPN.
 **Reviewed:** 2026-09-28 to 2026-10-07.
@@ -8744,6 +8744,4 @@ Use `sudo git -C /etc commit -m ...` if etckeeper is not installed. History keep
 - `fwupdmgr refresh && fwupdmgr get-updates` can skip the second command, because refresh exits non-zero when metadata is current. Run `fwupdmgr get-updates` alone.
 - `dnscrypt-proxy -list` shows what the config really allows; run it after any resolver or protocol change.
 - Confirm a boot loader or package is truly unused (`bootctl status`) before deleting its files. 
-
-  # That's 17 checks, all local, all scriptable in a few lines each, all feeding into one dashboard panel with `notify-send` push alerts for the critical ones.
   ```  
