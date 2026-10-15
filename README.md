@@ -1707,7 +1707,6 @@
     brave-bin \
     kotofetch \
     nautilus-open-any-terminal \
-    nautilus-copy-path \
     nautilus-admin-gtk4 \
     needrestart \
     rose-pine-cursor \
