@@ -1707,6 +1707,7 @@
     brave-bin \
     kotofetch \
     nautilus-open-any-terminal \
+    nautilus-copy-path \
     nautilus-admin-gtk4 \
     needrestart \
     rose-pine-cursor \
@@ -4323,6 +4324,26 @@
 
   # VRR enabled via GNOME Settings → Displays. No gsettings command needed — GNOME 50+ exposes VRR natively in the display configuration UI.
   ```
+- Create a Mutter preferred-primary udev rule
+  ```bash
+  # Confirm the eGPU mapping (AMD RX 9070 XT:   0000:04:00.0 -> card1):
+  for c in /sys/class/drm/card[0-9]*; do
+    printf '%s -> ' "$(basename "$c")"
+    readlink -f "$c/device"
+  done
+
+  # Create the udev rule:
+  sudo tee /etc/udev/rules.d/61-mutter-primary-gpu.rules >/dev/null <<'EOF'
+  SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", KERNELS=="0000:04:00.0", TAG+="mutter-device-preferred-primary"
+  EOF
+
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger --subsystem-match=drm
+  reboot
+
+  # Validate
+  cat /etc/udev/rules.d/61-mutter-primary-gpu.rules
+  ```
 - Verification Results
   ```bash
   sudo reboot
@@ -4431,6 +4452,16 @@
 
   sudo systemctl daemon-reload
   sudo systemctl enable --now pci-latency.service
+
+  # VRR recommend this progression:
+
+  # Start with VRR disabled on both monitors.
+  # Confirm that both monitors work reliably and that fullscreen gaming maintains the expected performance.
+  # Enable VRR only on the gaming monitor, if GNOME exposes a per-monitor VRR option.
+  # Keep the support monitor at a fixed refresh rate.
+  # Test Cyberpunk directly rather than relying only on GravityMark.
+
+  # VRR can improve smoothness and reduce tearing, particularly at 4K, but it does not increase the GPU’s rendering performance. It may also interact with GNOME’s fullscreen/direct-scanout path, especially when a second monitor is active.
   ```
 ## Step 13: Configure Snapper and Snapshots
 
