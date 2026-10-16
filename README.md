@@ -4288,15 +4288,15 @@
   # Uses PCI device addresses (RUNTIME_PM_BLACKLIST takes addresses, not driver names)
   RUNTIME_PM_BLACKLIST="02:00.0 03:00.0 04:00.0 04:00.1"
 
-  CPU_SCALING_GOVERNOR_ON_AC=performance
+  # AC power: use EPP and the firmware platform profile
   CPU_ENERGY_PERF_POLICY_ON_AC=performance
-  CPU_SCALING_GOVERNOR_ON_BAT=powersave
-  CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power
-
-  # TLP writes to /sys/firmware/acpi/platform_profile directly (not power-profiles-daemon)
   PLATFORM_PROFILE_ON_AC=performance
+
+  # Battery power
+  CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power
   PLATFORM_PROFILE_ON_BAT=balanced
 
+  # Leave battery charge thresholds unchanged
   START_CHARGE_THRESH_BAT0=""
   STOP_CHARGE_THRESH_BAT0=""
   EOF
