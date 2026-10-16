@@ -4288,7 +4288,11 @@
   # Uses PCI device addresses (RUNTIME_PM_BLACKLIST takes addresses, not driver names)
   RUNTIME_PM_BLACKLIST="02:00.0 03:00.0 04:00.0 04:00.1"
 
-  # AC power: use EPP and the firmware platform profile
+  # Use AC profile if power-supply detection is temporarily unavailable at boot
+  TLP_DEFAULT_MODE=AC
+  TLP_AUTO_SWITCH=1
+
+  # AC power
   CPU_ENERGY_PERF_POLICY_ON_AC=performance
   PLATFORM_PROFILE_ON_AC=performance
 
